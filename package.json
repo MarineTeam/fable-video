@@ -21,7 +21,7 @@
     "tus-js-client": "^4.3.1"
   },
   "devDependencies": {
-    "eslint": "^10.6.0",
+    "eslint": "^9.39.0",
     "eslint-config-next": "^16.2.10",
     "vitest": "^4.1.9"
   },
