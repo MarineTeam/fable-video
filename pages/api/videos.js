@@ -1,10 +1,11 @@
-// Paginated video library for approved viewers, with title search and
-// collection filtering. Rate-limited; only ready (fully encoded) videos are
-// returned, capped at the admin-configured homepage count and sorted by the
-// admin's custom order (new uploads float to the top).
+// Viewer-facing video library for approved viewers — ordered, ready-only,
+// capped at the admin-configured homepage count. Search, collection
+// filtering, and pagination happen client-side against this list, so this
+// endpoint is only hit once per page load (not per keystroke). Rate-limited;
+// the underlying bunny.net call is itself cached briefly (lib/bunny.js).
 import { requireApproved } from "../../lib/guard";
 import { allowRequest } from "../../lib/ratelimit";
-import { fetchVideoPage } from "../../lib/videoList";
+import { fetchVideoLibrary } from "../../lib/videoList";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -19,11 +20,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const data = await fetchVideoPage({
-      page: parseInt(req.query.page, 10) || 1,
-      q: String(req.query.q || ""),
-      collection: String(req.query.collection || ""),
-    });
+    const data = await fetchVideoLibrary();
     return res.json(data);
   } catch {
     return res.status(502).json({ error: "Could not load the video library" });

@@ -1,8 +1,10 @@
 // Homepage: thumbnail grid (or title list when thumbnails are not
 // configured), debounced search, collection filter chips, a continue-watching
-// strip with progress bars, and pagination. Login is enforced server-side;
-// unapproved users see a clear message and no video data.
-import { useCallback, useEffect, useRef, useState } from "react";
+// strip with progress bars, and pagination. The whole (admin-capped) library
+// is fetched once — search/filter/pagination happen instantly against it in
+// the browser, no round trip per keystroke or chip click. Login is enforced
+// server-side; unapproved users see a clear message and no video data.
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Head from "next/head";
 import Link from "next/link";
 import AppShell from "../components/AppShell";
@@ -10,9 +12,9 @@ import { PlayIcon, SearchIcon } from "../components/icons";
 import { auth0 } from "../lib/auth0";
 import { isAdmin, normalizeEmail } from "../lib/auth";
 import { isApprovedViewer } from "../lib/store";
-import { fetchVideoPage } from "../lib/videoList";
+import { fetchVideoLibrary } from "../lib/videoList";
 
-const EMPTY_META = { page: 1, totalPages: 1, total: 0, thumbnails: false };
+const PER_PAGE = 10;
 
 export async function getServerSideProps({ req, resolvedUrl }) {
   const session = await auth0.getSession(req);
@@ -35,21 +37,16 @@ export async function getServerSideProps({ req, resolvedUrl }) {
     }
   }
 
-  // Fetch the first page server-side so videos are already in the HTML —
-  // otherwise the client waits for hydration, then a whole extra
-  // fetch/bunny.net round trip, before anything appears.
+  // Fetch the library server-side so it's already in the HTML — otherwise
+  // the client waits for hydration, then a whole extra fetch/bunny.net
+  // round trip, before anything appears.
   let initialVideos = null;
-  let initialMeta = EMPTY_META;
+  let initialThumbnails = false;
   if (approved) {
     try {
-      const data = await fetchVideoPage({ page: 1 });
+      const data = await fetchVideoLibrary();
       initialVideos = data.videos;
-      initialMeta = {
-        page: data.page,
-        totalPages: data.totalPages,
-        total: data.total,
-        thumbnails: data.thumbnails,
-      };
+      initialThumbnails = data.thumbnails;
     } catch {
       // Leave initialVideos null — the client will fetch on mount instead.
     }
@@ -61,7 +58,7 @@ export async function getServerSideProps({ req, resolvedUrl }) {
       admin,
       approved,
       initialVideos,
-      initialMeta,
+      initialThumbnails,
     },
   };
 }
@@ -132,60 +129,45 @@ function ContinueWatching({ items, thumbnails }) {
   );
 }
 
-export default function Home({ user, admin, approved, initialVideos, initialMeta }) {
-  const [videos, setVideos] = useState(initialVideos);
-  const [meta, setMeta] = useState(initialMeta || EMPTY_META);
+export default function Home({ user, admin, approved, initialVideos, initialThumbnails }) {
+  const [allVideos, setAllVideos] = useState(initialVideos);
+  const [thumbnails, setThumbnails] = useState(initialThumbnails);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [collection, setCollection] = useState("");
   const [collections, setCollections] = useState([]);
   const [continueItems, setContinueItems] = useState([]);
+  const [page, setPage] = useState(1);
   const [error, setError] = useState("");
-  const requestSeq = useRef(0);
-  const skipInitialLoad = useRef(initialVideos !== null);
 
-  const load = useCallback(
-    async (page) => {
-      const seq = ++requestSeq.current;
-      try {
-        const params = new URLSearchParams({ page: String(page) });
-        if (debouncedQuery) params.set("q", debouncedQuery);
-        if (collection) params.set("collection", collection);
-        const res = await fetch(`/api/videos?${params}`);
-        const data = await res.json().catch(() => null);
-        if (seq !== requestSeq.current) return; // stale response
-        if (!res.ok) throw new Error(data?.error || "Could not load videos");
-        setVideos(data.videos);
-        setMeta({
-          page: data.page,
-          totalPages: data.totalPages,
-          total: data.total,
-          thumbnails: data.thumbnails,
-        });
-        setError("");
-      } catch (err) {
-        if (seq !== requestSeq.current) return;
-        setError(err.message);
-        setVideos([]);
-      }
-    },
-    [debouncedQuery, collection]
-  );
+  const refreshLibrary = useCallback(async () => {
+    try {
+      const res = await fetch("/api/videos");
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "Could not load videos");
+      setAllVideos(data.videos);
+      setThumbnails(data.thumbnails);
+      setError("");
+    } catch (err) {
+      setError(err.message);
+      setAllVideos([]);
+    }
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(query.trim()), 350);
     return () => clearTimeout(timer);
   }, [query]);
 
+  // Jump back to page 1 whenever the filters change.
   useEffect(() => {
-    if (!approved) return;
-    if (skipInitialLoad.current) {
-      // First page already came from the server — no need to refetch it.
-      skipInitialLoad.current = false;
-      return;
-    }
-    load(1);
-  }, [approved, load]);
+    setPage(1);
+  }, [debouncedQuery, collection]);
+
+  useEffect(() => {
+    if (!approved || allVideos !== null) return; // SSR already provided it
+    refreshLibrary();
+  }, [approved, allVideos, refreshLibrary]);
 
   useEffect(() => {
     if (!approved) return;
@@ -199,6 +181,22 @@ export default function Home({ user, admin, approved, initialVideos, initialMeta
       .catch(() => {});
   }, [approved]);
 
+  const loading = allVideos === null;
+
+  const filtered = useMemo(() => {
+    if (loading) return [];
+    const q = debouncedQuery.toLowerCase();
+    return allVideos.filter((video) => {
+      if (q && !video.title.toLowerCase().includes(q)) return false;
+      if (collection && video.collectionId !== collection) return false;
+      return true;
+    });
+  }, [allVideos, debouncedQuery, collection, loading]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const safePage = Math.min(page, totalPages);
+  const videos = filtered.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE);
+
   if (!approved) {
     return (
       <AppShell user={user} admin={admin}>
@@ -209,8 +207,6 @@ export default function Home({ user, admin, approved, initialVideos, initialMeta
       </AppShell>
     );
   }
-
-  const loading = videos === null;
 
   return (
     <AppShell user={user} admin={admin}>
@@ -256,7 +252,7 @@ export default function Home({ user, admin, approved, initialVideos, initialMeta
       ) : null}
 
       {!debouncedQuery && !collection ? (
-        <ContinueWatching items={continueItems} thumbnails={meta.thumbnails} />
+        <ContinueWatching items={continueItems} thumbnails={thumbnails} />
       ) : null}
 
       {error ? <div className="notice notice-error">{error}</div> : null}
@@ -269,7 +265,7 @@ export default function Home({ user, admin, approved, initialVideos, initialMeta
             ? "No videos match your filters."
             : "No videos are available yet."}
         </div>
-      ) : meta.thumbnails ? (
+      ) : thumbnails ? (
         <div className="video-grid">
           {videos.map((video) => (
             <Link
@@ -315,24 +311,24 @@ export default function Home({ user, admin, approved, initialVideos, initialMeta
         </div>
       )}
 
-      {!loading && meta.totalPages > 1 ? (
+      {!loading && totalPages > 1 ? (
         <div className="pager">
           <button
             type="button"
             className="btn btn-ghost btn-sm"
-            disabled={meta.page <= 1}
-            onClick={() => load(meta.page - 1)}
+            disabled={safePage <= 1}
+            onClick={() => setPage((p) => p - 1)}
           >
             ← Previous
           </button>
           <span className="muted small">
-            Page {meta.page} of {meta.totalPages}
+            Page {safePage} of {totalPages}
           </span>
           <button
             type="button"
             className="btn btn-ghost btn-sm"
-            disabled={meta.page >= meta.totalPages}
-            onClick={() => load(meta.page + 1)}
+            disabled={safePage >= totalPages}
+            onClick={() => setPage((p) => p + 1)}
           >
             Next →
           </button>
