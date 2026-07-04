@@ -4,11 +4,7 @@
 // admin's custom order (new uploads float to the top).
 import { requireApproved } from "../../lib/guard";
 import { allowRequest } from "../../lib/ratelimit";
-import { listAllVideos, thumbnailsEnabled, thumbnailUrl, videoState } from "../../lib/bunny";
-import { applyOrder } from "../../lib/order";
-import { getOrder, getSettings } from "../../lib/store";
-
-const PER_PAGE = 10;
+import { fetchVideoPage } from "../../lib/videoList";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -23,51 +19,12 @@ export default async function handler(req, res) {
   }
 
   try {
-    const [all, order, settings] = await Promise.all([
-      listAllVideos(),
-      getOrder().catch(() => []),
-      getSettings().catch(() => ({ videoCount: 30 })),
-    ]);
-
-    let videos = applyOrder(
-      all.filter((video) => videoState(video) === "ready"),
-      order
-    ).slice(0, settings.videoCount);
-
-    const q = String(req.query.q || "").trim().toLowerCase();
-    if (q) {
-      videos = videos.filter((video) =>
-        String(video.title || "").toLowerCase().includes(q)
-      );
-    }
-    const collection = String(req.query.collection || "").trim();
-    if (collection) {
-      videos = videos.filter((video) => video.collectionId === collection);
-    }
-
-    const total = videos.length;
-    const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
-    const page = Math.min(
-      Math.max(parseInt(req.query.page, 10) || 1, 1),
-      totalPages
-    );
-    const items = videos
-      .slice((page - 1) * PER_PAGE, page * PER_PAGE)
-      .map((video) => ({
-        id: video.guid,
-        title: video.title || "Untitled",
-        length: video.length || 0,
-        collectionId: video.collectionId || "",
-        thumbnail: thumbnailUrl(video),
-      }));
-
-    return res.json({
-      videos: items,
-      page,
-      totalPages,
-      total,
-      thumbnails: thumbnailsEnabled(),
+    const data = await fetchVideoPage({
+      page: parseInt(req.query.page, 10) || 1,
+      q: String(req.query.q || ""),
+      collection: String(req.query.collection || ""),
     });
+    return res.json(data);
   } catch {
     return res.status(502).json({ error: "Could not load the video library" });
   }

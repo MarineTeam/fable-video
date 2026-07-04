@@ -10,6 +10,9 @@ import { PlayIcon, SearchIcon } from "../components/icons";
 import { auth0 } from "../lib/auth0";
 import { isAdmin, normalizeEmail } from "../lib/auth";
 import { isApprovedViewer } from "../lib/store";
+import { fetchVideoPage } from "../lib/videoList";
+
+const EMPTY_META = { page: 1, totalPages: 1, total: 0, thumbnails: false };
 
 export async function getServerSideProps({ req, resolvedUrl }) {
   const session = await auth0.getSession(req);
@@ -31,11 +34,34 @@ export async function getServerSideProps({ req, resolvedUrl }) {
       approved = false;
     }
   }
+
+  // Fetch the first page server-side so videos are already in the HTML —
+  // otherwise the client waits for hydration, then a whole extra
+  // fetch/bunny.net round trip, before anything appears.
+  let initialVideos = null;
+  let initialMeta = EMPTY_META;
+  if (approved) {
+    try {
+      const data = await fetchVideoPage({ page: 1 });
+      initialVideos = data.videos;
+      initialMeta = {
+        page: data.page,
+        totalPages: data.totalPages,
+        total: data.total,
+        thumbnails: data.thumbnails,
+      };
+    } catch {
+      // Leave initialVideos null — the client will fetch on mount instead.
+    }
+  }
+
   return {
     props: {
       user: { email, name: session.user.name || email },
       admin,
       approved,
+      initialVideos,
+      initialMeta,
     },
   };
 }
@@ -106,9 +132,9 @@ function ContinueWatching({ items, thumbnails }) {
   );
 }
 
-export default function Home({ user, admin, approved }) {
-  const [videos, setVideos] = useState(null);
-  const [meta, setMeta] = useState({ page: 1, totalPages: 1, total: 0, thumbnails: false });
+export default function Home({ user, admin, approved, initialVideos, initialMeta }) {
+  const [videos, setVideos] = useState(initialVideos);
+  const [meta, setMeta] = useState(initialMeta || EMPTY_META);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [collection, setCollection] = useState("");
@@ -116,6 +142,7 @@ export default function Home({ user, admin, approved }) {
   const [continueItems, setContinueItems] = useState([]);
   const [error, setError] = useState("");
   const requestSeq = useRef(0);
+  const skipInitialLoad = useRef(initialVideos !== null);
 
   const load = useCallback(
     async (page) => {
@@ -152,6 +179,11 @@ export default function Home({ user, admin, approved }) {
 
   useEffect(() => {
     if (!approved) return;
+    if (skipInitialLoad.current) {
+      // First page already came from the server — no need to refetch it.
+      skipInitialLoad.current = false;
+      return;
+    }
     load(1);
   }, [approved, load]);
 
