@@ -2,6 +2,8 @@
 
 A private, invite-only video site built with **Next.js 16** (Pages Router), hosted on **Vercel**, using **bunny.net Stream** for video storage/playback, **Auth0** (`@auth0/nextjs-auth0` v4) for login, **Upstash Redis** (via Vercel Storage) for admin-managed settings, collections, share links, watch history, and the audit log, and **Resend** for automatic email delivery of private share links.
 
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
+
 Videos are never public: every play uses a **signed, time-limited bunny.net token** generated fresh on each request. Access is gated to an admin-managed list of approved viewers, with per-recipient private share links for one-off sharing — emailed to the recipient automatically when email delivery is configured.
 
 ---
