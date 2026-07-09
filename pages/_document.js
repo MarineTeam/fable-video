@@ -2,7 +2,7 @@ import { Html, Head, Main, NextScript } from "next/document";
 
 // Applies the cached palette before first paint so returning visitors never
 // see a color flicker. Must stay in sync with lib/theme-client.js.
-const themeBoot = `(function(){try{var raw=localStorage.getItem("pvp:theme");if(!raw)return;var t=JSON.parse(raw);if(t&&t.accent&&t.accent2){var s=document.documentElement.style;s.setProperty("--accent",t.accent);s.setProperty("--accent-2",t.accent2);}}catch(e){}})();`;
+const themeBoot = `(function(){try{var raw=localStorage.getItem("fablevideo:theme");if(!raw)return;var t=JSON.parse(raw);if(t&&t.accent&&t.accent2){var s=document.documentElement.style;s.setProperty("--accent",t.accent);s.setProperty("--accent-2",t.accent2);}}catch(e){}})();`;
 
 const favicon =
   "data:image/svg+xml," +

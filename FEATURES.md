@@ -65,7 +65,7 @@ Current as of **v1.6.0**. Grouped by area; items marked _(admin)_ live in the `/
 ## Platform, quality & observability
 - Hosted on Vercel; dependencies install automatically during deploy (no local Node/npm required to ship).
 - Next.js 16 (Pages Router) + React 19; Auth0 session handling runs in the Next 16 `proxy.js` network boundary.
-- Settings, viewers, order, collections, share records, watch history, and the audit log are stored in Upstash Redis (via Vercel Storage), editable live from `/admin` without redeploying. All keys are namespaced with a `pvp:` prefix.
+- Settings, viewers, order, collections, share records, watch history, and the audit log are stored in Upstash Redis (via Vercel Storage), editable live from `/admin` without redeploying. All keys are namespaced with a `fablevideo:` prefix.
 - **Opt-in Sentry error monitoring** — client/server/edge configs via the instrumentation hooks; inert until `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` are set.
 - **CI pipeline** — GitHub Actions runs lint + tests + build on every push/PR to `main`, catching breakage before Vercel deploys.
 - **Smoke tests** — Vitest coverage for the auth check, video-ordering logic, theme helpers, and the share-email template.
