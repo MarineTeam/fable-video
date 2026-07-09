@@ -18,7 +18,8 @@ export default async function handler(req, res) {
         emailFrom: emailEnabled() ? emailFrom() : null,
         siteName: siteName(),
       });
-    } catch {
+    } catch (err) {
+      console.error("Could not load settings:", err);
       return res.status(502).json({ error: "Could not load settings" });
     }
   }
@@ -36,7 +37,8 @@ export default async function handler(req, res) {
     }
     try {
       await saveSettings({ videoCount: Math.floor(videoCount) });
-    } catch {
+    } catch (err) {
+      console.error("Could not save settings:", err);
       return res.status(502).json({ error: "Could not save settings" });
     }
     await logAction(admin, "settings.update", `video count → ${Math.floor(videoCount)}`);

@@ -44,7 +44,8 @@ export default async function handler(req, res) {
           };
         });
       return res.json({ items });
-    } catch {
+    } catch (err) {
+      console.error("Could not load watch history:", err);
       return res.status(502).json({ error: "Could not load watch history" });
     }
   }
@@ -71,7 +72,8 @@ export default async function handler(req, res) {
         at: new Date().toISOString(),
       });
       return res.json({ ok: true });
-    } catch {
+    } catch (err) {
+      console.error("Could not save progress:", err);
       return res.status(502).json({ error: "Could not save progress" });
     }
   }

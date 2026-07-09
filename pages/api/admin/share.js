@@ -37,7 +37,8 @@ export default async function handler(req, res) {
   let video;
   try {
     video = await getVideo(videoId);
-  } catch {
+  } catch (err) {
+    console.error("Video not found:", err);
     return res.status(404).json({ error: "Video not found" });
   }
 
@@ -50,7 +51,8 @@ export default async function handler(req, res) {
       hours,
       createdBy: admin,
     });
-  } catch {
+  } catch (err) {
+    console.error("Could not create the share link:", err);
     return res.status(502).json({ error: "Could not create the share link" });
   }
   const { id, share } = created;

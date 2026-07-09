@@ -11,8 +11,8 @@ export default async function handler(req, res) {
     let stored = null;
     try {
       stored = await getTheme();
-    } catch {
-      // Fall through to the default palette.
+    } catch (err) {
+      console.error("Could not load the palette, falling back to default:", err);
     }
     return res.json({ theme: resolveTheme(stored) });
   }
@@ -42,7 +42,8 @@ export default async function handler(req, res) {
 
     try {
       await saveTheme(theme);
-    } catch {
+    } catch (err) {
+      console.error("Could not save the palette:", err);
       return res.status(502).json({ error: "Could not save the palette" });
     }
     await logAction(

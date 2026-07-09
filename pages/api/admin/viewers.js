@@ -12,7 +12,8 @@ export default async function handler(req, res) {
   if (req.method === "GET") {
     try {
       return res.json({ viewers: await listViewers() });
-    } catch {
+    } catch (err) {
+      console.error("Could not load viewers:", err);
       return res.status(502).json({ error: "Could not load viewers" });
     }
   }
@@ -30,7 +31,8 @@ export default async function handler(req, res) {
     let added = 0;
     try {
       added = await addViewers(valid, admin);
-    } catch {
+    } catch (err) {
+      console.error("Could not save viewers:", err);
       return res.status(502).json({ error: "Could not save viewers" });
     }
     if (added > 0) {
@@ -52,7 +54,8 @@ export default async function handler(req, res) {
     if (!email) return res.status(400).json({ error: "Email is required" });
     try {
       await removeViewer(email);
-    } catch {
+    } catch (err) {
+      console.error("Could not remove viewer:", err);
       return res.status(502).json({ error: "Could not remove viewer" });
     }
     await logAction(admin, "viewer.remove", email);

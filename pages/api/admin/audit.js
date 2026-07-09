@@ -12,7 +12,8 @@ export default async function handler(req, res) {
 
   try {
     return res.json({ actions: await recentActions(100) });
-  } catch {
+  } catch (err) {
+    console.error("Could not load the activity log:", err);
     return res.status(502).json({ error: "Could not load the activity log" });
   }
 }
