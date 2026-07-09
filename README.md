@@ -221,6 +221,7 @@ The sending domain must be verified in Resend or delivery will fail (the error s
 - **Resume doesn't work** — the Bunny embed must expose the player.js protocol; playback still works either way. Check the browser console/network for `/api/progress` calls.
 - **`npm install` fails on deploy** — usually a stray `package-lock.json`/`yarn.lock` committed alongside `package.json` (they're gitignored here on purpose), or a peer-dependency mismatch after a manual version bump.
 - **Upload fails with HTTP 401** — a stray newline/space in `BUNNY_API_KEY`/`BUNNY_LIBRARY_ID` corrupts the TUS signature (the app trims them; re-paste cleanly in Vercel if it recurs).
+- **"Redis client was initialized without url or token" / every admin tab fails to load** — if this Vercel project has more than one storage database connected, Vercel prefixes the injected variable names with the store's name (e.g. `fablevideo_KV_REST_API_URL` instead of plain `KV_REST_API_URL`). The app looks for a variable *ending in* `KV_REST_API_URL`/`KV_REST_API_TOKEN` (or the `UPSTASH_REDIS_REST_URL`/`_TOKEN` equivalents), so a prefixed name resolves automatically — no action needed beyond redeploying after the store is connected. Check Settings → Environment Variables for the exact name if you want to confirm it.
 
 ---
 
