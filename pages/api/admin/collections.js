@@ -18,7 +18,8 @@ export default async function handler(req, res) {
           videoCount: c.videoCount || 0,
         })),
       });
-    } catch {
+    } catch (err) {
+      console.error("Could not load collections:", err);
       return res.status(502).json({ error: "Could not load collections" });
     }
   }
@@ -31,7 +32,8 @@ export default async function handler(req, res) {
     let collection;
     try {
       collection = await createCollection(name);
-    } catch {
+    } catch (err) {
+      console.error("Could not create the collection:", err);
       return res.status(502).json({ error: "Could not create the collection" });
     }
     await logAction(admin, "collection.create", name);
@@ -43,7 +45,8 @@ export default async function handler(req, res) {
     if (!id) return res.status(400).json({ error: "Collection id is required" });
     try {
       await deleteCollection(id);
-    } catch {
+    } catch (err) {
+      console.error("Could not delete the collection:", err);
       return res.status(502).json({ error: "Could not delete the collection" });
     }
     await logAction(admin, "collection.delete", id);

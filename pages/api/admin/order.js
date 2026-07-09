@@ -10,7 +10,8 @@ export default async function handler(req, res) {
   if (req.method === "GET") {
     try {
       return res.json({ order: await getOrder() });
-    } catch {
+    } catch (err) {
+      console.error("Could not load the video order:", err);
       return res.status(502).json({ error: "Could not load the video order" });
     }
   }
@@ -26,7 +27,8 @@ export default async function handler(req, res) {
     }
     try {
       await saveOrder(order);
-    } catch {
+    } catch (err) {
+      console.error("Could not save the video order:", err);
       return res.status(502).json({ error: "Could not save the video order" });
     }
     await logAction(admin, "order.update", `${order.length} videos`);

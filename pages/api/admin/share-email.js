@@ -24,7 +24,8 @@ export default async function handler(req, res) {
   let share = null;
   try {
     share = await getShare(id);
-  } catch {
+  } catch (err) {
+    console.error("Could not look up the share link:", err);
     return res.status(502).json({ error: "Could not look up the share link" });
   }
   if (!share) {

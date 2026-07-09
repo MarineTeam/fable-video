@@ -66,7 +66,8 @@ export default async function handler(req, res) {
       chart,
       mostWatched,
     });
-  } catch {
+  } catch (err) {
+    console.error("Could not load analytics:", err);
     return res.status(502).json({ error: "Could not load analytics" });
   }
 }

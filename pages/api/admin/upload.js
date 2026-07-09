@@ -24,7 +24,8 @@ export default async function handler(req, res) {
     let video;
     try {
       video = await createVideo(title, collectionId);
-    } catch {
+    } catch (err) {
+      console.error("Could not create the video on bunny.net:", err);
       return res.status(502).json({ error: "Could not create the video on bunny.net" });
     }
     await logAction(admin, "video.upload", title);
@@ -39,7 +40,8 @@ export default async function handler(req, res) {
     if (!id) return res.status(400).json({ error: "Video id is required" });
     try {
       await deleteVideo(id);
-    } catch {
+    } catch (err) {
+      console.error("Could not clean up the video:", err);
       return res.status(502).json({ error: "Could not clean up the video" });
     }
     await pruneFromOrder(id).catch(() => {});

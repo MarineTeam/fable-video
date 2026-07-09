@@ -35,7 +35,8 @@ export default async function handler(req, res) {
         views: video.views ?? 0,
       }));
       return res.json({ videos, thumbnails: thumbnailsEnabled() });
-    } catch {
+    } catch (err) {
+      console.error("Could not load videos from bunny.net:", err);
       return res.status(502).json({ error: "Could not load videos from bunny.net" });
     }
   }
@@ -53,7 +54,8 @@ export default async function handler(req, res) {
       }
       try {
         await updateVideo(id, { title });
-      } catch {
+      } catch (err) {
+        console.error("Rename failed on bunny.net:", err);
         return res.status(502).json({ error: "Rename failed on bunny.net" });
       }
       await logAction(admin, "video.rename", title);
@@ -64,7 +66,8 @@ export default async function handler(req, res) {
       const collectionId = String(req.body?.collectionId || "");
       try {
         await updateVideo(id, { collectionId });
-      } catch {
+      } catch (err) {
+        console.error("Collection change failed on bunny.net:", err);
         return res.status(502).json({ error: "Collection change failed on bunny.net" });
       }
       await logAction(
@@ -83,7 +86,8 @@ export default async function handler(req, res) {
     if (!id) return res.status(400).json({ error: "Video id is required" });
     try {
       await deleteVideo(id);
-    } catch {
+    } catch (err) {
+      console.error("Delete failed on bunny.net:", err);
       return res.status(502).json({ error: "Delete failed on bunny.net" });
     }
     await pruneFromOrder(id).catch(() => {});

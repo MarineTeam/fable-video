@@ -17,7 +17,8 @@ export default async function handler(req, res) {
           url: shareUrl(req, share.id),
         })),
       });
-    } catch {
+    } catch (err) {
+      console.error("Could not load share links:", err);
       return res.status(502).json({ error: "Could not load share links" });
     }
   }
@@ -30,7 +31,8 @@ export default async function handler(req, res) {
       const all = await listShares();
       share = all.find((s) => s.id === id) || null;
       await revokeShare(id);
-    } catch {
+    } catch (err) {
+      console.error("Could not revoke the share link:", err);
       return res.status(502).json({ error: "Could not revoke the share link" });
     }
     await logAction(

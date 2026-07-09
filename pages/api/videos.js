@@ -22,7 +22,8 @@ export default async function handler(req, res) {
   try {
     const data = await fetchVideoLibrary();
     return res.json(data);
-  } catch {
+  } catch (err) {
+    console.error("Could not load the video library:", err);
     return res.status(502).json({ error: "Could not load the video library" });
   }
 }
