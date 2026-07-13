@@ -159,24 +159,29 @@ second sentence. Quoted example (`README.md` line 217):
 
 ### failure-archaeology entry skeleton
 
-`failure-archaeology/SKILL.md` did not exist as a written file at the time this skill was
-authored (2026-07-13) — its entry shape is not yet verified. **Do not invent one from
-scratch.** The provisional shape inferable from how `change-control` and
-`architecture-contract` already cite incidents (commit hash + symptom + root cause +
-rationale + evidence) is:
+`failure-archaeology` owns this template — reference it, don't fork it. Quoted verbatim
+from `failure-archaeology/SKILL.md` (its own "Template" block, appended as a new `### FA-N`
+section before its DELIBERATE ODDITIES, incrementing N):
 
 ```markdown
-### <Incident title>
+### FA-N — <short symptom, matches commit subject where possible>
 
-**Symptom:** <what was observed>
-**Root cause:** <what was actually wrong>
-**Fix:** <commit hash / what changed>
-**Time cost:** <why this earned an entry — how long it took to find>
-**Evidence:** `<command to re-verify the fix is still in place>`
+| Field | Detail |
+|---|---|
+| Date | YYYY-MM-DD (UTC, from `git show --format=%cd --date=short <hash>`) |
+| Symptom | What was actually observed, in plain terms — the error message or user-visible behavior |
+| Root cause | What was actually wrong, one level deeper than the symptom |
+| Evidence `[git-verified]` | commit `<hash>` — cite the specific file(s)/line(s) changed and quote the load-bearing diff fragment or commit-message sentence |
+| Resolution | What the fix actually did |
+| Status | Resolved / Open / Resolved (workaround) — pick one, be honest |
+| DO-NOT | The specific thing a future agent must not redo, revert, or re-attempt, and why |
 ```
 
-Read `failure-archaeology/SKILL.md` directly once it exists and conform to its actual
-skeleton instead of this inferred one.
+The DO-NOT row is mandatory there, not optional — "a story without a DO-NOT is just
+changelog trivia" (`failure-archaeology`'s own words). If there's no commit behind the
+incident (an operational event, a config change made outside git), that file's convention
+is to mark the evidence `[reported]` and say why no diff exists, instead of forcing a fake
+`[git-verified]` tag.
 
 ### Skill "Provenance and maintenance" line format
 
@@ -268,10 +273,11 @@ the repo root, plus `change-control/SKILL.md`, `debugging-playbook/SKILL.md`, an
 `architecture-contract/SKILL.md` for cross-reference consistency, and
 `environment-and-config/references/env.local.template`. `failure-archaeology`,
 `validation-and-qa`, `dependency-currency`, and `domain-reference` had no `SKILL.md` yet at
-authoring time (empty directories) — anything said about them above is either a reference
-to their *intended* role (per the common context and their citation by other skills) or
-explicitly flagged as provisional/unverified. Re-read them once written and correct any
-mismatch here.
+the start of this authoring session (empty directories) but were written by parallel
+agents before this file was finished; section 3's failure-archaeology template and the
+test-count claim below were corrected against their final, real content before this file
+was saved. If any other sibling skill referenced above changes shape later, re-read it and
+correct any mismatch here.
 
 | Volatile claim | Re-verify with |
 |---|---|
@@ -286,8 +292,8 @@ mismatch here.
 | Env-var table membership (Required / Optional-email / Optional-other) unchanged | `grep -n '^###' README.md \| grep -i required -A0; sed -n '103,142p' README.md` |
 | CI build env block (for the "does this var need a ci.yml dummy" test) | `sed -n '16,46p' .github/workflows/ci.yml` |
 
-Unresolved: the exact final entry format for `failure-archaeology` (section 3's skeleton
-is inferred, not copied from a real file); whether a second release will actually follow
-the "bump `package.json` in the same PR as the CHANGELOG" pattern (only one data point
-exists); whether `README.md`'s three env-var tables will need a fourth category as the app
-grows (no evidence either way as of this writing).
+Unresolved: whether a second release will actually follow the "bump `package.json` in the
+same PR as the CHANGELOG" pattern (only one data point exists, per `failure-archaeology`
+FA-9 which confirms `1.6.0` was simply the chosen starting version, not evidence of a
+repeated bump ritual); whether `README.md`'s three env-var tables will need a fourth
+category as the app grows (no evidence either way as of this writing).
