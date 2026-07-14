@@ -16,6 +16,7 @@ Videos are never public: every play uses a **signed, time-limited bunny.net toke
 - Clicking a video opens a watch page that plays it in a tokenized bunny.net embed and remembers playback position.
 - Admins manage everything from a tabbed **`/admin`** panel: upload videos, organize the library, manage viewers and share links (with one-click **email delivery**), adjust the site's color palette, and view analytics and an activity log.
 - `/admin` is gated **server-side** (redirects non-admins before any UI is sent) and every `/api/admin/*` route independently returns `403` for non-admins.
+- The portal is an **installable PWA** — visitors can add it to a home screen and launch it standalone. A minimal service worker (`public/sw.js`) caches only the static app icons; it never caches Auth0, `/api/*` responses, or signed video/thumbnail URLs.
 
 ---
 
@@ -89,6 +90,7 @@ lib/
   ratelimit.js            Sliding-window limiter (fails open)
   __tests__/              Vitest smoke tests (auth, order, theme, email)
 styles/globals.css        Design system (dark glassmorphism, gradient accents, Inter)
+public/                   PWA manifest, service worker (sw.js), and app icons
 instrumentation.js        Sentry server/edge init hook (opt-in)
 instrumentation-client.js Sentry client init (opt-in)
 sentry.{server,edge}.config.js  Opt-in Sentry init (inert without a DSN)

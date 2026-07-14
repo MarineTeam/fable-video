@@ -3,7 +3,7 @@
 All notable changes to Marine Video Portal are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [1.7.0] - 2026-07-14
 
 ### Added
 
@@ -12,6 +12,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   launched standalone. A minimal service worker (`public/sw.js`) makes it
   installable and caches only the static app icons — it deliberately never
   caches Auth0, `/api/*` responses, or signed video/thumbnail URLs.
+- **Contributor skill library** (`.claude/skills/`) — 13 skills documenting the
+  architecture contract, change-control gates, debugging playbook, security
+  response, and more, plus runnable read-only diagnostic scripts. Documentation
+  and tooling only; no runtime impact.
 
 ## [1.6.0] - 2026-07-07
 
