@@ -1,6 +1,6 @@
 # Marine Video Portal — Features
 
-Current as of **v1.6.0**. Grouped by area; items marked _(admin)_ live in the `/admin` panel.
+Current as of **v1.7.0**. Grouped by area; items marked _(admin)_ live in the `/admin` panel.
 
 ## Authentication & access control
 - Login required for every page via Auth0 (`@auth0/nextjs-auth0` v4, routes at `/auth/*`).
@@ -23,6 +23,7 @@ Current as of **v1.6.0**. Grouped by area; items marked _(admin)_ live in the `/
 - **Custom ordering** _(admin)_ — drag-to-reorder; newly uploaded videos float to the top (newest first) until placed.
 - **Pagination** — 10 per page with Previous/Next.
 - Autoplay disabled on all embedded players.
+- **Installable (PWA)** — a web app manifest, app icons (standard + maskable), and Apple touch-icon/meta let visitors install the portal to a home screen and launch it standalone. A deliberately minimal service worker makes it installable and caches only the static app icons — never Auth0, `/api/*` responses, or signed video/thumbnail URLs (which are per-viewer or time-limited).
 
 ## Video playback & security
 - Every play uses a **signed, time-limited bunny.net embed token**, generated fresh per request — never a permanent or public URL.
