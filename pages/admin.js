@@ -1018,6 +1018,9 @@ function SettingsTab({ config, onConfig }) {
   const [customB, setCustomB] = useState("#818cf8");
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const [pushTitle, setPushTitle] = useState("");
+  const [pushBody, setPushBody] = useState("");
+  const [pushNote, setPushNote] = useState("");
 
   useEffect(() => {
     api("/api/theme")
@@ -1053,6 +1056,23 @@ function SettingsTab({ config, onConfig }) {
       const data = await api("/api/theme", { method: "POST", body });
       setTheme(data.theme);
       applyResolvedTheme(data.theme);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const sendBroadcast = async (e) => {
+    e.preventDefault();
+    setError("");
+    setPushNote("");
+    try {
+      const data = await api("/api/admin/notify", {
+        method: "POST",
+        body: { title: pushTitle, body: pushBody },
+      });
+      setPushNote(`Sent to ${data.sent} device(s).`);
+      setPushTitle("");
+      setPushBody("");
     } catch (err) {
       setError(err.message);
     }
@@ -1155,6 +1175,53 @@ function SettingsTab({ config, onConfig }) {
       </section>
 
       <section className="card">
+        <h3>Broadcast notification</h3>
+        {config.pushConfigured ? (
+          <>
+            <p className="muted small">
+              Push a notification to everyone who has enabled notifications
+              (approved viewers and admins). New videos are announced
+              automatically — use this for anything else.
+            </p>
+            <form onSubmit={sendBroadcast}>
+              <input
+                type="text"
+                className="input"
+                placeholder="Title"
+                maxLength={100}
+                value={pushTitle}
+                onChange={(e) => setPushTitle(e.target.value)}
+                required
+                style={{ marginBottom: 8 }}
+              />
+              <textarea
+                className="input"
+                placeholder="Message (optional)"
+                maxLength={300}
+                rows={2}
+                value={pushBody}
+                onChange={(e) => setPushBody(e.target.value)}
+                style={{ marginBottom: 8 }}
+              />
+              <div className="inline-form">
+                <button type="submit" className="btn btn-primary btn-sm">
+                  Send broadcast
+                </button>
+                {pushNote ? <span className="muted small">{pushNote}</span> : null}
+              </div>
+            </form>
+          </>
+        ) : (
+          <p className="muted small">
+            Not configured — generate a key pair with{" "}
+            <code>npx web-push generate-vapid-keys</code>, set{" "}
+            <code>NEXT_PUBLIC_VAPID_PUBLIC_KEY</code> and{" "}
+            <code>VAPID_PRIVATE_KEY</code> in Vercel, and redeploy.
+          </p>
+        )}
+      </section>
+
+      <section className="card">
         <h3>Content protection</h3>
         <p className="muted small">
           Every play uses a signed, time-limited bunny.net embed token
@@ -1187,6 +1254,7 @@ const ACTION_LABELS = {
   "video.collection": "Video collection changed",
   "order.update": "Library reordered",
   "settings.update": "Settings changed",
+  "push.broadcast": "Notification broadcast",
   "theme.update": "Palette changed",
   "collection.create": "Collection created",
   "collection.delete": "Collection deleted",
@@ -1338,6 +1406,7 @@ export default function Admin({ user }) {
     videoCount: 30,
     emailConfigured: false,
     emailFrom: null,
+    pushConfigured: false,
   });
 
   useEffect(() => {
@@ -1347,6 +1416,7 @@ export default function Admin({ user }) {
           videoCount: data.videoCount,
           emailConfigured: data.emailConfigured,
           emailFrom: data.emailFrom,
+          pushConfigured: data.pushConfigured,
         })
       )
       .catch(() => {});
@@ -1373,7 +1443,7 @@ export default function Admin({ user }) {
   }, []);
 
   return (
-    <AppShell user={user} admin>
+    <AppShell user={user} admin canNotify>
       <Head>
         <title>Admin — Marine Video Portal</title>
       </Head>

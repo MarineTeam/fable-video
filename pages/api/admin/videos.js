@@ -12,6 +12,7 @@ import {
 import { applyOrder } from "../../../lib/order";
 import { getOrder, pruneFromOrder } from "../../../lib/store";
 import { logAction } from "../../../lib/audit";
+import { maybeAnnounceReadyVideos } from "../../../lib/push";
 
 export default async function handler(req, res) {
   const admin = await requireAdmin(req, res);
@@ -34,6 +35,13 @@ export default async function handler(req, res) {
         dateUploaded: video.dateUploaded || null,
         views: video.views ?? 0,
       }));
+      // Best-effort: announce any newly-ready video to subscribers. Never let
+      // a push failure break the admin video list.
+      try {
+        await maybeAnnounceReadyVideos(videos);
+      } catch (err) {
+        console.error("New-video announce failed:", err);
+      }
       return res.json({ videos, thumbnails: thumbnailsEnabled() });
     } catch (err) {
       console.error("Could not load videos from bunny.net:", err);

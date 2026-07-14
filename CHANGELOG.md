@@ -3,6 +3,19 @@
 All notable changes to Marine Video Portal are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Push notifications (Web Push)** — approved viewers opt in with a "Notify
+  me" button and are notified automatically when a new video becomes ready
+  (announced once per video, via an atomic Redis guard). Admins can send a
+  manual broadcast from the Settings tab. Sends target only currently-approved
+  viewers/admins; dead subscriptions (HTTP 404/410) are pruned automatically.
+  Inert until `NEXT_PUBLIC_VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` are set.
+  Adds the `web-push` dependency and the service worker's `push` /
+  `notificationclick` handlers.
+
 ## [1.7.0] - 2026-07-14
 
 ### Added
