@@ -57,7 +57,7 @@ export async function getServerSideProps({ req, params, resolvedUrl }) {
 
 export default function WatchVideo({ user, admin, video, embedSrc }) {
   return (
-    <AppShell user={user} admin={admin}>
+    <AppShell user={user} admin={admin} canNotify>
       <Head>
         <title>{`${video.title} — Marine Video Portal`}</title>
       </Head>

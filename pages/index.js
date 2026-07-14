@@ -209,7 +209,7 @@ export default function Home({ user, admin, approved, initialVideos, initialThum
   }
 
   return (
-    <AppShell user={user} admin={admin}>
+    <AppShell user={user} admin={admin} canNotify>
       <Head>
         <title>Library — Marine Video Portal</title>
       </Head>

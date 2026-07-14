@@ -17,6 +17,7 @@ Videos are never public: every play uses a **signed, time-limited bunny.net toke
 - Admins manage everything from a tabbed **`/admin`** panel: upload videos, organize the library, manage viewers and share links (with one-click **email delivery**), adjust the site's color palette, and view analytics and an activity log.
 - `/admin` is gated **server-side** (redirects non-admins before any UI is sent) and every `/api/admin/*` route independently returns `403` for non-admins.
 - The portal is an **installable PWA** — visitors can add it to a home screen and launch it standalone. A minimal service worker (`public/sw.js`) caches only the static app icons; it never caches Auth0, `/api/*` responses, or signed video/thumbnail URLs.
+- **Push notifications** (optional) — approved viewers can opt in with a "Notify me" button. They're notified automatically when a new video becomes ready, and admins can send a manual broadcast from the Settings tab. Requires VAPID keys (see env vars); inert without them.
 
 ---
 
@@ -53,8 +54,11 @@ pages/
     collections.js        Collection list for the homepage filter (approved viewers)
     progress.js           Per-viewer playback progress / watch history
     theme.js              Public GET palette; admin POST to update it
+    push/
+      subscribe.js        Register/remove a viewer's Web Push subscription
     admin/
-      videos.js           List (ordered) / rename / set-collection / delete
+      videos.js           List (ordered) / rename / set-collection / delete (announces new-ready videos)
+      notify.js           Manual admin push broadcast (rate-limited)
       viewers.js          List (with last-seen) / add (single or bulk) / remove
       settings.js         Homepage video count + email-delivery status
       order.js            Custom homepage video order
@@ -70,6 +74,7 @@ pages/
     [shareId].js          Plays a video via a private share link (forced login + email match)
 components/
   AppShell.js             Header/layout shell
+  PushToggle.js           "Notify me" opt-in button (Web Push subscribe/unsubscribe)
   IdleTimeout.js          30-minute inactivity auto sign-out
   ResumablePlayer.js      Wraps the Bunny embed via player.js for resume + progress
   icons.js                Inline SVG icons
@@ -83,6 +88,7 @@ lib/
   store.js                Settings, viewers, order, theme, progress (Redis-backed)
   shares.js               Share-link records (TTL), viewed/emailed stamps, listing
   email.js                Resend delivery + share-link email template (inert until configured)
+  push.js                 Web Push subscriptions + send + new-video announce (inert until configured)
   order.js                Apply custom video order (new uploads float to top, newest first)
   theme.js                Palette presets, validation
   theme-client.js         Apply + cache palette in the browser
@@ -131,6 +137,16 @@ eslint.config.mjs         ESLint flat config (next/core-web-vitals)
 | `SITE_NAME` | Portal name used in emails (default "Marine Video Portal"). |
 
 Without these, everything still works — admins copy share links and send them manually.
+
+### Optional — push notifications
+
+| Key | Description |
+|---|---|
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | VAPID public key (browser-safe). Together with `VAPID_PRIVATE_KEY`, enables Web Push. Generate both with `npx web-push generate-vapid-keys`. |
+| `VAPID_PRIVATE_KEY` | VAPID private key (**secret** — server only, never `NEXT_PUBLIC_`). |
+| `VAPID_SUBJECT` | Optional contact URL/`mailto:` sent to push services (defaults to `APP_BASE_URL`). |
+
+Without these, push is inert: the "Notify me" button hides and the admin broadcast card shows a setup hint. **iOS only delivers push to the PWA once it's installed to the Home Screen** (iOS/iPadOS 16.4+).
 
 ### Optional — other
 

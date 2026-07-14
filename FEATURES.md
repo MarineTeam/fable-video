@@ -24,6 +24,7 @@ Current as of **v1.7.0**. Grouped by area; items marked _(admin)_ live in the `/
 - **Pagination** — 10 per page with Previous/Next.
 - Autoplay disabled on all embedded players.
 - **Installable (PWA)** — a web app manifest, app icons (standard + maskable), and Apple touch-icon/meta let visitors install the portal to a home screen and launch it standalone. A deliberately minimal service worker makes it installable and caches only the static app icons — never Auth0, `/api/*` responses, or signed video/thumbnail URLs (which are per-viewer or time-limited).
+- **Push notifications** — approved viewers can opt in with a "Notify me" button and get a Web Push notification when a **new video becomes ready** (announced once per video). Admins can also send a **manual broadcast** _(admin)_ from the Settings tab. Sends only ever reach currently-approved viewers/admins, and dead subscriptions are pruned automatically. Inert until VAPID keys are configured; on iOS, push requires the PWA be installed to the Home Screen first (iOS 16.4+).
 
 ## Video playback & security
 - Every play uses a **signed, time-limited bunny.net embed token**, generated fresh per request — never a permanent or public URL.
