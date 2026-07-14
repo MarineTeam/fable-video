@@ -3,6 +3,16 @@
 All notable changes to Marine Video Portal are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Installable PWA** — a web app manifest, app icons (standard + maskable),
+  and Apple touch-icon/meta so the portal can be installed to a home screen and
+  launched standalone. A minimal service worker (`public/sw.js`) makes it
+  installable and caches only the static app icons — it deliberately never
+  caches Auth0, `/api/*` responses, or signed video/thumbnail URLs.
+
 ## [1.6.0] - 2026-07-07
 
 First release.

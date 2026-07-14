@@ -10,7 +10,9 @@ export async function proxy(request) {
 export const config = {
   matcher: [
     // Everything except static assets — the broad matcher is required for
-    // rolling sessions to refresh on ordinary page/API traffic.
-    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)",
+    // rolling sessions to refresh on ordinary page/API traffic. The PWA
+    // assets (manifest, service worker, icons) are excluded so they are
+    // served cleanly without session-cookie churn.
+    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|manifest.webmanifest|sw.js|icon-192.png|icon-512.png|icon-maskable-512.png|apple-touch-icon.png).*)",
   ],
 };
