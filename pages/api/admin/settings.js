@@ -3,6 +3,7 @@
 import { requireAdmin } from "../../../lib/guard";
 import { getSettings, MAX_VIDEO_COUNT, saveSettings } from "../../../lib/store";
 import { emailEnabled, emailFrom, siteName } from "../../../lib/email";
+import { pushEnabled } from "../../../lib/push";
 import { logAction } from "../../../lib/audit";
 
 export default async function handler(req, res) {
@@ -17,6 +18,7 @@ export default async function handler(req, res) {
         emailConfigured: emailEnabled(),
         emailFrom: emailEnabled() ? emailFrom() : null,
         siteName: siteName(),
+        pushConfigured: pushEnabled(),
       });
     } catch (err) {
       console.error("Could not load settings:", err);
