@@ -214,12 +214,13 @@ key-rotation migration path in this app.
 ## 5. Release runbook
 
 Three releases exist so far (v1.6.0 2026-07-07, v1.7.0 2026-07-14 installable PWA, v1.8.0
-2026-07-15 Web Push). **Known drift as of 2026-07-15:** step 3 (bump `package.json`) was
-**not** followed for v1.8.0 — `package.json` still reads `"version": "1.7.0"` while the
-`v1.8.0` tag and the `## [1.8.0]` CHANGELOG header both exist. So the version-bump step is a
-convention that has already been missed once; do not assume `package.json` matches the latest
-tag. Re-verify with `grep '"version"' package.json`, `git tag -l`, and the latest
-`## [x.y.z]` header in `CHANGELOG.md`, and reconcile them when you cut the next release.
+2026-07-15 Web Push). **Lesson from v1.8.0:** step 3 (bump `package.json`) was **missed** at
+release time — the `v1.8.0` tag and `## [1.8.0]` CHANGELOG header shipped while `package.json`
+still read `"version": "1.7.0"`. It was reconciled after the fact (bumped to `1.8.0` on
+`main` on 2026-07-15), but the takeaway stands: the version bump is easy to forget because
+nothing enforces it. Do **step 3 in the same PR that finalizes the CHANGELOG**, and re-verify
+`grep '"version"' package.json`, `git tag -l`, and the latest `## [x.y.z]` header in
+`CHANGELOG.md` all agree before publishing the GitHub Release.
 
 1. **Confirm `main` is green.** Check the latest commit on `main` in GitHub Actions —
    lint/test/build all passing. Do not start a release on a red `main`.
@@ -294,9 +295,10 @@ the change-control warning) — its baseline is cited from `change-control`, ver
 2026-07-10.
 
 **Updated 2026-07-15 (v1.8.0 Web Push):** added §4.1 (one-time VAPID setup + key-rotation
-warning), corrected §5's "only one release" opening to reflect three releases, and recorded
-the `package.json` 1.7.0 vs. tag `v1.8.0` drift — all verified against `package.json`,
-`git tag -l`, `CHANGELOG.md`, and `lib/push.js` on that date.
+warning) and corrected §5's "only one release" opening to reflect three releases. Also
+caught that v1.8.0 shipped without the `package.json` version bump (it read `1.7.0` against a
+`v1.8.0` tag) and reconciled it to `1.8.0` on `main` the same day — all verified against
+`package.json`, `git tag -l`, `CHANGELOG.md`, and `lib/push.js`.
 
 | Volatile claim | Re-verify with |
 |---|---|
@@ -307,7 +309,7 @@ the `package.json` 1.7.0 vs. tag `v1.8.0` drift — all verified against `packag
 | Build baseline (route table, exit 0) | See `change-control`'s Gate 3 section; re-run only with exclusive checkout access |
 | Sentry configs are inert without a DSN | `grep -n "SENTRY_DSN" instrumentation-client.js sentry.server.config.js sentry.edge.config.js` |
 | Admin tab names | `grep -n "Videos\|Viewers\|Shares\|Settings\|Activity\|Analytics" pages/admin.js` |
-| Three releases exist (v1.6.0/1.7.0/1.8.0); version-bump step missed for v1.8.0 | `git tag --list`; `grep '"version"' package.json` (reads `1.7.0`); `grep -n '^## \[' CHANGELOG.md` |
+| Three releases exist (v1.6.0/1.7.0/1.8.0); package.json reconciled to 1.8.0 after a missed release-time bump | `git tag --list`; `grep '"version"' package.json` (should read `1.8.0`); `grep -n '^## \[' CHANGELOG.md` |
 | VAPID one-time setup + rotation warning still accurate | `grep -n "pushEnabled\|setVapidDetails" lib/push.js` |
 | Branch-protection / CI-blocking status | GitHub repo → Settings → Branches (not verifiable from this checkout) |
 | Vercel auto-deploy trigger / rollback UI wording | Vercel dashboard (not verifiable from this checkout) |
