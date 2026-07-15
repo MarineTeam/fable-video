@@ -175,17 +175,51 @@ Vercel dashboard → project → **Deployments** → find the deployment you wan
 
 (Label: standard Vercel behavior — verify the exact menu wording in the dashboard, it may
 differ slightly by Vercel UI version.) This applies to *every* env var in the README's
-tables — Auth0, bunny.net, Redis, Resend, Sentry — including flipping an optional one like
-`SENTRY_DSN` on or off. See `environment-and-config` for what each variable does and how to
-add a new one correctly.
+tables — Auth0, bunny.net, Redis, Resend, Sentry, VAPID — including flipping an optional one
+like `SENTRY_DSN` on or off. See `environment-and-config` for what each variable does and how
+to add a new one correctly.
+
+### 4.1 Enabling Web Push notifications (one-time setup)
+
+Web Push (v1.8.0) is inert until VAPID keys are set — the "🔔 Notify me" button hides and
+the admin broadcast card shows a setup hint. To turn it on:
+
+1. **Generate a VAPID keypair** (locally, once — you don't need the repo running):
+   ```bash
+   npx web-push generate-vapid-keys
+   ```
+   This prints a `Public Key:` and `Private Key:` pair. Generate it **once** and reuse the
+   same pair forever — see the warning below.
+2. **Set three Vercel env vars** (Settings → Environment Variables, all scopes you deploy):
+   - `NEXT_PUBLIC_VAPID_PUBLIC_KEY` = the printed public key (browser-safe; it's inlined into
+     the client bundle at build time — this is why it carries the `NEXT_PUBLIC_` prefix).
+   - `VAPID_PRIVATE_KEY` = the printed private key (**secret** — never `NEXT_PUBLIC_`).
+   - `VAPID_SUBJECT` (optional) = a `mailto:` or `https:` contact; defaults to `APP_BASE_URL`.
+3. **Redeploy** (§4). The public key is baked in at build time, so a value added after the
+   last build does nothing until a rebuild — this is the #1 "I set it but Notify me still
+   doesn't show" cause.
+4. **Verify**: run `node .claude/skills/diagnostics-and-tooling/scripts/check-env.mjs` (it
+   reports both VAPID vars), then load the app as an approved viewer and confirm the
+   "🔔 Notify me" button appears. On iOS the button only works once the PWA is installed to
+   the Home Screen (Safari 16.4+).
+
+**Do not rotate the VAPID keypair casually.** Every existing browser subscription is bound to
+the public key it subscribed with (`applicationServerKey`). Changing `NEXT_PUBLIC_VAPID_PUBLIC_KEY`
+silently invalidates **all** prior subscriptions — every user must click "Notify me" again.
+Rotate only on a suspected private-key leak, and expect to re-enroll everyone. There is no
+key-rotation migration path in this app.
 
 ---
 
 ## 5. Release runbook
 
-Only one release exists so far (v1.6.0, 2026-07-07), so the numbering convention below is a
-**candidate**, not a proven pattern — treat step 6 (version bump) as inferred from
-`package.json` tracking the release, not as an observed repeat.
+Three releases exist so far (v1.6.0 2026-07-07, v1.7.0 2026-07-14 installable PWA, v1.8.0
+2026-07-15 Web Push). **Known drift as of 2026-07-15:** step 3 (bump `package.json`) was
+**not** followed for v1.8.0 — `package.json` still reads `"version": "1.7.0"` while the
+`v1.8.0` tag and the `## [1.8.0]` CHANGELOG header both exist. So the version-bump step is a
+convention that has already been missed once; do not assume `package.json` matches the latest
+tag. Re-verify with `grep '"version"' package.json`, `git tag -l`, and the latest
+`## [x.y.z]` header in `CHANGELOG.md`, and reconcile them when you cut the next release.
 
 1. **Confirm `main` is green.** Check the latest commit on `main` in GitHub Actions —
    lint/test/build all passing. Do not start a release on a red `main`.
@@ -259,6 +293,11 @@ the process was killed afterward. `npm run build` was **not** re-run (concurrenc
 the change-control warning) — its baseline is cited from `change-control`, verified there
 2026-07-10.
 
+**Updated 2026-07-15 (v1.8.0 Web Push):** added §4.1 (one-time VAPID setup + key-rotation
+warning), corrected §5's "only one release" opening to reflect three releases, and recorded
+the `package.json` 1.7.0 vs. tag `v1.8.0` drift — all verified against `package.json`,
+`git tag -l`, `CHANGELOG.md`, and `lib/push.js` on that date.
+
 | Volatile claim | Re-verify with |
 |---|---|
 | `npm run dev` startup banner / port / Turbopack | `npm run dev` (kill it after) |
@@ -268,7 +307,7 @@ the change-control warning) — its baseline is cited from `change-control`, ver
 | Build baseline (route table, exit 0) | See `change-control`'s Gate 3 section; re-run only with exclusive checkout access |
 | Sentry configs are inert without a DSN | `grep -n "SENTRY_DSN" instrumentation-client.js sentry.server.config.js sentry.edge.config.js` |
 | Admin tab names | `grep -n "Videos\|Viewers\|Shares\|Settings\|Activity\|Analytics" pages/admin.js` |
-| Only one release exists (candidate release convention) | `git tag --list`; repo → Releases |
-| package.json version | `grep '"version"' package.json` (currently `1.6.0`) |
+| Three releases exist (v1.6.0/1.7.0/1.8.0); version-bump step missed for v1.8.0 | `git tag --list`; `grep '"version"' package.json` (reads `1.7.0`); `grep -n '^## \[' CHANGELOG.md` |
+| VAPID one-time setup + rotation warning still accurate | `grep -n "pushEnabled\|setVapidDetails" lib/push.js` |
 | Branch-protection / CI-blocking status | GitHub repo → Settings → Branches (not verifiable from this checkout) |
 | Vercel auto-deploy trigger / rollback UI wording | Vercel dashboard (not verifiable from this checkout) |

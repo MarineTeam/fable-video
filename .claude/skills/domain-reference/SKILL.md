@@ -58,6 +58,10 @@ elsewhere, this is the meaning that matters here.
 | **Serverless instance** | A Vercel function invocation. `lib/bunny.js`'s `listAllVideos()` cache (`VIDEO_LIST_CACHE_TTL_MS = 4000`) is an in-memory module-level variable, so it only helps within one warm instance — a cold start or a different concurrent instance gets no benefit from it. |
 | **SSR / `getServerSideProps`** | Pages Router's per-request server render. Used on `pages/index.js`, `pages/admin.js`, `pages/watch/video/[id].js`, `pages/watch/[shareId].js` — all four do the Auth0 session check and access-control redirect **server-side**, before any HTML reaches the browser. |
 | **Hydration** | React attaching event handlers to server-rendered HTML in the browser. Relevant because `pages/index.js` deliberately fetches the video library in `getServerSideProps` (comment: "otherwise the client waits for hydration, then a whole extra fetch/bunny.net round trip") rather than fetching client-side after mount. |
+| **Web Push** | The browser standard for delivering server-initiated notifications to a subscribed browser even when the site isn't open. Here: `lib/push.js` + the `web-push` npm package send them, `public/sw.js`'s `push`/`notificationclick` handlers display and route them, `components/PushToggle.js` subscribes/unsubscribes. Inert unless VAPID keys are set (see section 8). |
+| **VAPID** | "Voluntary Application Server Identification" — the keypair that authenticates *this* server to the browser's push service. The **public** key (`NEXT_PUBLIC_VAPID_PUBLIC_KEY`) is the `applicationServerKey` the browser subscribes with and is not secret; the **private** key (`VAPID_PRIVATE_KEY`) signs each send and is a secret. Generated together with `npx web-push generate-vapid-keys`. |
+| **Service worker** | The background script `public/sw.js`, registered by `pages/_app.js`. It makes the app an installable PWA, caches a fixed allowlist of static icons for offline load, and hosts the Web Push `push`/`notificationclick` handlers. It deliberately never caches Auth0, `/api/*`, or signed video/thumbnail responses (see `architecture-contract` invariant (k)). |
+| **PWA / installable** | Progressive Web App: with a linked web manifest (`public/manifest.webmanifest`, linked in `pages/_document.js`) plus a registered service worker, the browser offers to install the portal to the home screen and launch it standalone. Note: **iOS/iPadOS only delivers Web Push to the installed PWA** (16.4+), not to Safari tabs — see section 8. |
 
 ---
 
@@ -351,6 +355,9 @@ old prefix is orphaned data, not read by current code — see
 | `fablevideo:shares:index` | set of share ids | `createShare()` (`sadd`), pruned in `listShares()`/`revokeShare()` (`srem`) | `listShares()` (`smembers`) | none (the set itself never expires; membership is opportunistically pruned when a member's record is found expired) |
 | `fablevideo:audit` | list, capped, JSON-string entries | `logAction()` (`lib/audit.js`, called from nearly every admin mutation) | `recentActions()` (`pages/api/admin/audit.js` — Activity tab) | none; length capped to 200 via `ltrim(key, 0, 199)` after every `lpush` |
 | `fablevideo:rl:<name>` | Ratelimit-internal keys (one family per limiter name/tokens/window combo) | `@upstash/ratelimit` internals via `limiterFor()` (`lib/ratelimit.js`) | same | window-scoped, managed by the `@upstash/ratelimit` library itself |
+| `fablevideo:push:subs` | hash, field = browser push `endpoint`, value = `{ email, sub, addedAt }` | `savePushSubscription()` (`pages/api/push/subscribe.js` POST) | `listPushSubscriptions()` → `sendPushToApproved()`; pruned via `hdel` on dead endpoints and on unsubscribe | none |
+| `fablevideo:push:notified` | set of video GUIDs already announced | `maybeAnnounceReadyVideos()` (`SADD` per newly-ready video, called from `pages/api/admin/videos.js`) | same (`SMEMBERS` to skip already-announced) | none |
+| `fablevideo:push:seeded` | string sentinel `"1"` | `maybeAnnounceReadyVideos()` on its first run | same (existence check, so the first run seeds `notified` without blasting the whole existing library) | none |
 
 ### Share TTL lifecycle
 
@@ -493,6 +500,99 @@ check runs.
 
 ---
 
+## 8. Web Push and the PWA as used here
+
+Added in v1.7.0 (installable PWA) and v1.8.0 (Web Push notifications). All of it is
+**inert until VAPID keys are configured** — `pushEnabled()` in `lib/push.js` is
+`Boolean(NEXT_PUBLIC_VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY)`, and every server entry point
+checks it first. See `environment-and-config` for the three env vars; this section is how
+the pieces actually behave.
+
+### The PWA shell (v1.7.0)
+
+- **Manifest**: `public/manifest.webmanifest` — `name` "Marine Video Portal", `short_name`
+  "Marine", `display: standalone`, `start_url`/`scope` `/`, theme/background `#0f172a`, and
+  three icons (192, 512, and a 512 `maskable`). Linked from `pages/_document.js` via
+  `<link rel="manifest" href="/manifest.webmanifest" />`.
+- **Service worker**: `public/sw.js`, registered client-side in `pages/_app.js`
+  (`navigator.serviceWorker.register("/sw.js")`, wrapped so a failure is silently ignored).
+  On `install` it precaches the manifest + icons (`CACHE = "mvp-static-v1"`) and calls
+  `skipWaiting()`; on `activate` it deletes stale caches and calls `clients.claim()`.
+- **What makes it installable**: a linked manifest with the required icons + a registered
+  service worker, served over HTTPS. Chrome then offers "Install app"; iOS/iPadOS offers
+  "Add to Home Screen". Whether the browser shows a direct install entry vs. a generic
+  "add to home screen / create shortcut" picker is a per-origin, per-device browser decision
+  (Chrome's `AppBannerManager` engagement heuristic) — **not controllable from the
+  manifest**, and not a bug in this app.
+
+### Subscribe / unsubscribe flow (client)
+
+`components/PushToggle.js` renders the "🔔 Notify me" button (becomes "🔔 Notifications on"
+once subscribed). It:
+
+1. No-ops entirely if `NEXT_PUBLIC_VAPID_PUBLIC_KEY` is absent, the browser lacks
+   `serviceWorker`/`PushManager`/`Notification`, or notifications are already `denied`
+   (then it shows a "blocked in browser settings" chip).
+2. On enable: `Notification.requestPermission()`, then
+   `registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey:
+   urlBase64ToUint8Array(VAPID_PUBLIC_KEY) })`, then `POST /api/push/subscribe` with
+   `{ subscription }`.
+3. On disable: `getSubscription()`, `DELETE /api/push/subscribe` with `{ endpoint }`, then
+   `subscription.unsubscribe()` locally.
+
+### Server: `lib/push.js` (the whole feature)
+
+| Function | What it does |
+|---|---|
+| `pushEnabled()` | `true` only when both VAPID vars are set. The gate for every path below. |
+| `ensureVapid()` | Lazily calls `webpush.setVapidDetails(subject, public, private)` once. `subject` = `VAPID_SUBJECT` → else `APP_BASE_URL` → else `https://example.com`. |
+| `savePushSubscription(email, sub)` | `HSET fablevideo:push:subs` keyed by the subscription's `endpoint`, value `{ email, sub, addedAt }`. One field per browser/device. |
+| `removePushSubscription(endpoint, email)` | `HDEL` the endpoint — but **only if it belongs to `email`** (ownership check, so one viewer can't unsubscribe another). |
+| `listPushSubscriptions()` | `HGETALL` → `[{ endpoint, email, sub }]`. |
+| `sendPushToApproved(payload)` | Loads subs + the **live** approved-viewer list in parallel, keeps only subs whose `email` is a current viewer or admin, `webpush.sendNotification` to each, and prunes any endpoint that returns 404/410 (subscription gone). Returns `{ sent, pruned, configured }`. |
+| `maybeAnnounceReadyVideos(videos)` | Fire-once "new video" announcer — see below. |
+
+**The send-payload shape** is a small JSON blob `{ title, body, url }`; `public/sw.js`'s
+`push` handler reads it (`event.data.json()`), shows `registration.showNotification(title,
+{ body, icon: "/icon-192.png", badge: "/icon-192.png", data: { url } })`, and
+`notificationclick` focuses an existing tab (navigating it to `url`) or opens a new window.
+
+### The two send triggers
+
+1. **Automatic, on a new video becoming ready.** `pages/api/admin/videos.js` (the admin
+   video-list route) calls `maybeAnnounceReadyVideos(videos)` best-effort — wrapped in
+   try/catch so a push failure never breaks the admin video list. Logic: filter to
+   `status === "ready"` videos with an id; on the **first ever run**, `SADD` them all to
+   `fablevideo:push:notified` and set the `fablevideo:push:seeded` sentinel **without
+   sending** (so the pre-existing library isn't blasted); on later runs, for each ready
+   video not already in `notified`, `SADD` it and send **only if `SADD` returned 1** (atomic
+   — exactly one concurrent instance wins per video). Message: `{ title: "New video", body:
+   video.title, url: "/watch/video/<id>" }`.
+2. **Manual admin broadcast.** `POST /api/admin/notify` (`requireAdmin`, rate-limited
+   **10/hour** per admin via `allowRequest("notify", ...)`, audit-logged as
+   `"push.broadcast"`). Validates `title` (1–100 chars) and `body` (≤300 chars), clamps the
+   click `url` to a same-origin path (`startsWith("/")` else `/`), calls
+   `sendPushToApproved`, returns `{ ok, sent, pruned }`. Triggered from the admin Settings
+   tab's broadcast card (`pages/admin.js`), which shows a setup hint naming
+   `NEXT_PUBLIC_VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` when push is unconfigured.
+
+### The two subscribe/notify routes, status codes
+
+| Route | Guard | Notable responses |
+|---|---|---|
+| `POST/DELETE /api/push/subscribe` | `requireApproved` (admins count as approved) | `503` if `!pushEnabled()`; `400` if no `subscription.endpoint` (POST) / no `endpoint` (DELETE); `201` on subscribe; `405` otherwise |
+| `POST /api/admin/notify` | `requireAdmin` | `503` if `!pushEnabled()`; `429` if over 10/hour; `400` on bad title/body length; `502` on send failure |
+
+### iOS caveat (operational, from README, not enforceable in code)
+
+iOS/iPadOS deliver Web Push **only to a PWA that's been installed to the Home Screen**
+(Safari 16.4+), never to an ordinary Safari tab. So on iOS the "Notify me" button only does
+anything after the user installs the app — this is an Apple platform constraint, not a bug
+in `PushToggle.js`. Android Chrome and desktop Chrome/Edge/Firefox subscribe from a normal
+tab without installing.
+
+---
+
 ## Provenance and maintenance
 
 - Verified by reading, on 2026-07-13: `lib/auth0.js`, `lib/auth.js`,
@@ -506,6 +606,13 @@ check runs.
   `components/ResumablePlayer.js`, `package.json`.
 - Repo state at time of writing: v1.6.0 (released 2026-07-07), Redis key
   prefix `fablevideo:` (since commit `c37919e`, 2026-07-09).
+- **Updated 2026-07-15 (v1.8.0):** added section 8 (Web Push + PWA), four
+  glossary rows (Web Push, VAPID, service worker, PWA), and the three
+  `fablevideo:push:*` keys to the section-4 inventory — verified by reading
+  `lib/push.js`, `public/sw.js`, `public/manifest.webmanifest`,
+  `components/PushToggle.js`, `pages/_app.js`, `pages/_document.js`,
+  `pages/api/push/subscribe.js`, and `pages/api/admin/notify.js` on that date.
+  The iOS-install-required-for-push caveat is from README, not exercised here.
 - **Volatile facts to re-check if this file feels stale**: the three
   signature TTLs (3h/6h/6h) and formulas in `lib/bunny.js`; the rate-limit
   table in section 7 (tokens/window are trivial to change and easy to drift

@@ -251,6 +251,73 @@ the delete happened — the tail must never wag the dog.
 *after* its main action succeeds, not as a precondition (`grep -n logAction
 pages/api/admin/share.js` → line 80, after the share and email logic above it).
 
+### (k) The service worker caches ONLY a fixed allowlist of immutable public static assets — never Auth0, `/api/*`, page navigations, or signed video/thumbnail URLs
+
+**Statement:** `public/sw.js`'s `fetch` handler calls `event.respondWith(...)` **only** for
+same-origin GET requests whose pathname is in the hardcoded `PRECACHE` allowlist
+(`/manifest.webmanifest`, `/icon-192.png`, `/icon-512.png`, `/icon-maskable-512.png`,
+`/apple-touch-icon.png`). Every other request — cross-origin (bunny.net embeds/thumbnails),
+`/api/*`, `/auth/*`, and all page navigations — falls through to the network untouched (the
+SW returns early, never caching or serving it).
+
+**Why:** This app's entire security model depends on responses being short-lived and
+per-viewer: video playback uses 3-hour signed bunny.net embed tokens (invariant (d)),
+thumbnails are token-signed, every `/api/*` response is per-viewer data behind an Auth0
+session, and `/auth/*` is the login flow. A service worker that cached any of these would
+serve one viewer's private data (or a soon-expired signed URL) to another visitor on the
+same device, or persist an authorization token past its TTL — a permanent, offline-readable
+bypass of every access check. The allowlist exists so the PWA can be installable and load
+its icons offline **without** the SW ever touching anything sensitive. This is the same
+class of invariant as (d): the cache must never become a place a secret or private response
+can leak from.
+
+**Enforced at:** `public/sw.js:1-14` (file-header statement of the rule),
+`public/sw.js:18-24` (the `PRECACHE` allowlist), `public/sw.js:83-108` (the `fetch` handler's
+two early-return guards: `url.origin !== self.location.origin` and
+`!PRECACHE.includes(url.pathname)` before any `respondWith`).
+
+**Verify with:** `sed -n '83,108p' public/sw.js` — confirm both early returns precede the
+single `event.respondWith(...)`, and that `PRECACHE` (`sed -n '18,24p' public/sw.js`) lists
+only public, non-secret static assets. `grep -n "event.respondWith" public/sw.js` should show
+exactly one call site (line 94; the header comment at line 13 also mentions the word).
+
+### (l) Web Push sends only ever reach currently-approved viewers/admins, the new-video announce is atomic per video, and broadcast click targets are same-origin only
+
+**Statement:** Three sub-invariants of the Web Push feature (`lib/push.js`), all
+security-relevant: **(1)** `sendPushToApproved()` filters every subscription against the
+*live* approved-viewer list plus `ADMIN_EMAILS` at send time (`lib/push.js:100-114`) — a
+viewer removed from `/admin` stops receiving immediately, even though their subscription
+record still sits in Redis until it's next pruned. **(2)** `maybeAnnounceReadyVideos()` gates
+each new-video announcement on an atomic `SADD` (`lib/push.js:134-135`, `if (added === 1)`), so
+when multiple concurrent serverless instances observe the same newly-ready video, exactly one
+sends the notification — never zero, never duplicated. **(3)** the admin manual broadcast
+(`pages/api/admin/notify.js`) forces the notification's click URL to a same-origin path
+(`rawUrl.startsWith("/") ? rawUrl : "/"`) — an external click target is never accepted.
+
+**Why:** Push subscriptions outlive approval — someone approved last month who was since
+removed still has a live browser subscription. If sends were keyed off the stored
+subscription list alone, a de-approved viewer would keep getting "new video" notifications
+(a slow-motion data leak: titles of private videos). Filtering against the live viewer list
+on every send closes that. The atomic-`SADD` guard exists because bunny.net can transition
+several videos to "ready" between polls and the announce path runs inside `/api/admin/videos`
+(invariant: best-effort, `lib/push.js` never throws into the request) on whichever warm
+instance serves the admin — without the atomic guard, two instances would double-notify every
+viewer. The same-origin click clamp prevents an admin (or a compromised admin request) from
+crafting a notification that deep-links viewers to an attacker-controlled URL.
+
+**Enforced at:** `lib/push.js:100-114` (`sendPushToApproved` live-viewer filter),
+`lib/push.js:119-143` (`maybeAnnounceReadyVideos`, seed-on-first-run + atomic `SADD`),
+`pages/api/admin/notify.js` (the `rawUrl.startsWith("/")` clamp, `requireAdmin`, 10/hour rate
+limit, and `logAction(admin, "push.broadcast", ...)`). Removal is ownership-checked too:
+`removePushSubscription(endpoint, email)` refuses to delete another user's subscription
+(`lib/push.js:56-65`).
+
+**Verify with:** `sed -n '100,143p' lib/push.js` — confirm the `allowed` set is built from
+`listViewers()` + `adminEmails()` at call time (not a stored copy) and the announce loop
+sends only when `SADD` returns `1`. `grep -n 'startsWith("/")' pages/api/admin/notify.js`
+confirms the same-origin click clamp. All sends are inert unless `pushEnabled()` (both VAPID
+vars set) — `grep -n "pushEnabled" lib/push.js pages/api/push/subscribe.js pages/api/admin/notify.js`.
+
 ---
 
 ## 2. Load-bearing decisions (don't undo these without a deliberate call)
@@ -304,11 +371,20 @@ playback, or the data layer:
     data when email fails or isn't configured?** (i)
 11. **If this adds an admin mutation, does it call `logAction(...)` after success, without
     letting a logging failure block the mutation?** (j)
-12. **Am I about to add an `app/` directory, narrow `proxy.js`'s matcher, reset TTL on
+12. **Does this touch `public/sw.js` or add anything the service worker could cache?** The
+    `fetch` handler must keep responding only for the fixed same-origin `PRECACHE` allowlist
+    of public static assets — never `/api/*`, `/auth/*`, page navigations, or signed
+    bunny.net URLs. (k)
+13. **Does this touch Web Push (`lib/push.js`, the subscribe/notify routes, the announce
+    path)?** Sends must filter against the live approved-viewer list at send time, the
+    new-video announce must stay atomic-per-video (`SADD` guard), broadcast click targets
+    must stay same-origin, and the whole feature must stay inert when `pushEnabled()` is
+    false. (l)
+14. **Am I about to add an `app/` directory, narrow `proxy.js`'s matcher, reset TTL on
     share updates, or move viewer/settings/order data out of Redis?** Any of these needs a
     deliberate, explicit decision — not an incidental side effect of an unrelated change.
     (Section 2)
-13. **Is this change touching one of the weak points in section 3?** If so, treat it as
+15. **Is this change touching one of the weak points in section 3?** If so, treat it as
     an explicit design decision worth calling out in the PR description, not a silent fix
     or a silently-inherited risk.
 
@@ -323,6 +399,12 @@ context alone) — `proxy.js`, `lib/auth.js`, `lib/guard.js`, `lib/redis.js`,
 `pages/watch/[shareId].js`, `pages/api/admin/share.js`, `README.md`, and commit
 `c37919e`'s diff. All file:line citations above were confirmed against the actual file
 contents on that date. Facts below are volatile — re-verify before relying on them.
+
+**Updated 2026-07-15 (v1.8.0 Web Push + v1.7.0 PWA):** added invariants (k) (service-worker
+cache allowlist) and (l) (Web Push send-gating / atomic announce / same-origin click),
+checklist items 12–13, and their provenance rows — verified by reading `public/sw.js`,
+`lib/push.js`, `pages/api/admin/notify.js`, and `pages/api/push/subscribe.js` directly on
+that date. Line numbers in (k)/(l) are against those files as of v1.8.0 and will drift.
 
 | Volatile claim | Re-verify with |
 |---|---|
@@ -342,4 +424,6 @@ contents on that date. Facts below are volatile — re-verify before relying on 
 | `pvp:*` keys were never migrated | `git show c37919e --stat` and read the commit message |
 | Admins are env-var-only, no Redis admin list | `grep -n "ADMIN_EMAILS" lib/auth.js`; confirm no `k("admin` anywhere: `grep -rn 'k("admin' lib` |
 | Test coverage still limited to `lib/__tests__/` | `ls lib/__tests__/`; `grep -rL "test(" pages/api/**/*.js 2>/dev/null \| wc -l` (all of them, since none have tests) |
+| SW caches only the `PRECACHE` allowlist, one `respondWith` (k) | `sed -n '83,108p' public/sw.js`; `grep -n "event.respondWith" public/sw.js` (expect exactly one call) |
+| Push sends filter live viewers; announce is atomic; click is same-origin (l) | `sed -n '100,143p' lib/push.js`; `grep -n 'startsWith("/")' pages/api/admin/notify.js` |
 | Lint/test/build baselines | see `change-control`'s Provenance table — same repo, same date |
