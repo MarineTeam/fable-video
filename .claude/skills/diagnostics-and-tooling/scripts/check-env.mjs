@@ -23,7 +23,7 @@
 //   _lib.mjs). Makes no network calls.
 //
 // EXPECTED OUTPUT (unconfigured — nothing set, no .env.local): every
-// required var reports "MISSING", summary reports 10/10 required missing,
+// required var reports "MISSING", summary reports 11/11 required missing,
 // exit code 1. See SKILL.md for the actual captured run.
 //
 // EXPECTED OUTPUT (fully configured): every required var reports "set" or
@@ -55,6 +55,9 @@ const OPTIONAL_PLAIN = [
   ["EMAIL_REPLY_TO", "optional reply-to", "cosmetic only, no degraded mode"],
   ["SITE_NAME", "portal name used in emails", 'defaults to "Marine Video Portal"'],
   ["NEXT_PUBLIC_SITE_NAME", "portal name in header/title (client-bundled)", 'defaults to "Marine Video Portal"'],
+  ["NEXT_PUBLIC_VAPID_PUBLIC_KEY", "Web Push public key (client-bundled)", "Web Push disabled -> Notify me button hidden, no notifications"],
+  ["VAPID_PRIVATE_KEY", "Web Push private key (secret)", "Web Push disabled -> subscribe/notify endpoints 503, no notifications sent"],
+  ["VAPID_SUBJECT", "Web Push VAPID contact (mailto:/https:)", "falls back to APP_BASE_URL (silent, not degraded)"],
   ["SENTRY_DSN", "server-side error capture", "inert, no error capture server-side"],
   ["NEXT_PUBLIC_SENTRY_DSN", "client-side error capture (client-bundled)", "inert, no error capture client-side"],
   ["SENTRY_ORG", "build-time source-map upload", "source maps not uploaded to Sentry at build"],

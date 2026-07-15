@@ -74,7 +74,8 @@ what's missing and what degraded mode that missing var causes.
 node .claude/skills/diagnostics-and-tooling/scripts/check-env.mjs
 ```
 
-**Real captured output (unconfigured — nothing set, no `.env.local`, run 2026-07-13):**
+**Real captured output (unconfigured — nothing set, no `.env.local`, run 2026-07-13,
+re-verified 2026-07-15 after the v1.8.0 Web Push VAPID vars were added to the optional set):**
 ```
 check-env — Marine Video Portal environment inventory
 =====================================================
@@ -96,16 +97,19 @@ repo root: /home/user/fable-video
 
 -- Optional (degraded mode if missing) --
 [unset]   BUNNY_CDN_HOSTNAME           -                    pull-zone host
-  ... (11 optional vars total, all [unset])
+  ... (15 optional vars total, all [unset] — includes NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+      VAPID_PRIVATE_KEY, VAPID_SUBJECT since v1.8.0's Web Push feature)
 
 -- Degraded-mode warnings --
   - BUNNY_CDN_HOSTNAME missing -> thumbnails disabled -> homepage falls back to a title list
   - RESEND_API_KEY missing -> share emails disabled -> admins must copy links manually
-  ... (10 warnings total)
+  - NEXT_PUBLIC_VAPID_PUBLIC_KEY missing -> Web Push disabled -> Notify me button hidden, no notifications
+  - VAPID_PRIVATE_KEY missing -> Web Push disabled -> subscribe/notify endpoints 503, no notifications sent
+  ... (12 warnings total)
 
 -- Summary --
 Required vars missing: 11 / 11
-Optional degraded-mode warnings: 10
+Optional degraded-mode warnings: 12
 
 RESULT: NOT READY — one or more required env vars are missing. See [MISSING] rows above.
 ```
@@ -123,7 +127,7 @@ multi-store prefixing):**
 ...
 -- Summary --
 Required vars missing: 0 / 11
-Optional degraded-mode warnings: 9
+Optional degraded-mode warnings: 11
 
 RESULT: all required env vars resolved.
 ```
@@ -163,7 +167,9 @@ Exit code: `1`. No connection attempted.
 **Verified output shape (against a local mock Upstash-REST server standing in for a real
 Upstash database — NOT real production data, since no credentials exist in this environment;
 seeded with 12 synthetic `fablevideo:*` keys across all known families plus 3 synthetic
-`pvp:*` keys to exercise the orphan-detection path):**
+`pvp:*` keys to exercise the orphan-detection path — this seed predates v1.8.0, so it has no
+`fablevideo:push:*` keys; the script now recognizes `push` as a family, see the header
+example):**
 ```
 PING -> PONG
 
@@ -418,11 +424,19 @@ output block above was captured by actually running the script in this repo on t
 except where explicitly labeled "expected output shape" or "not run" — those are documented
 from reading `lib/bunny.js`/`lib/redis.js` directly, not invented from memory.
 
+**Updated 2026-07-15 (v1.8.0 Web Push):** `check-env.mjs` gained three optional Web Push
+rows (`NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`); the unconfigured
+census above was re-run to confirm the new totals (15 optional vars, 12 warnings, exit 1).
+`check-redis.mjs` learned `push` as a recognized `fablevideo:*` key family (subs hash,
+notified set, seeded sentinel — see `domain-reference` for what each holds).
+
 | Volatile claim | Re-verify with |
 |---|---|
 | Full required/optional env var inventory matches README | `node .claude/skills/diagnostics-and-tooling/scripts/check-env.mjs`, diff against README.md "Environment variables" |
 | `envBySuffix()` logic in `_lib.mjs` still matches `lib/redis.js` | `sed -n '11,19p' lib/redis.js` vs `scripts/_lib.mjs`'s `envBySuffix` |
 | Redis key families and their `k()` call sites | `grep -rn 'k("' lib pages \| grep -v __tests__` |
+| `check-env.mjs` optional set includes the 3 VAPID vars | `grep -n "VAPID" .claude/skills/diagnostics-and-tooling/scripts/check-env.mjs` |
+| `check-redis.mjs` recognizes `push` as a family; the `fablevideo:push:*` keys still exist | `grep -n '"push"' .claude/skills/diagnostics-and-tooling/scripts/check-redis.mjs`; `grep -n 'k("push"' lib/push.js` |
 | `pvp:*` orphan risk is unconfirmed live (this skill did not have credentials to check real production Redis) | Run `check-redis.mjs` against real Vercel-injected env vars from within a Vercel environment or with real `.env.local` credentials |
 | bunny.net status code map (0-6, >6=JIT) | `sed -n '135,143p' lib/bunny.js` |
 | `signEmbedUrl` formula (`SHA256_hex(key+videoId+expires)`) | `sed -n '145,155p' lib/bunny.js` |

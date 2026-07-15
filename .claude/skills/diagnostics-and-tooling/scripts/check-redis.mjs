@@ -47,6 +47,7 @@
 //   fablevideo:shares       1   (the index set)
 //   fablevideo:audit        1   (one capped list)
 //   fablevideo:rl           <N, one per rate-limited actor/window>
+//   fablevideo:push         <0-3: subs hash, notified set, seeded sentinel — only if Web Push is configured>
 //   pvp:* (orphaned)        <N — 0 expected, loudly flagged if > 0>
 // exits 0 on success (even if pvp:* orphans are found — that's a report,
 // not a failure of this script), 1 on connection/auth error.
@@ -121,7 +122,7 @@ do {
 console.log("");
 console.log(`-- Key census (${totalKeys} total keys scanned) --`);
 console.log(`Prefix: ${prefix}`);
-const families = ["settings", "viewers", "lastseen", "order", "theme", "progress", "share", "shares", "audit", "rl"];
+const families = ["settings", "viewers", "lastseen", "order", "theme", "progress", "share", "shares", "audit", "rl", "push"];
 for (const family of families) {
   console.log(`  ${prefix}${family.padEnd(10)} ${familyCounts.get(family) || 0}`);
 }

@@ -60,6 +60,9 @@ marked "SDK-internal" below and sourced from `lib/auth0.js`'s own comment plus R
 | `EMAIL_REPLY_TO` | Optional | `lib/email.js:36-37` | Unset → no `reply_to` field sent | No | — |
 | `SITE_NAME` | Optional | `lib/email.js:18-20` `siteName()` | Unset → defaults to `"Marine Video Portal"` | No | Used inside outgoing emails only |
 | `NEXT_PUBLIC_SITE_NAME` | Optional | `pages/_app.js:31`, `components/AppShell.js:4` | Unset → defaults to `"Marine Video Portal"` | No — **browser-exposed by design** | Portal name shown in header/title |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | Optional (Web Push) | `components/PushToggle.js:4` (client) and `lib/push.js:23` `pushEnabled()` (server) | Unset → `pushEnabled()` is `false`. The client's "🔔 Notify me" button never renders; the admin broadcast card shows a setup hint. Push is fully inert. **Both** this and `VAPID_PRIVATE_KEY` must be set to enable push. | No — **browser-exposed by design** (a VAPID public key is not secret; it's the `applicationServerKey` the browser subscribes with) | Generate the pair with `npx web-push generate-vapid-keys` |
+| `VAPID_PRIVATE_KEY` | Optional (Web Push) | `lib/push.js:23` `pushEnabled()` + `lib/push.js:28-41` `ensureVapid()` | Unset → `pushEnabled()` is `false` → no subscription is accepted (`/api/push/subscribe` returns 503) and no notification is ever sent. Pairs with `NEXT_PUBLIC_VAPID_PUBLIC_KEY`. | **Yes** — the signing half of the VAPID pair; never prefix `NEXT_PUBLIC_` | Generated alongside the public key |
+| `VAPID_SUBJECT` | Optional | `lib/push.js:33` `ensureVapid()` | Unset → falls back to `APP_BASE_URL`, then to `https://example.com`. Only used as the VAPID `sub` contact; no functional loss when unset if `APP_BASE_URL` is set. | No | Must be a `mailto:` or `https:` URL if set explicitly |
 | `SENTRY_DSN` | Optional | `sentry.server.config.js:4-6`, `sentry.edge.config.js:4-6` | Unset → `Sentry.init()` is never called → no server/edge error capture, app runs normally | Not really secret (DSNs are commonly public), but don't advertise it unnecessarily | Runtime error capture, server side |
 | `NEXT_PUBLIC_SENTRY_DSN` | Optional | `instrumentation-client.js:4-6` | Unset → no client-side error capture | No — browser-exposed by design, and DSNs aren't secret | Runtime error capture, client side |
 | `SENTRY_ORG` | Optional | `next.config.js:11` | Unset → Sentry build plugin skips org-scoped calls; does not fail the build | No | Build-time source-map upload only |
@@ -154,6 +157,7 @@ partial config, or diagnosing "it half-works in prod."
 | `EMAIL_REPLY_TO` | Nothing — cosmetic (no reply-to header on sent emails) | Everything |
 | `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` | Error capture (server/client respectively) — you fly blind on unhandled exceptions in production | Everything functional; just unmonitored |
 | `SENTRY_ORG`/`SENTRY_PROJECT`/`SENTRY_AUTH_TOKEN` | Source-map upload at build time (stack traces in Sentry are minified/unreadable) | The build itself, and the running app — these are inert unless all three are set |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` and/or `VAPID_PRIVATE_KEY` | Web Push notifications entirely (`pushEnabled()` false, `lib/push.js:22`) — the "🔔 Notify me" button is hidden, `/api/push/subscribe` and `/api/admin/notify` return 503, and new-video announcements never fire | Everything else — video playback, sharing, admin panel, email. Push is an opt-in, inert-until-configured layer with no effect on the rest of the app |
 | `SITE_NAME` / `NEXT_PUBLIC_SITE_NAME` | Nothing — cosmetic defaults to `"Marine Video Portal"` | Everything |
 
 **Practical local-dev reading of this table**: you can run `npm run dev` with only Auth0 +
@@ -216,8 +220,10 @@ Follow this exact order — skipping steps is how vars end up half-wired.
    The `.trim()` matters — a stray newline from a pasted secret in Vercel's UI has broken
    TUS/embed signatures before (README "Common issues": "Upload fails with HTTP 401").
 2. **Add it to `README.md`'s env-var table** in the right section (Required / Optional —
-   email / Optional — other). Route the actual prose-writing to `docs-and-writing` if you
-   want house-style review, but the row must exist before you call this done.
+   email / Optional — push notifications / Optional — other; the push-notifications section
+   was added for v1.8.0's Web Push feature). Route the actual prose-writing to
+   `docs-and-writing` if you want house-style review, but the row must exist before you call
+   this done.
 3. **Add it to `.claude/skills/environment-and-config/references/env.local.template`**
    (this skill's own template) with a comment explaining what it does and its default/
    fallback behavior when unset.
@@ -274,9 +280,16 @@ Written 2026-07-13 against commit-state matching `change-control`'s 2026-07-10 s
 from README — re-run the grep below before trusting any row on a future date, since new
 vars are easy to add without updating this file.
 
+**Updated 2026-07-15 (v1.8.0 Web Push):** added the `NEXT_PUBLIC_VAPID_PUBLIC_KEY` /
+`VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` rows to §1 and a Web Push row to the §3 degraded-mode
+matrix, verified against `lib/push.js` and `components/PushToggle.js`. README grew a fourth
+env-var section ("Optional — push notifications", README.md:141) at the same time — the
+`references/env.local.template` already carried these three vars.
+
 | Volatile claim | Re-verify with |
 |---|---|
 | Full env var inventory (code side) | `grep -rn "process.env" --include="*.js" lib/ pages/ components/ next.config.js sentry*.js instrumentation*.js proxy.js` |
+| Web Push VAPID vars still gate `pushEnabled()` | `grep -n "VAPID" lib/push.js components/PushToggle.js` |
 | README's documented env vars, for cross-check | `grep -n "AUTH0\|APP_BASE_URL\|ADMIN_EMAILS\|BUNNY_\|KV_REST\|UPSTASH_\|RESEND\|EMAIL_\|SITE_NAME\|SENTRY\|NEXT_PUBLIC" README.md` |
 | Suffix-resolution logic unchanged | `sed -n '1,32p' lib/redis.js` |
 | CI's build-only minimal env block | `sed -n '1,50p' .github/workflows/ci.yml` (also mirrored in `change-control` Gate 3 — keep both in sync if either changes) |
