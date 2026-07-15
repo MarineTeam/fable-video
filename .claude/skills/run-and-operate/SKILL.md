@@ -5,7 +5,8 @@ description: Running, building, deploying, releasing, and operating the Marine V
 
 # Run and operate — Marine Video Portal
 
-This repo (v1.6.0, released 2026-07-07; today 2026-07-10) deploys to Vercel from the `main`
+This repo (currently v1.8.0; first release v1.6.0 on 2026-07-07, latest v1.8.0 on 2026-07-15)
+deploys to Vercel from the `main`
 branch of `github.com/MarineTeam/fable-video`. This skill is the operator's manual: how to
 run it locally, how a change becomes a live deploy, where every kind of output lands, and
 how to release and roll back. It does not cover *whether* a change is safe to make — that's
@@ -44,7 +45,7 @@ Verified 2026-07-13 (Node v22.22.2, npm 10.9.7, no env vars set, no `.env.local`
 this repo ships no `.env.example` either). Actual observed startup:
 
 ```
-> marine-video-portal@1.6.0 dev
+> marine-video-portal@1.8.0 dev
 > next dev
 
 ▲ Next.js 16.2.10 (Turbopack)
@@ -228,9 +229,11 @@ nothing enforces it. Do **step 3 in the same PR that finalizes the CHANGELOG**, 
    `## [1.6.0] - 2026-07-07` entry for the house format: an intro paragraph, then `### Added`
    / `### Performance` etc. subsections). Use `docs-and-writing` for the template and prose
    conventions.
-3. **Bump the version** in `package.json` (`"version": "1.6.0"` today) to match the tag you're
-   about to cut. This is a config-env-class change per `change-control` — run all three
-   gates (lint, test, build) before merging.
+3. **Bump the version** in `package.json` (`"version": "1.8.0"` as of 2026-07-15) to match the
+   tag you're about to cut, **in the same PR that finalizes the CHANGELOG** (v1.8.0 missed
+   this and had to be reconciled later — see the note under §5's heading and `failure-archaeology`
+   FA-9). This is a config-env-class change per `change-control` — run all three gates (lint,
+   test, build) before merging.
 4. **Open a PR, get CI green, merge to `main`** — same flow as any other change (section 2
    above). Vercel deploys the merged `main` automatically; no separate "release deploy" step.
 5. **Cut the GitHub Release**: repo → **Releases** → **"Draft a new release"** → create a new

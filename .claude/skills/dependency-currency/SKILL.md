@@ -108,7 +108,7 @@ npm ls --depth=0
 Real output, 2026-07-13:
 
 ```
-marine-video-portal@1.6.0 /home/user/fable-video
+marine-video-portal@1.8.0 /home/user/fable-video
 +-- @auth0/nextjs-auth0@4.25.0
 +-- @sentry/nextjs@10.65.0
 +-- @upstash/ratelimit@v2.0.8

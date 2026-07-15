@@ -85,7 +85,7 @@ npm run lint
 Predicted: exactly the two-line script banner, then exit 0.
 
 ```
-> marine-video-portal@1.6.0 lint
+> marine-video-portal@1.8.0 lint
 > eslint .
 ```
 

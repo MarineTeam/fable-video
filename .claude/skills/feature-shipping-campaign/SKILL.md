@@ -120,7 +120,7 @@ npm run lint
 npm test
 ```
 
-**Expected — lint:** exit 0, output is exactly the script banner (`> marine-video-portal@1.6.0 lint` / `> eslint .`), nothing else.
+**Expected — lint:** exit 0, output is exactly the script banner (`> marine-video-portal@1.8.0 lint` / `> eslint .`), nothing else.
 **Expected — test:** ends with
 ```
  Test Files  4 passed (4)

@@ -169,13 +169,13 @@ matters to the owner — ask first. See OPEN ITEMS below.
 
 | Field | Detail |
 |---|---|
-| Date | 2026-07-04 (present since the very first commit) |
-| Symptom | `package.json`'s `"version"` field reads `"1.6.0"` on what `CHANGELOG.md` and the README both call the **first** release |
-| Root cause | Not a root cause — there is no defect. `1.6.0` was simply the version number chosen for `package.json` from the initial commit onward; nothing derives it from a "1.0, 1.1, ... 1.6" release sequence that ever existed in this repo |
-| Evidence `[git-verified]` | `git show 3848bc0:package.json` — `"version": "1.6.0"` present in the very first commit. `git log --follow -p -- package.json` shows exactly one line ever touching `"version"` (the initial add) — it has never been bumped or edited |
-| Resolution | N/A — nothing to resolve |
+| Date | 2026-07-04 (starting version, present since the very first commit); updated 2026-07-15 |
+| Symptom | `package.json`'s `"version"` field read `"1.6.0"` on what `CHANGELOG.md` and the README both call the **first** release — looks like versions 1.0.0–1.5.x were released and lost from history |
+| Root cause | Not a root cause — there is no defect. `1.6.0` was simply the **starting** version chosen for `package.json` from the initial commit onward; nothing derives it from a "1.0, 1.1, ... 1.6" release sequence that ever existed in this repo. No prior releases were lost. |
+| Evidence `[git-verified]` | `git show 3848bc0:package.json` — `"version": "1.6.0"` present in the very first commit (so the project *started* at 1.6.0). It has since been bumped normally, one release at a time: `1.7.0` for the v1.7.0 PWA release, then `1.8.0` for v1.8.0 Web Push (the 1.8.0 bump was reconciled on `main` on 2026-07-15, a few days after the `v1.8.0` tag, because the release-time bump was initially missed — see `run-and-operate` §5). Confirm the current value and its history with `grep '"version"' package.json` and `git log -p -- package.json`. |
+| Resolution | N/A — nothing to resolve; the 1.8.0 reconciliation is the only edit of note |
 | Status | Not a bug, closed as intentional |
-| DO-NOT | Do not "fix" this by resetting `package.json` version to `1.0.0`, and do not add a changelog entry implying versions 1.0.0–1.5.x ever existed — they didn't. If you need to bump the version for a real future release, bump forward from `1.6.0` normally |
+| DO-NOT | Do not "fix" this by resetting `package.json` version to `1.0.0`, and do not add a changelog entry implying versions 1.0.0–1.5.x ever existed — they didn't. When bumping for a real future release, bump forward from the current value (`1.8.0` as of 2026-07-15) in the **same PR** that finalizes the CHANGELOG, so the tag / CHANGELOG / `package.json` never diverge again |
 
 ---
 
@@ -192,7 +192,7 @@ these, stop and read the cited source first.
 | `eslint` pinned to `^9.39.0` while everything else tracks latest | Contradicts the "dependencies on latest" doctrine | Dated, scoped exception: ESLint 10 crashes `eslint-config-next@16` today. Re-check condition: `eslint-config-next` publishing ESLint-10 support | FA-1 above; `dependency-currency` should carry the re-check trigger — verify that skill states this explicitly when it exists |
 | `crypto.createHash("sha256")` used for security tokens in `lib/bunny.js` (embed token ~line 150, TUS upload signature ~line 161, thumbnail token ~line 188, as of 2026-07-13) | "Password hash with insufficient computational effort" (SHA-256 is not a slow/salted password hash) | Not a password hash at all — these are HMAC-style request-signing schemes **mandated by bunny.net's own API contract** (bunny.net specifies plain SHA-256 of `key+params` for embed/TUS/CDN token auth). Using bcrypt/argon2 here would not interoperate with bunny's verification | CodeQL alerts #2-4, raised 2026-07-10, currently OPEN pending formal dismissal — see OPEN ITEMS and `security-response` |
 | Rate limiting fails OPEN (`lib/ratelimit.js`: `catch { return true; }`) while approval fails CLOSED (`lib/guard.js`: `catch { approved = false; }`) | Inconsistent error handling — pick one failure mode | Deliberate asymmetry: rate-limit failing open means an infra hiccup never locks out real users; approval failing closed means an infra hiccup never leaks video data to an unapproved viewer. Flipping either would trade a cost problem for a security problem or vice versa | `lib/ratelimit.js` header comment; `lib/guard.js:29` comment `// Approval fails closed — no video data leaks on an infra error.`; `change-control` non-negotiable #12; see `architecture-contract` |
-| `package.json` version is `1.6.0` on the first-ever release | Looks like 5 prior releases are missing from history | No prior releases ever existed — see FA-9 | FA-9 above |
+| `package.json` **started** at version `1.6.0` (not 1.0.0) | Looks like ~5 prior releases are missing from history | No prior releases ever existed; 1.6.0 was the chosen starting version, since bumped to 1.7.0/1.8.0 normally — see FA-9 | FA-9 above |
 | ~29 near-identical `console.error(label, err)` catch blocks across 15 API files | Copy-paste sprawl a linter should dedupe | Doctrine, not sloppiness: FA-3 happened because catches were silent. Uniform, unabstracted logging at every catch site is intentional so no future catch can quietly skip it via a shared helper that gets bypassed | FA-3 above; `change-control` non-negotiable #2 |
 
 ## OPEN ITEMS

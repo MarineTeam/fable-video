@@ -77,14 +77,19 @@ union — do not skip a row because another row's edit "covers" it.
 | **Dependency change** | `CHANGELOG.md` — bullet under `### Changed` (or fold into the next `### Added` if it ships alongside a feature) · `dependency-currency`'s watchlist if the bump is notable (a major version, a pin/skip decision, a new exception like the ESLint 9.x pin) | Routine patch/minor bumps within existing caret ranges (the no-lockfile "latest versions" doctrine) usually don't need a CHANGELOG line by themselves unless they fix something user-visible |
 | **New admin capability** | `README.md` — "Admin panel (`/admin`)" section, bullet under the relevant tab · `FEATURES.md` — bullet in the matching area, with the `_(admin)_` marker (inline on the bullet if the section is mixed-audience, on the section header if the whole area is admin-only) | This is a subset of "new feature" with a mandatory README Admin-panel touch — don't let the FEATURES-only edit stand alone |
 | **Security fix / disposition** | `security-response`'s standing-dispositions table (that skill owns the table structure and the fix/dismiss decision; this skill supplies wordsmithing only if asked) · `CHANGELOG.md` — only for a REAL fix that changes behavior, under `### Fixed` or `### Security`; a false-positive **dismissal** typically stays in `security-response` alone, not the CHANGELOG | Never write the disposition's technical justification yourself from scratch — the facts must come from whoever traced the flagged code, per `security-response`'s own rule ("Never dismiss an alert you have not personally traced") |
-| **Release** | `CHANGELOG.md` — finalize the version section (add/confirm the `- YYYY-MM-DD` date) · `FEATURES.md` — bump the `Current as of **vX.Y.Z**` header (line 3) · `package.json` — bump `"version"` | See version-bump convention note below — only one release exists in this repo's history, so treat the ordering as a candidate convention, not a proven one |
+| **Release** | `CHANGELOG.md` — finalize the version section (add/confirm the `- YYYY-MM-DD` date) · `FEATURES.md` — bump the `Current as of **vX.Y.Z**` header (line 3) · `package.json` — bump `"version"` | See version-bump convention note below — three releases now confirm the ordering, but v1.8.0 shipped with `package.json` **and** the FEATURES header lagging behind, so verify all three artifacts agree before publishing |
 
-**Version-bump convention (candidate, not yet proven by repeated practice):** this repo has
-shipped exactly one release (`v1.6.0`, 2026-07-07, commit `3848bc0` — `git log --oneline`).
-`package.json`'s version and the CHANGELOG's `[1.6.0]` header were introduced together in
-that history. Until a second release happens, treat "bump `package.json` version in the
-same PR that finalizes the CHANGELOG section" as the working assumption, not a verified
-repeated pattern — flag this explicitly if you rely on it (e.g., in a PR description).
+**Version-bump convention (now established across three releases, and already broken once):**
+this repo has shipped three releases — `v1.6.0` (2026-07-07, the chosen starting version),
+`v1.7.0` (2026-07-14, installable PWA), and `v1.8.0` (2026-07-15, Web Push). The rule is:
+**bump `package.json`'s version in the same PR that finalizes the CHANGELOG section, and
+bump `FEATURES.md`'s `Current as of` header at the same time.** This is no longer a guess —
+but it is easy to forget: **v1.8.0 shipped its tag and CHANGELOG header while `package.json`
+still read `1.7.0`** (reconciled later on `main`, 2026-07-15 — see `failure-archaeology`
+FA-9 and `run-and-operate` §5), and **`FEATURES.md`'s header lagged at `v1.7.0` after the
+v1.8.0 release**. So verify all three artifacts agree before publishing the GitHub Release:
+`grep '"version"' package.json`, the top `## [x.y.z]` header in `CHANGELOG.md`, and
+`FEATURES.md` line 3 must all name the same version.
 
 ---
 
@@ -227,10 +232,12 @@ with the exact command that re-checks it — not a vague "check the code."
   flow — admins must know who to add." (CHANGELOG, Known gaps). Never omit a Known-gaps
   section from a new doc that inventories capabilities — the absence of one reads as
   oversell, and oversell is explicitly against this owner's doctrine.
-- **Date-stamp volatile facts.** `CHANGELOG.md`'s only release header is
-  `[1.6.0] - 2026-07-07`; `FEATURES.md`'s header is `Current as of **v1.6.0**`; every
-  skill's Provenance section opens "Written YYYY-MM-DD against commit `<hash>`." Any claim
-  that can go stale (a version, a count, "current" anything) gets a date next to it.
+- **Date-stamp volatile facts.** `CHANGELOG.md`'s latest release header is
+  `[1.8.0] - 2026-07-15` (three release headers exist: 1.6.0/1.7.0/1.8.0); `FEATURES.md`'s
+  header reads `Current as of **vX.Y.Z**` (currently `v1.7.0`, lagging the v1.8.0 release —
+  a live example of the version drift this skill warns about); every skill's Provenance
+  section opens "Written YYYY-MM-DD against commit `<hash>`." Any claim that can go stale
+  (a version, a count, "current" anything) gets a date next to it.
 - **"Verify with" commands, always runnable, always in skills.** Every volatile claim in
   every existing skill pairs with an exact shell command, e.g. `grep -L requireAdmin
   pages/api/admin/*.js` (expect no output). Docs-of-record prose (README/FEATURES/CHANGELOG)
@@ -279,21 +286,29 @@ test-count claim below were corrected against their final, real content before t
 was saved. If any other sibling skill referenced above changes shape later, re-read it and
 correct any mismatch here.
 
+**Updated 2026-07-15:** refreshed everything premised on "only one release exists" — the
+repo has now shipped v1.6.0/v1.7.0/v1.8.0, so the version-bump convention is established
+(§2 Release row, the version-bump note, and the date-stamp style rule). Recorded the v1.8.0
+release-drift lessons (`package.json` and the `FEATURES.md` header both lagged the tag) and
+README's new fourth env-var section. `FEATURES.md`'s header still reads `Current as of
+**v1.7.0**` as of this update — a real, still-open doc-of-record drift, not a skill error.
+
 | Volatile claim | Re-verify with |
 |---|---|
 | README is ~231 lines, this section structure | `wc -l README.md`; `grep -n '^##' README.md` |
-| FEATURES.md is ~85 lines, "Current as of v1.6.0" header | `wc -l FEATURES.md`; `sed -n '1,3p' FEATURES.md` |
-| CHANGELOG.md is ~73 lines, one release, categories used are Added/Performance/Known gaps only | `wc -l CHANGELOG.md`; `grep -n '^###' CHANGELOG.md` |
-| Only one release exists (version-bump convention is unproven) | `grep -n '^## \[' CHANGELOG.md` (expect exactly one match) |
+| FEATURES.md `Current as of` header (reads `v1.7.0` — lags the v1.8.0 release) | `sed -n '1,3p' FEATURES.md`; `wc -l FEATURES.md` |
+| CHANGELOG.md has three releases (1.6.0/1.7.0/1.8.0); categories used are Added/Performance/Known gaps only | `wc -l CHANGELOG.md`; `grep -n '^###' CHANGELOG.md` |
+| Three releases exist (version-bump convention established but missed once at v1.8.0) | `grep -n '^## \[' CHANGELOG.md` (expect `[Unreleased]` + three version headers) |
 | `package.json` version matches the CHANGELOG's latest header | `grep '"version"' package.json`; `grep -n '^## \[' CHANGELOG.md \| head -1` |
 | Which skills have a written `SKILL.md` vs. an empty directory | `for d in .claude/skills/*/; do [ -f "$d/SKILL.md" ] && echo "$d: written" || echo "$d: EMPTY"; done` |
 | `change-control` still instructs bumping its own Gate 2 counts when tests change | `grep -n "these numbers go UP" .claude/skills/change-control/SKILL.md` |
 | `security-response` still owns the standing-dispositions table structure | `grep -n "Standing dispositions" .claude/skills/security-response/SKILL.md` |
-| Env-var table membership (Required / Optional-email / Optional-other) unchanged | `grep -n '^###' README.md \| grep -i required -A0; sed -n '103,142p' README.md` |
+| Env-var table membership (Required / Optional-email / Optional-push / Optional-other — a push-notifications section was added for v1.8.0) | `grep -n '^###' README.md`; `sed -n '103,152p' README.md` |
 | CI build env block (for the "does this var need a ci.yml dummy" test) | `sed -n '16,46p' .github/workflows/ci.yml` |
 
-Unresolved: whether a second release will actually follow the "bump `package.json` in the
-same PR as the CHANGELOG" pattern (only one data point exists, per `failure-archaeology`
-FA-9 which confirms `1.6.0` was simply the chosen starting version, not evidence of a
-repeated bump ritual); whether `README.md`'s three env-var tables will need a fourth
-category as the app grows (no evidence either way as of this writing).
+Resolved since first writing (2026-07-15): two more releases shipped (v1.7.0, v1.8.0), so the
+"bump `package.json` in the same PR as the CHANGELOG" pattern is now the established
+convention — though v1.8.0 proved it's easy to miss (both `package.json` and the FEATURES
+header lagged and had to be reconciled after the tag; see the version-bump note above and
+`failure-archaeology` FA-9). And `README.md` did grow a fourth env-var category ("Optional —
+push notifications") for v1.8.0's VAPID keys, so the three-table assumption is superseded.

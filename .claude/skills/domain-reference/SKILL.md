@@ -12,7 +12,8 @@ not a tutorial on any of these products — it only documents the slice this
 app uses and exactly where.
 
 Verified against the repository at v1.6.0 (2026-07-07), re-verified
-2026-07-10. Everything below was read directly from the cited files, not
+2026-07-10; §8 (Web Push + PWA) added and re-verified 2026-07-15 against
+v1.8.0. Everything below was read directly from the cited files, not
 inferred. Line numbers are not cited because they drift; function/file names
 are cited instead — grep for them if you need the exact line.
 

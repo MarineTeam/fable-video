@@ -5,7 +5,7 @@ description: SOP for triaging and resolving CodeQL alerts, Dependabot alerts, an
 
 # Security response — Marine Video Portal
 
-This repo (v1.6.0, private invite-only video portal, first release 2026-07-07) has had
+This repo (currently v1.8.0, private invite-only video portal; first release v1.6.0 on 2026-07-07) has had
 four CodeQL alerts in its history: one real (fixed), three false positives (open, with a
 recorded disposition below). This skill is the SOP for handling the next one, plus the
 Dependabot process and the secret-leak runbook. It exists because the owner named security

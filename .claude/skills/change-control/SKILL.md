@@ -5,7 +5,8 @@ description: How changes are classified, gated, reviewed, and merged in the Mari
 
 # Change control — Marine Video Portal
 
-This repo is a live production app (v1.6.0, deployed on Vercel, first release 2026-07-07).
+This repo is a live production app (currently v1.8.0, deployed on Vercel; first release
+v1.6.0 on 2026-07-07).
 Every change follows the same pipeline: **classify the change → run the gates → self-review
 against the non-negotiables → feature branch → PR to main → CI green → merge → Vercel
 auto-deploys main.** This file tells you exactly what each step means here.
@@ -71,7 +72,7 @@ npm run lint
 Expected output — exactly this, then exit 0 (verify with `echo $?`):
 
 ```
-> marine-video-portal@1.6.0 lint
+> marine-video-portal@1.8.0 lint
 > eslint .
 ```
 
