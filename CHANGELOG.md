@@ -5,6 +5,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-07-15
+
 ### Added
 
 - **Push notifications (Web Push)** — approved viewers opt in with a "Notify
