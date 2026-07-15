@@ -186,7 +186,7 @@ document why in the PR.
 `package.json` devDependencies pin `"eslint": "^9.39.0"` — a caret range capped below the
 current major, which is a deliberate exception to the owner's latest-versions doctrine.
 
-**The incident** (commit `e34991e`, "Pin ESLint to 9.x for eslint-config-next
+**The incident** (commit `f2d3a30`, "Pin ESLint to 9.x for eslint-config-next
 compatibility"): ESLint had been left on `^10.6.0`, and lint started crashing outright, not
 just warning:
 
@@ -311,7 +311,7 @@ one.
 
 Written 2026-07-13 (three days after the orchestrator's 2026-07-10 baseline; versions were
 re-verified live, not copied, since currency data goes stale fast by design). Verified
-against commit history up to `e34991e` and the `package.json` in the working tree at time
+against commit history up to `f2d3a30` and the `package.json` in the working tree at time
 of writing. Everything below is volatile — re-verify before trusting it.
 
 | Volatile claim | Re-verify with |
@@ -320,7 +320,7 @@ of writing. Everything below is volatile — re-verify before trusting it.
 | Current outdated/current versions | `npm outdated` and `npm ls --depth=0` |
 | ESLint 10 still crashes eslint-config-next | Run the isolated smoke test in section 4 — do not skip it in favor of just reading `peerDependencies` |
 | `eslint-config-next@latest` peer range | `npm view eslint-config-next@latest peerDependencies` |
-| ESLint incident commit still reachable | `git show e34991e --stat` |
+| ESLint incident commit still reachable | `git show f2d3a30 --stat` |
 | `@auth0/nextjs-auth0` v4 env-var/route rename still documented | `grep -n "AUTH0_BASE_URL\|APP_BASE_URL" README.md` |
 | `player.js` graceful-degradation behavior unchanged | `Read components/ResumablePlayer.js`, check the `try`/`catch` around the dynamic `import("player.js")` |
 | No `dependabot.yml` exists (manual cadence still required) | `test -f .github/dependabot.yml && echo present || echo absent` |

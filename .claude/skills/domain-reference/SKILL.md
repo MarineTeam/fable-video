@@ -335,7 +335,7 @@ names collide.
 
 All keys are namespaced through `k(...parts)` in `lib/redis.js`, which
 joins `"fablevideo"` with the given parts using `:`. (Historical note: the
-prefix was `pvp:` before 2026-07-09, commit `075ad3e`; anything under the
+prefix was `pvp:` before 2026-07-09, commit `c37919e`; anything under the
 old prefix is orphaned data, not read by current code — see
 `failure-archaeology` for the incident.)
 
@@ -505,7 +505,7 @@ check runs.
   section), `pages/watch/video/[id].js`, `pages/watch/[shareId].js`,
   `components/ResumablePlayer.js`, `package.json`.
 - Repo state at time of writing: v1.6.0 (released 2026-07-07), Redis key
-  prefix `fablevideo:` (since commit `075ad3e`, 2026-07-09).
+  prefix `fablevideo:` (since commit `c37919e`, 2026-07-09).
 - **Volatile facts to re-check if this file feels stale**: the three
   signature TTLs (3h/6h/6h) and formulas in `lib/bunny.js`; the rate-limit
   table in section 7 (tokens/window are trivial to change and easy to drift

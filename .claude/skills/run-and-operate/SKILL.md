@@ -252,7 +252,7 @@ self-explanatory once you're in the right place.
 
 ## Provenance and maintenance
 
-Written 2026-07-13 against commit `1be60d7` (v1.6.0, `main`). Local verification performed
+Written 2026-07-13 against commit `8dcb237` (v1.6.0, `main`). Local verification performed
 directly during authoring: `npm run dev` started and was curled with no env vars (observed
 the Turbopack banner, then a 500 with `DomainResolutionError` from `proxy.js` on `/`), and
 the process was killed afterward. `npm run build` was **not** re-run (concurrency risk per

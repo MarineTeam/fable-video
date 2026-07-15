@@ -138,7 +138,7 @@ row) actually fired.
 **Purpose:** connect to Upstash Redis the same way `lib/redis.js` does, `PING`, then `SCAN`
 (cursor loop, `COUNT 100`, read-only) the whole keyspace once, bucketing every key by its
 `fablevideo:<family>` second segment and separately counting orphaned `pvp:*` keys — the
-un-migrated data from the 2026-07-09 prefix rename (commit `075ad3e`, see
+un-migrated data from the 2026-07-09 prefix rename (commit `c37919e`, see
 `failure-archaeology`).
 
 **Invocation:**
@@ -181,7 +181,7 @@ Prefix: fablevideo:
   fablevideo:rl         1
 
 *** WARNING: 3 orphaned pvp:* key(s) found. ***
-These predate the 2026-07-09 prefix rename (pvp: -> fablevideo:, commit 075ad3e) and were
+These predate the 2026-07-09 prefix rename (pvp: -> fablevideo:, commit c37919e) and were
 never migrated. The app no longer reads them, but the data is stranded in production.
 Counts only shown above — no key names or values printed (may contain viewer emails).
 
@@ -413,7 +413,7 @@ instead of taking it on faith.
 
 ## Provenance and maintenance
 
-Written 2026-07-13 against commit `1be60d7` (v1.6.0, first release 2026-07-07). Every script
+Written 2026-07-13 against commit `8dcb237` (v1.6.0, first release 2026-07-07). Every script
 output block above was captured by actually running the script in this repo on this date,
 except where explicitly labeled "expected output shape" or "not run" — those are documented
 from reading `lib/bunny.js`/`lib/redis.js` directly, not invented from memory.

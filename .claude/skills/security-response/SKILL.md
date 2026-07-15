@@ -68,12 +68,12 @@ Code scanning alerts).
 
 ## 2. Standing dispositions (settled — do not re-litigate)
 
-Verified against the repo on 2026-07-13 (commit `1be60d7`, unchanged from the 2026-07-10
+Verified against the repo on 2026-07-13 (commit `8dcb237`, unchanged from the 2026-07-10
 baseline). Re-run the greps below before trusting the line numbers if any time has passed.
 
 | Alert | Rule | File : line (verify with grep below) | Disposition | Evidence |
 |---|---|---|---|---|
-| #1 | Workflow does not contain permissions | `.github/workflows/ci.yml` | **FIXED** — `permissions: contents: read` added at top of workflow | commit `77bc05a`; verify: `grep -n "permissions:" .github/workflows/ci.yml` |
+| #1 | Workflow does not contain permissions | `.github/workflows/ci.yml` | **FIXED** — `permissions: contents: read` added at top of workflow | commit `7968919`; verify: `grep -n "permissions:" .github/workflows/ci.yml` |
 | #2 | Use of password hash with insufficient computational effort (High) | `lib/bunny.js`, inside `signEmbedUrl` (function starts line 147; `crypto.createHash("sha256")` call is lines 149–152, the `.update(...)` line CodeQL points at is line 151) | **FALSE POSITIVE** — open, dismiss with justification below | verify: `grep -n "createHash\|^export function signEmbedUrl" lib/bunny.js` |
 | #3 | Use of password hash with insufficient computational effort (High) | `lib/bunny.js`, inside `signTusUpload` (function starts line 158; `crypto.createHash("sha256")` call is lines 160–163, `.update(...)` at line 162) | **FALSE POSITIVE** — open, dismiss with justification below | verify: `grep -n "createHash\|^export function signTusUpload" lib/bunny.js` |
 | #4 | Use of password hash with insufficient computational effort (High) | `lib/bunny.js`, inside `thumbnailUrl` (function starts line 179; `crypto.createHash("sha256")` call is lines 187–190, `.update(...)` at line 189) | **FALSE POSITIVE** — open, dismiss with justification below | verify: `grep -n "createHash\|^export function thumbnailUrl" lib/bunny.js` |
@@ -266,7 +266,7 @@ Verified working on this repo 2026-07-13: check #1 returns no output (all 11 fil
 
 ## Provenance and maintenance
 
-Written 2026-07-13 against commit `1be60d7` (v1.6.0, 12 commits, same HEAD as the
+Written 2026-07-13 against commit `8dcb237` (v1.6.0, 12 commits, same HEAD as the
 2026-07-10 baseline — no commits landed in between). All line numbers, function names, and
 grep outputs in this file were verified directly against the repo at that commit. GitHub's
 live alert/dismissal state (open vs. dismissed, and whether Dependabot's default alerts are

@@ -2,7 +2,7 @@
 // check-redis.mjs — connect to the portal's Upstash Redis exactly the way
 // lib/redis.js does, PING it, then SCAN (cursor loop, COUNT 100) to census
 // keys by family under fablevideo:* and detect orphaned pvp:* keys left
-// over from the 2026-07-09 prefix rename (commit 075ad3e) that was never
+// over from the 2026-07-09 prefix rename (commit c37919e) that was never
 // migrated.
 //
 // USAGE
@@ -134,7 +134,7 @@ console.log("");
 if (pvpOrphans > 0) {
   console.log(`*** WARNING: ${pvpOrphans} orphaned pvp:* key(s) found. ***`);
   console.log(
-    "These predate the 2026-07-09 prefix rename (pvp: -> fablevideo:, commit 075ad3e) and were " +
+    "These predate the 2026-07-09 prefix rename (pvp: -> fablevideo:, commit c37919e) and were " +
       "never migrated. The app no longer reads them, but the data is stranded in production."
   );
   console.log("Counts only shown above — no key names or values printed (may contain viewer emails).");

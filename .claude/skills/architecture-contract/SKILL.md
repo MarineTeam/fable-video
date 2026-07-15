@@ -13,7 +13,7 @@ This is a **design-time** reference — for the mechanics of gates/PR/merge, see
 `change-control`; the two files cross-reference the same evidence but answer different
 questions ("why is it built this way" vs. "what do I have to run before I merge").
 
-Verified against `main` at commit `1be60d7` (`git log --oneline` — 12 commits, HEAD is the
+Verified against `main` at commit `8dcb237` (`git log --oneline` — 12 commits, HEAD is the
 merge of PR #2) on 2026-07-13. Re-verify anything you rely on; see "Provenance and
 maintenance" at the end.
 
@@ -138,7 +138,7 @@ only the CDN *hostname* via `cdnHostname()` composed into `thumbnailUrl`, never 
 `k(...parts)` from `lib/redis.js:7-9`, which joins `["fablevideo", ...parts]` with `:`.
 
 **Why:** The prefix is the entire migration mechanism. When the prefix changed from
-`pvp:` to `fablevideo:` in commit `075ad3e`, it was a one-line change in exactly one
+`pvp:` to `fablevideo:` in commit `c37919e`, it was a one-line change in exactly one
 place (`lib/redis.js`) precisely because every caller goes through `k()`. A hand-built
 key string anywhere would (a) not have picked up that rename and (b) silently create an
 orphaned, unprefixed key today.
@@ -197,12 +197,12 @@ shouldn't help) could harvest email addresses of people the admin shared videos 
 **Statement:** Every `catch` in every `pages/api/**` route logs the real error via
 `console.error("label:", err)` before responding with a generic error status.
 
-**Why:** Before commit `3d5a050`, data-layer failures were swallowed silently and
+**Why:** Before commit `1e01860`, data-layer failures were swallowed silently and
 surfaced only as an opaque `502` — a Redis misconfiguration was undiagnosable from
 Vercel's logs. Every catch block must leave a trail in the server logs even though the
 HTTP response stays generic (so as not to leak internals to the client).
 
-**Enforced at:** commit `3d5a050`; pattern present in every `pages/api/**` file, e.g.
+**Enforced at:** commit `1e01860`; pattern present in every `pages/api/**` file, e.g.
 `pages/api/admin/share.js:41,55` (`console.error("Video not found:", err)`,
 `console.error("Could not create the share link:", err)`).
 
@@ -260,7 +260,7 @@ pages/api/admin/share.js` → line 80, after the share and email logic above it)
 | **Pages Router, not App Router.** No `app/` directory exists anywhere in the repo (confirmed: `ls` at repo root shows no `app/`). | The entire codebase — `getServerSideProps` auth gates on `pages/index.js`, `pages/admin.js`, `pages/watch/[shareId].js`, the `pages/api/**` route-handler shape, `proxy.js`'s role as the Next 16 network boundary — assumes Pages Router conventions. Adding an `app/` directory would create two competing routing systems and likely double-mount or bypass the auth gates. Don't add one without a full migration plan (out of scope for a routine change). |
 | **`proxy.js`'s broad matcher is required for rolling session refresh.** `config.matcher` excludes only `_next/static`, `_next/image`, `favicon.ico`, `sitemap.xml`, `robots.txt` (`proxy.js:11-15`) — everything else, including every page and every API route, passes through `auth0.middleware(request)`. | The inline comment states it directly: "the broad matcher is required for rolling sessions to refresh on ordinary page/API traffic" (`proxy.js:12-13`). Narrowing the matcher (e.g., to only `/admin` or only `/api/*`) would stop session cookies from refreshing on requests that don't hit it, causing sessions to expire mid-use on excluded routes. |
 | **Shares are TTL-native Redis records plus an index set with opportunistic pruning.** `createShare` sets the record with `{ ex: ttlHours * 3600 }` (`lib/shares.js:38`) and adds the id to a separate index set (`lib/shares.js:39`, `sadd`). `updateShare` (`lib/shares.js:50-59`) reads the record's *remaining* TTL via `r.ttl(key)` and re-sets with that same remaining value (`ex: ttl`), never resetting the clock. `listShares` (`lib/shares.js:69-85`) reads the index, `mget`s all records, and opportunistically `srem`s any id whose record already expired (lines 79-83). | If `updateShare` re-set a fresh TTL instead of preserving the remaining one, every view-stamp or email-stamp update (which happens on ordinary use — first play, resend email) would silently extend a share's life past what the admin configured, defeating the whole point of a time-limited link. The index-set-plus-pruning design exists because Redis has no "list all keys matching a TTL'd pattern" primitive at scale; the index is the only way to enumerate shares for the admin's Shares tab, and dead entries are cleaned lazily rather than via a cron job (there is none in this repo). |
-| **The video list is cached for 4 seconds per warm serverless instance, and the homepage does an SSR-first-page fetch with client-side filtering after that.** `listAllVideos()` promise-caches for `VIDEO_LIST_CACHE_TTL_MS = 4000` (`lib/bunny.js:47,77-88`); `pages/index.js`'s `getServerSideProps` calls `fetchVideoLibrary()` server-side (lines 40-53) so the first paint already has data, and all search/collection-filter/pagination interaction after that happens client-side against the one fetched list (`pages/index.js:186-198`, no network round trip per keystroke — see file header comment lines 1-6). | This is what commit `8591d79` (homepage speedup) and `685843d` (client-side search/filter/pagination) bought: no round trip per keystroke, and the homepage doesn't wait for hydration-then-fetch. The cost is invariant (f) above — every mutation must remember to invalidate — and known weak point below (per-instance cache disagreement). |
+| **The video list is cached for 4 seconds per warm serverless instance, and the homepage does an SSR-first-page fetch with client-side filtering after that.** `listAllVideos()` promise-caches for `VIDEO_LIST_CACHE_TTL_MS = 4000` (`lib/bunny.js:47,77-88`); `pages/index.js`'s `getServerSideProps` calls `fetchVideoLibrary()` server-side (lines 40-53) so the first paint already has data, and all search/collection-filter/pagination interaction after that happens client-side against the one fetched list (`pages/index.js:186-198`, no network round trip per keystroke — see file header comment lines 1-6). | This is what commit `68ee934` (homepage speedup) and `b9e2b22` (client-side search/filter/pagination) bought: no round trip per keystroke, and the homepage doesn't wait for hydration-then-fetch. The cost is invariant (f) above — every mutation must remember to invalidate — and known weak point below (per-instance cache disagreement). |
 | **Settings, viewers, and video order live in Redis, not code or env vars, so admins never redeploy for day-to-day changes.** `lib/store.js` — `getSettings`/`saveSettings`, `getOrder`/`saveOrder`, `listViewers`/`addViewers`/`removeViewer`, `getTheme`/`saveTheme` all read/write Redis directly, with no caching layer and no env var involved. | This is explicitly why the admin panel (`pages/admin.js`) can change the homepage video count, reorder videos, add/remove approved viewers, and change the color palette live, with effects visible on the next request — no Vercel redeploy, unlike `ADMIN_EMAILS` (see weak point below) or any `RESEND_API_KEY`/`BUNNY_*` env var change. |
 
 ---
@@ -269,11 +269,11 @@ pages/api/admin/share.js` → line 80, after the share and email logic above it)
 
 | Weak point | Detail | What to do about it |
 |---|---|---|
-| **Orphaned `pvp:*` Redis keys.** | Commit `075ad3e` (2026-07-09) renamed the key prefix from `pvp:` to `fablevideo:` in `lib/redis.js` with **no migration** — the commit message states this explicitly ("All data is stored fresh so there's no migration"). Any data written before that commit under the old prefix is invisible to the app today and will never be read or cleaned up by it. | If you ever need to account for "missing" historical data (viewers, shares, settings) from before 2026-07-09, check for a stray `pvp:*` keyspace in Redis directly — the app will never surface or clean it. Not an active problem, just a fact to know before debugging "where did old data go." |
+| **Orphaned `pvp:*` Redis keys.** | Commit `c37919e` (2026-07-09) renamed the key prefix from `pvp:` to `fablevideo:` in `lib/redis.js` with **no migration** — the commit message states this explicitly ("All data is stored fresh so there's no migration"). Any data written before that commit under the old prefix is invisible to the app today and will never be read or cleaned up by it. | If you ever need to account for "missing" historical data (viewers, shares, settings) from before 2026-07-09, check for a stray `pvp:*` keyspace in Redis directly — the app will never surface or clean it. Not an active problem, just a fact to know before debugging "where did old data go." |
 | **Email claim is trusted; no `email_verified` enforcement in app code.** | `lib/auth.js` and `lib/guard.js` trust `session.user.email` as-is (after normalization) with no check of an `email_verified` claim from Auth0. `grep -rn email_verified` across `lib/` and `pages/` returns no hits outside `node_modules`. | Mitigated operationally, not in code: README "Security notes" (line ~204) and the one-time setup checklist (line 150) both instruct disabling Auth0 self-sign-up ("Disable Sign Ups") and adding people manually, so nobody can register an unverified address themselves. If that operational control is ever relaxed, this becomes a real gap — route to `security-response` if you're asked to harden it. |
 | **Per-serverless-instance cache means instances can disagree for up to 4 seconds.** | `videoListCache` in `lib/bunny.js:48` is a module-level `let`, meaning each warm Vercel serverless instance has its own independent cache and its own independent 4-second clock. Two viewers hitting two different warm instances immediately after an admin mutation can see different library states for up to 4s, even though invariant (f) is fully respected. | This is accepted behavior for a 4-second window, not a bug to fix reflexively. If a future feature needs strict read-after-write consistency (e.g., a "confirm your video is live" admin flow), don't assume the cache is consistent — poll or bypass `listAllVideos()`. |
 | **Admins are env-var-only (`ADMIN_EMAILS`), unlike viewers/settings/order.** | Unlike approved viewers (Redis, live via `/admin`), the admin list is `process.env.ADMIN_EMAILS` (`lib/auth.js:10-15`), parsed fresh on every call but only changeable by editing the Vercel env var and **redeploying** (README: "changes only apply to new deployments"). There is no UI to promote/demote an admin. | Expect "add me as an admin" requests to require an env var change + redeploy, not an admin-panel action — this is a real operational asymmetry from the viewer-management flow, not an oversight to silently "fix" by adding a Redis-backed admin list without discussion (that would be a security-relevant design change — route through `security-response` if proposed). |
-| **No lockfile means dependency drift can break a deploy or CI with zero code change.** | `.gitignore` blocks `package-lock.json`/`yarn.lock`/`pnpm-lock.yaml` by design (doctrine: keep dependencies on latest versions within `package.json`'s caret ranges). A new patch/minor release of any dependency can change behavior or break the build between two otherwise-identical commits. | Not this skill's territory — route to `dependency-currency` for the latest-versions doctrine and the ESLint 9.x pinning exception (commit `e34991e`). |
+| **No lockfile means dependency drift can break a deploy or CI with zero code change.** | `.gitignore` blocks `package-lock.json`/`yarn.lock`/`pnpm-lock.yaml` by design (doctrine: keep dependencies on latest versions within `package.json`'s caret ranges). A new patch/minor release of any dependency can change behavior or break the build between two otherwise-identical commits. | Not this skill's territory — route to `dependency-currency` for the latest-versions doctrine and the ESLint 9.x pinning exception (commit `f2d3a30`). |
 | **API routes and pages have no automated test coverage.** | Vitest covers only `lib/__tests__/` (`auth.test.js`, `email.test.js`, `order.test.js`, `theme.test.js` — 4 files, 24 tests, pure logic). Nothing under `pages/api/**` or `pages/*.js` is exercised by an automated test; `npm run lint` and `npm run build` are the only automated checks on that code. | Don't assume a passing `npm test` says anything about route-level behavior (guard ordering, status codes, request/response shape). Route to `validation-and-qa` for what to add and how. |
 
 ---
@@ -321,7 +321,7 @@ context alone) — `proxy.js`, `lib/auth.js`, `lib/guard.js`, `lib/redis.js`,
 `lib/store.js`, `lib/shares.js`, `lib/bunny.js`, `lib/videoList.js`, `lib/ratelimit.js`,
 `lib/audit.js`, `lib/email.js`, `pages/index.js`, `pages/admin.js`,
 `pages/watch/[shareId].js`, `pages/api/admin/share.js`, `README.md`, and commit
-`075ad3e`'s diff. All file:line citations above were confirmed against the actual file
+`c37919e`'s diff. All file:line citations above were confirmed against the actual file
 contents on that date. Facts below are volatile — re-verify before relying on them.
 
 | Volatile claim | Re-verify with |
@@ -339,7 +339,7 @@ contents on that date. Facts below are volatile — re-verify before relying on 
 | `proxy.js` matcher still broad | `sed -n '10,16p' proxy.js` |
 | Share TTL preserved on update | `sed -n '50,59p' lib/shares.js` |
 | Video-list cache TTL and per-instance scope | `grep -n "VIDEO_LIST_CACHE_TTL_MS\|let videoListCache" lib/bunny.js` |
-| `pvp:*` keys were never migrated | `git show 075ad3e --stat` and read the commit message |
+| `pvp:*` keys were never migrated | `git show c37919e --stat` and read the commit message |
 | Admins are env-var-only, no Redis admin list | `grep -n "ADMIN_EMAILS" lib/auth.js`; confirm no `k("admin` anywhere: `grep -rn 'k("admin' lib` |
 | Test coverage still limited to `lib/__tests__/` | `ls lib/__tests__/`; `grep -rL "test(" pages/api/**/*.js 2>/dev/null \| wc -l` (all of them, since none have tests) |
 | Lint/test/build baselines | see `change-control`'s Provenance table — same repo, same date |

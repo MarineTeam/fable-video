@@ -80,7 +80,7 @@ union — do not skip a row because another row's edit "covers" it.
 | **Release** | `CHANGELOG.md` — finalize the version section (add/confirm the `- YYYY-MM-DD` date) · `FEATURES.md` — bump the `Current as of **vX.Y.Z**` header (line 3) · `package.json` — bump `"version"` | See version-bump convention note below — only one release exists in this repo's history, so treat the ordering as a candidate convention, not a proven one |
 
 **Version-bump convention (candidate, not yet proven by repeated practice):** this repo has
-shipped exactly one release (`v1.6.0`, 2026-07-07, commit `0c8af44` — `git log --oneline`).
+shipped exactly one release (`v1.6.0`, 2026-07-07, commit `3848bc0` — `git log --oneline`).
 `package.json`'s version and the CHANGELOG's `[1.6.0]` header were introduced together in
 that history. Until a second release happens, treat "bump `package.json` version in the
 same PR that finalizes the CHANGELOG section" as the working assumption, not a verified

@@ -119,7 +119,7 @@ token equivalent (`lib/redis.js:26-27`). Resolution order, precisely:
 3. **Else, repeat both steps for `UPSTASH_REDIS_REST_URL`.**
 4. Same two-step process independently for the token half.
 
-Why this exists (incident f643a59): Vercel's Storage tab auto-injects env vars named after
+Why this exists (incident 84dfbe3): Vercel's Storage tab auto-injects env vars named after
 the connected store. With exactly one Redis/Upstash store connected, the vars land as plain
 `KV_REST_API_URL`/`KV_REST_API_TOKEN`. With **more than one** store connected to the same
 project, Vercel prefixes them with the store's name to disambiguate — so the plain name

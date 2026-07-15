@@ -51,7 +51,7 @@ skill BEFORE writing code, not after.
 | Security-touching | `lib/auth.js`, `lib/guard.js`, `lib/shares.js`, token signing in `lib/bunny.js` (lines ~145–195), `pages/watch/[shareId].js`, `proxy.js` | ALL gates + full self-review checklist (section 4) | `security-response` AND `architecture-contract` |
 | Config-env | `next.config.js`, `vitest.config.js`, `eslint.config.mjs`, env-var additions | lint + test + build; env-var changes ALSO need a Vercel redeploy | `environment-and-config`; redeploy via `run-and-operate` |
 | Dependency bump | any edit to `package.json` deps | fresh `npm install`, then ALL gates | `dependency-currency` (latest-versions doctrine + the ESLint 9.x exception) |
-| CI workflow | `.github/workflows/ci.yml` | lint + test locally; workflow itself is verified by the PR run | `security-response` (keep `permissions: contents: read` — added in 77bc05a for CodeQL alert #1) |
+| CI workflow | `.github/workflows/ci.yml` | lint + test locally; workflow itself is verified by the PR run | `security-response` (keep `permissions: contents: read` — added in 7968919 for CodeQL alert #1) |
 
 If a change spans classes, apply the union of the gates and the strictest consult
 (security-touching wins).
@@ -77,7 +77,7 @@ Expected output — exactly this, then exit 0 (verify with `echo $?`):
 
 No warnings, no errors, nothing after the script banner. Any extra output = failure.
 Note: one rule (`react-hooks/set-state-in-effect`) is deliberately disabled with a
-rationale comment in `eslint.config.mjs` (commit 1d43920). If lint flags something you
+rationale comment in `eslint.config.mjs` (commit eef72fb). If lint flags something you
 believe is a false positive, follow that pattern — never disable a rule without a comment
 explaining why, and never disable one just to get a PR through.
 
@@ -140,14 +140,14 @@ Break none of these. Each row: the rule, why it exists, and where to verify it.
 | # | Rule | Rationale / incident | Evidence |
 |---|---|---|---|
 | 1 | Every `/api/admin/*` route's handler begins with `const admin = await requireAdmin(req, res); if (!admin) return;` and thus returns 403 to non-admins | Double-gating doctrine: the `/admin` page is gated server-side AND every API route is gated independently — a UI bug can never expose an admin API | `lib/guard.js:1-2` (stated contract); all 11 files in `pages/api/admin/` comply; README "Security notes" |
-| 2 | Every `catch` block logs `console.error("label:", err)` BEFORE returning a generic 5xx | Incident: before 3d5a050, every data-layer catch swallowed its error — a Redis misconfiguration produced invisible generic 502s across the entire admin panel, undiagnosable from Vercel logs | commit 3d5a050; pattern in `pages/api/admin/viewers.js:16-17,35,57` |
+| 2 | Every `catch` block logs `console.error("label:", err)` BEFORE returning a generic 5xx | Incident: before 1e01860, every data-layer catch swallowed its error — a Redis misconfiguration produced invisible generic 502s across the entire admin panel, undiagnosable from Vercel logs | commit 1e01860; pattern in `pages/api/admin/viewers.js:16-17,35,57` |
 | 3 | No direct bunny CDN file URLs (`*.b-cdn.net/.../playlist.m3u8`, `play_720p.mp4`) anywhere — playback only via signed, time-limited embed tokens; thumbnails only via token-signed CDN URLs | Core security property: videos are never public. A direct file URL bypasses token auth permanently | `lib/bunny.js:1-4` (stated invariant), `signEmbedUrl` at `lib/bunny.js:147`; README "Security notes"; see `architecture-contract` |
 | 4 | Never commit a lockfile (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`) | Deliberate latest-versions policy: Vercel and CI install fresh every time. A stray lockfile out of sync with `package.json` is a documented deploy-failure mode | `.gitignore:1-6`; README "Common issues" ("`npm install` fails on deploy"); ci.yml:22-23 comment |
-| 5 | New Redis keys ONLY via `k(...)` from `lib/redis.js` — never hand-build a key string | Every key is namespaced `fablevideo:`. Commit 075ad3e renamed the prefix (pvp:→fablevideo:) in ONE place because all keys go through `k()`; old `pvp:*` keys were NOT migrated — a hand-built key would have silently orphaned data | `lib/redis.js:5-9`; commit 075ad3e |
-| 6 | Any new bunny.net mutation (create/update/delete video) calls `invalidateVideoListCache()` after the API call | The 4-second promise cache (added 8591d79 for homepage speed) would otherwise serve stale lists after an admin mutation | `lib/bunny.js:50-52` and call sites at lines 97, 106, 112 |
+| 5 | New Redis keys ONLY via `k(...)` from `lib/redis.js` — never hand-build a key string | Every key is namespaced `fablevideo:`. Commit c37919e renamed the prefix (pvp:→fablevideo:) in ONE place because all keys go through `k()`; old `pvp:*` keys were NOT migrated — a hand-built key would have silently orphaned data | `lib/redis.js:5-9`; commit c37919e |
+| 6 | Any new bunny.net mutation (create/update/delete video) calls `invalidateVideoListCache()` after the API call | The 4-second promise cache (added 68ee934 for homepage speed) would otherwise serve stale lists after an admin mutation | `lib/bunny.js:50-52` and call sites at lines 97, 106, 112 |
 | 7 | Secrets stay server-side only. `NEXT_PUBLIC_` prefix embeds a var into the browser bundle — NO secret may ever carry it | Anything `NEXT_PUBLIC_*` is world-readable in the shipped JS. Today only `NEXT_PUBLIC_SITE_NAME` and `NEXT_PUBLIC_SENTRY_DSN` carry it, both non-secret by design | README env tables; `grep -rn NEXT_PUBLIC_ pages/ components/ lib/` |
 | 8 | Share flows NEVER reveal the intended recipient. A logged-in user opening someone else's link sees a generic "made for someone else" message | Leaking the recipient email to an arbitrary logged-in user is an information disclosure | `pages/watch/[shareId].js:34-37` ("Never reveal the intended recipient"); README "Security notes" |
-| 9 | ESLint stays `^9.x` — do NOT bump to 10 | Incident e34991e: ESLint 10 crashes eslint-config-next with `scopeManager.addGlobals is not a function`. This is a DATED exception (2026-07) to the owner's latest-versions doctrine; the re-check condition (eslint-config-next supporting ESLint 10) lives in `dependency-currency` | commit e34991e; `package.json` devDependencies (`"eslint": "^9.39.0"`) |
+| 9 | ESLint stays `^9.x` — do NOT bump to 10 | Incident f2d3a30: ESLint 10 crashes eslint-config-next with `scopeManager.addGlobals is not a function`. This is a DATED exception (2026-07) to the owner's latest-versions doctrine; the re-check condition (eslint-config-next supporting ESLint 10) lives in `dependency-currency` | commit f2d3a30; `package.json` devDependencies (`"eslint": "^9.39.0"`) |
 | 10 | Rate-limit expensive or abusable endpoints with `allowRequest(name, id, tokens, window)` following the existing pattern | Uploads, share creation, and the video list all hit external paid APIs or send email; unlimited calls = cost/abuse. The limiter fails OPEN (infra hiccup never locks users out) — do not change that semantic | `pages/api/admin/share.js:20` (30/h), `pages/api/admin/upload.js:15` (30/h), `pages/api/videos.js:18` (60/m); `lib/ratelimit.js:1-2` |
 | 11 | Every admin mutation calls `logAction(admin, "noun.verb", detail)` after it succeeds | The Activity tab is the audit trail for a multi-admin portal. Logging is best-effort by design (never breaks the action) — but omitting the call breaks the trail | `lib/audit.js:1-2`; call sites in every mutating `pages/api/admin/*` route (e.g. `viewers.js:39,61`, `share.js:80`) |
 | 12 | Failure semantics are asymmetric on purpose: viewer approval fails CLOSED, rate limiting fails OPEN — never flip either | Approval failing open leaks video data on an infra error; rate limiting failing closed locks out all real users on an infra error | `lib/guard.js:29-32`; `lib/ratelimit.js:1-2,27-29`; see `architecture-contract` |
@@ -178,7 +178,7 @@ Walk this checklist against your diff. Every "yes" required.
   "Resolve Redis env vars by suffix, not exact name", "Pin ESLint to 9.x for
   eslint-config-next compatibility".
 - **Body:** explains WHY — the observed symptom, the root cause, and what was verified.
-  See `git show f643a59` or `git show 3d5a050` for the house style: symptom first, then
+  See `git show 84dfbe3` or `git show 1e01860` for the house style: symptom first, then
   cause, then the fix and how it was verified.
 - PR titles follow the same convention. Verify with `git log --format='%h %s%n%b'`.
 
@@ -186,7 +186,7 @@ Walk this checklist against your diff. Every "yes" required.
 
 | Failure | Route to |
 |---|---|
-| `npm run lint` errors | Fix mechanically. If you believe the rule is wrong, follow the 1d43920 pattern (disable WITH a rationale comment in `eslint.config.mjs`) — and only with clear justification |
+| `npm run lint` errors | Fix mechanically. If you believe the rule is wrong, follow the eef72fb pattern (disable WITH a rationale comment in `eslint.config.mjs`) — and only with clear justification |
 | `npm test` failures | `validation-and-qa` (test design, what the 24 tests cover, how to extend) |
 | `npm run build` fails on missing env | Re-run with the Gate 3 one-liner; if still failing, `environment-and-config` |
 | `npm run build` fails on code error | `debugging-playbook` |
@@ -196,7 +196,7 @@ Walk this checklist against your diff. Every "yes" required.
 
 ## Provenance and maintenance
 
-Written 2026-07-10 against commit 77bc05a (v1.6.0, 12 commits). Facts below are volatile —
+Written 2026-07-10 against commit 7968919 (v1.6.0, 12 commits). Facts below are volatile —
 re-verify before relying on them; update this file when a check's expected output changes.
 
 | Volatile claim | Re-verify with |
