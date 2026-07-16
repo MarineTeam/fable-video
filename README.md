@@ -41,6 +41,17 @@ own, independently of the page-level gate.
 > require verified email) so nobody can self-register as an approved or admin
 > address. Centralized identity logic lives in `lib/auth.js`.
 
+- Visiting the site requires logging in via Auth0.
+- Only **approved viewers** (managed live by an admin) see the video library. Everyone else sees a clear "not approved" message after logging in.
+- The homepage shows the library — as a **thumbnail grid** when thumbnails are configured, otherwise a title list — with **search**, **collection filters**, and a **Continue watching** strip that resumes videos where the viewer left off. It's paginated and capped at an admin-controlled count.
+- Clicking a video opens a watch page that plays it in a tokenized bunny.net embed and remembers playback position.
+- Admins manage everything from a tabbed **`/admin`** panel: upload videos, organize the library, manage viewers and share links (with one-click **email delivery**), adjust the site's color palette, and view analytics and an activity log.
+- `/admin` is gated **server-side** (redirects non-admins before any UI is sent) and every `/api/admin/*` route independently returns `403` for non-admins.
+- The portal is an **installable PWA** — visitors can add it to a home screen and launch it standalone. A minimal service worker (`public/sw.js`) caches only the static app icons; it never caches Auth0, `/api/*` responses, or signed video/thumbnail URLs.
+- **Push notifications** (optional) — approved viewers can opt in with a "Notify me" button. They're notified automatically when a new video becomes ready, and admins can send a manual broadcast from the Settings tab. Requires VAPID keys (see env vars); inert without them.
+
+
+
 ---
 
 ## Tech stack
