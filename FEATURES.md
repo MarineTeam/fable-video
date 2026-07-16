@@ -132,6 +132,7 @@ setup and architecture, see [README.md](./README.md).
   statistics API).
 - **Manual push broadcast** — send a notification to every currently approved
   viewer (and admins); click-through targets are restricted to same-origin paths.
+  - **Content-protection panel** — explains the tokenized-playback model and the bunny.net "Block Direct URL File Access" setting.
 
 ## Admin panel structure _(admin)_
 - **Tabbed layout** — Videos, Viewers, Shares, Settings, Activity, Analytics — so
