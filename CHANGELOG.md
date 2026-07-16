@@ -5,6 +5,28 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-07-16
+
+Documentation-only release — no runtime code changed.
+
+### Documentation
+
+- **README rewritten and reorganized** — leads with a four-state access model
+  table (anonymous / signed-in-not-approved / approved viewer / admin) and makes
+  the fail-closed (access) and fail-open (infrastructure) posture explicit,
+  including the signed embed-token formula. Consolidates the full operational
+  reference: environment-variable groups with secret-generation commands
+  (`openssl rand -hex 32`, `npx web-push generate-vapid-keys`), the one-time
+  setup checklist, the Auth0 v4 migration note, a symptom-to-fix troubleshooting
+  section, and Redis/Upstash scaling notes.
+- **FEATURES reorganized by audience** (viewers / share links / admin /
+  platform), refreshed against the current code, and re-stamped to v1.8.0
+  content (it had been left at v1.7.0). Retains the "Known gaps / not yet
+  implemented" section.
+- **Skill library version drift reconciled** across `.claude/skills/`.
+- Added `README.original.md` and `FEATURES.original.md` as verbatim backups of
+  the pre-rewrite documents.
+
 ## [1.8.0] - 2026-07-15
 
 ### Added
