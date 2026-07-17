@@ -301,6 +301,8 @@ styles/globals.css        Design system (dark glassmorphism, gradient accents, I
 public/                   PWA manifest, service worker (sw.js), and app icons
 instrumentation.js        Sentry server/edge init hook (opt-in)
 instrumentation-client.js Sentry client init (opt-in)
+sentry.server.config.js   Sentry Node.js runtime init (opt-in)
+sentry.edge.config.js     Sentry Edge runtime init (opt-in)
 next.config.js            Wrapped with withSentryConfig
 .github/workflows/ci.yml  Lint + test + build on push/PR to main
 ```
