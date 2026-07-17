@@ -298,7 +298,13 @@ lib/
   ratelimit.js            Sliding-window limiter (fails open)
   __tests__/              Vitest smoke tests (auth, order, theme, email)
 styles/globals.css        Design system (dark glassmorphism, gradient accents, Inter)
-public/                   PWA manifest, service worker (sw.js), and app icons
+public/
+  manifest.webmanifest    PWA manifest (name, icons, standalone display)
+  sw.js                   Service worker — caches only the static app icons
+  icon-192.png            App icon (192×192)
+  icon-512.png            App icon (512×512)
+  icon-maskable-512.png   Maskable app icon (512×512, adaptive/Android)
+  apple-touch-icon.png    iOS home-screen icon
 instrumentation.js        Sentry server/edge init hook (opt-in)
 instrumentation-client.js Sentry client init (opt-in)
 sentry.server.config.js   Sentry Node.js runtime init (opt-in)
