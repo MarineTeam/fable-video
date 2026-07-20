@@ -5,6 +5,22 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Bulk video sharing** — select multiple videos in the admin Videos tab and
+  share them with multiple recipients in one request. Creates one
+  independently-revocable link per video × recipient pair (up to 200 pairs
+  per request), and sends each recipient a single email listing only their
+  own links (`pages/api/admin/share-bulk.js`, `lib/email.js`'s
+  `bulkShareEmailTemplate`).
+- **Per-link view and playback tracking** — every share link now tracks a
+  view count and last-viewed time (every watch-page load, not just the
+  first), plus real-playback stats reported by the Bunny player's own
+  events: play count, furthest percentage watched, and completion
+  (`components/ShareTrackedPlayer.js`, `POST /api/share-track`,
+  `lib/shares.js`'s `shareViewPatch`/`sharePlaybackPatch`). Distinguishes
+  who opened a link from who actually watched.
+
 ## [1.8.1] - 2026-07-16
 
 Documentation-only release — no runtime code changed.

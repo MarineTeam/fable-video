@@ -6,8 +6,9 @@
 import Head from "next/head";
 import { auth0 } from "../../lib/auth0";
 import { normalizeEmail } from "../../lib/auth";
-import { getShare, updateShare } from "../../lib/shares";
+import { getShare, shareViewPatch, updateShare } from "../../lib/shares";
 import { signEmbedUrl } from "../../lib/bunny";
+import ShareTrackedPlayer from "../../components/ShareTrackedPlayer";
 
 export async function getServerSideProps({ req, params, resolvedUrl }) {
   const session = await auth0.getSession(req);
@@ -36,16 +37,13 @@ export async function getServerSideProps({ req, params, resolvedUrl }) {
     return { props: { state: "mismatch", user } };
   }
 
-  if (!share.viewedAt) {
-    await updateShare(params.shareId, {
-      viewedAt: new Date().toISOString(),
-    }).catch(() => {});
-  }
+  await updateShare(params.shareId, shareViewPatch(share)).catch(() => {});
 
   return {
     props: {
       state: "ok",
       user,
+      shareId: params.shareId,
       title: share.videoTitle || "Untitled",
       embedSrc: signEmbedUrl(share.videoId),
     },
@@ -71,7 +69,7 @@ function ShareMessage({ title, children, user }) {
   );
 }
 
-export default function SharedWatch({ state, user, title, embedSrc }) {
+export default function SharedWatch({ state, user, shareId, title, embedSrc }) {
   if (state === "gone") {
     return (
       <>
@@ -116,15 +114,7 @@ export default function SharedWatch({ state, user, title, embedSrc }) {
             </a>
           </span>
         </div>
-        <div className="player-frame">
-          <iframe
-            src={embedSrc}
-            loading="eager"
-            allow="accelerometer; gyroscope; encrypted-media; picture-in-picture; fullscreen"
-            allowFullScreen
-            title="Video player"
-          />
-        </div>
+        <ShareTrackedPlayer src={embedSrc} shareId={shareId} />
       </div>
     </div>
   );

@@ -281,6 +281,15 @@ code {
   gap: 1.25rem;
 }
 
+.stack-sm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
 /* ---------- buttons & inputs ---------- */
 
 .btn {
@@ -949,6 +958,20 @@ code {
   color: var(--muted);
   display: inline-flex;
   flex: none;
+}
+
+.row-check {
+  flex: none;
+  accent-color: var(--accent);
+}
+
+.bulk-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.25rem;
+  margin-bottom: 0.4rem;
+  flex-wrap: wrap;
 }
 
 .rename-row {
