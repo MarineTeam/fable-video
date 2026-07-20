@@ -93,8 +93,18 @@ setup and architecture, see [README.md](./README.md).
   the logged-in email matches the one specified. Wrong-account attempts show a
   generic mismatch message — **the intended recipient's email is never revealed**.
 - **Adjustable expiry** per link (default 72 hours, capped at 720 / 30 days).
-- **Viewed status** — each active link shows whether the recipient has opened it
-  yet (stamped on first play, preserving remaining TTL).
+- **Bulk sharing** — select multiple videos in the Videos tab and share all of
+  them with multiple recipients in one request. Every video × recipient pair
+  gets its own independently-revocable link (up to 200 pairs per request), and
+  each recipient gets exactly **one** email listing only their own links —
+  never anyone else's.
+- **View tracking** — each link tracks how many times its watch page was
+  opened and when it was last opened, not just a single "viewed" stamp.
+- **Real-playback tracking** — separately from page views, the Bunny player's
+  own events (play, timeupdate, ended) report actual playback per link: how
+  many times playback started, the furthest percentage watched, and whether
+  it was watched to completion. This distinguishes someone who opened the
+  link from someone who actually watched.
 - **Instant revocation** — kill any active link immediately, one click.
 - Expired/revoked links show a clean "expired or doesn't exist" message.
 - **Unguessable IDs** — share IDs are random 16-byte tokens, format-validated

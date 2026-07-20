@@ -241,6 +241,173 @@ function ShareCreator({ video, emailConfigured, onClose, onCreated }) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Bulk share creation                                                 */
+/* ------------------------------------------------------------------ */
+
+function BulkShareCreator({ videos, emailConfigured, onClose, onCreated }) {
+  const [emailsText, setEmailsText] = useState("");
+  const [hours, setHours] = useState(72);
+  const [sendMail, setSendMail] = useState(emailConfigured);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
+
+  const parsedEmails = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          emailsText
+            .split(/[\s,;\n]+/)
+            .map((e) => e.trim().toLowerCase())
+            .filter(Boolean)
+        )
+      ),
+    [emailsText]
+  );
+
+  const pairCount = videos.length * parsedEmails.length;
+
+  const create = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const data = await api("/api/admin/share-bulk", {
+        method: "POST",
+        body: {
+          videoIds: videos.map((v) => v.id),
+          emails: parsedEmails,
+          hours: Number(hours),
+          sendEmail: sendMail,
+        },
+      });
+      setResult(data);
+      onCreated?.();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose} role="presentation">
+      <div className="modal card" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Bulk-share videos">
+        <div className="modal-head">
+          <h3 className="modal-title">
+            Share {videos.length} video{videos.length === 1 ? "" : "s"}
+          </h3>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
+            <XIcon size={16} />
+          </button>
+        </div>
+        <p className="muted small">{videos.map((v) => v.title).join(", ")}</p>
+
+        {result ? (
+          <div className="share-result stack">
+            <p className="notice notice-ok">
+              <LinkIcon size={14} /> Created {result.created} link
+              {result.created === 1 ? "" : "s"} — {result.videos} video
+              {result.videos === 1 ? "" : "s"} × {result.recipients} recipient
+              {result.recipients === 1 ? "" : "s"}.
+            </p>
+            {sendMail && result.emailConfigured ? (
+              <ul className="stack-sm">
+                {Object.entries(result.emailResults).map(([recipient, r]) => (
+                  <li key={recipient} className="muted small">
+                    {r.emailed ? (
+                      <>
+                        <MailIcon size={12} /> Emailed {recipient}
+                      </>
+                    ) : (
+                      <>
+                        Could not email {recipient}: {r.error}
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted small">
+                Links were created but not emailed. Copy them from the Shares
+                tab.
+              </p>
+            )}
+            <button type="button" className="btn btn-ghost" onClick={onClose}>
+              Done
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={create} className="stack">
+            <label className="field">
+              <span className="field-label">
+                Recipient emails (comma, space, or newline separated)
+              </span>
+              <textarea
+                className="input"
+                rows={3}
+                required
+                value={emailsText}
+                onChange={(e) => setEmailsText(e.target.value)}
+                placeholder="alice@example.com, bob@example.com"
+              />
+              <span className="muted small">
+                {parsedEmails.length} recipient{parsedEmails.length === 1 ? "" : "s"}
+                {pairCount > 0
+                  ? ` · ${pairCount} link${pairCount === 1 ? "" : "s"} will be created`
+                  : ""}
+              </span>
+            </label>
+            <label className="field">
+              <span className="field-label">Expires after (hours, max 720)</span>
+              <input
+                type="number"
+                className="input"
+                min="1"
+                max="720"
+                value={hours}
+                onChange={(e) => setHours(e.target.value)}
+              />
+            </label>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={sendMail && emailConfigured}
+                disabled={!emailConfigured}
+                onChange={(e) => setSendMail(e.target.checked)}
+              />
+              <span>
+                Email each recipient their links
+                {!emailConfigured ? (
+                  <span className="muted small block">
+                    (email delivery isn&apos;t configured — see Settings)
+                  </span>
+                ) : null}
+              </span>
+            </label>
+            {error ? <div className="notice notice-error">{error}</div> : null}
+            <div className="row-actions">
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={busy || !parsedEmails.length}
+              >
+                <LinkIcon size={14} />{" "}
+                {busy
+                  ? "Creating…"
+                  : `Create ${pairCount || ""} link${pairCount === 1 ? "" : "s"}`}
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={onClose}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Videos tab                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -252,6 +419,8 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
   const [uploads, setUploads] = useState([]);
   const [dragOver, setDragOver] = useState(false);
   const [shareFor, setShareFor] = useState(null);
+  const [selected, setSelected] = useState(() => new Set());
+  const [bulkShareOpen, setBulkShareOpen] = useState(false);
   const [renaming, setRenaming] = useState(null);
   const [newCollection, setNewCollection] = useState("");
   const [error, setError] = useState("");
@@ -391,6 +560,20 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
   }, [videos, search]);
 
   const canReorder = !search.trim();
+
+  const toggleSelect = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectedVideos = useMemo(
+    () => (videos || []).filter((v) => selected.has(v.id)),
+    [videos, selected]
+  );
 
   const handleDragStart = (index) => () => {
     dragIndex.current = index;
@@ -584,6 +767,25 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+        {selected.size > 0 ? (
+          <div className="bulk-toolbar">
+            <span className="muted small">{selected.size} selected</span>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => setBulkShareOpen(true)}
+            >
+              <LinkIcon size={13} /> Share selected
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setSelected(new Set())}
+            >
+              Clear
+            </button>
+          </div>
+        ) : null}
         {!canReorder ? (
           <p className="muted small">Clear the filter to drag-reorder.</p>
         ) : (
@@ -613,6 +815,13 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
                     <GripIcon size={14} />
                   </span>
                 ) : null}
+                <input
+                  type="checkbox"
+                  className="row-check"
+                  checked={selected.has(video.id)}
+                  onChange={() => toggleSelect(video.id)}
+                  aria-label={`Select ${video.title}`}
+                />
                 {thumbs && video.thumbnail ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={video.thumbnail} alt="" className="row-thumb" />
@@ -743,6 +952,17 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
           emailConfigured={emailConfigured}
           onClose={() => setShareFor(null)}
           onCreated={onSharesChanged}
+        />
+      ) : null}
+      {bulkShareOpen ? (
+        <BulkShareCreator
+          videos={selectedVideos}
+          emailConfigured={emailConfigured}
+          onClose={() => setBulkShareOpen(false)}
+          onCreated={() => {
+            onSharesChanged?.();
+            setSelected(new Set());
+          }}
         />
       ) : null}
     </div>
@@ -957,13 +1177,36 @@ function SharesTab({ emailConfigured, onCount }) {
                     ({new Date(share.expiresAt).toLocaleString()})
                   </span>
                 </div>
-                {share.viewedAt ? (
-                  <span className="badge badge-ok" title={new Date(share.viewedAt).toLocaleString()}>
-                    Viewed
+                {share.viewCount ? (
+                  <span
+                    className="badge badge-ok"
+                    title={`Last opened ${new Date(share.lastViewedAt).toLocaleString()}`}
+                  >
+                    Viewed {share.viewCount}×
                   </span>
                 ) : (
                   <span className="badge">Not viewed</span>
                 )}
+                {share.playCount ? (
+                  <span
+                    className="badge badge-info"
+                    title={`${share.playCount} playback(s) started`}
+                  >
+                    Played {share.playCount}×
+                  </span>
+                ) : null}
+                {share.completedAt ? (
+                  <span
+                    className="badge badge-ok"
+                    title={`Completed ${new Date(share.completedAt).toLocaleString()}`}
+                  >
+                    Completed
+                  </span>
+                ) : share.furthestPercent ? (
+                  <span className="badge" title="Furthest point reached in playback">
+                    {share.furthestPercent}% watched
+                  </span>
+                ) : null}
                 {share.emailedAt ? (
                   <span className="badge badge-info" title={new Date(share.emailedAt).toLocaleString()}>
                     Emailed
@@ -1245,6 +1488,7 @@ const ACTION_LABELS = {
   "viewer.add": "Viewer added",
   "viewer.remove": "Viewer removed",
   "share.create": "Share link created",
+  "share.bulk_create": "Bulk share links created",
   "share.revoke": "Share link revoked",
   "share.email": "Share link emailed",
   "video.rename": "Video renamed",
