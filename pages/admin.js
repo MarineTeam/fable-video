@@ -273,6 +273,17 @@ function BulkShareCreator({ videos, emailConfigured, onClose, onCreated }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
+  const [copiedBundle, setCopiedBundle] = useState(null);
+
+  const copyBundleUrl = async (recipient, url) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedBundle(recipient);
+      setTimeout(() => setCopiedBundle(null), 2000);
+    } catch {
+      setError("Could not copy the bundle link");
+    }
+  };
 
   const parsedEmails = useMemo(
     () =>
@@ -355,6 +366,32 @@ function BulkShareCreator({ videos, emailConfigured, onClose, onCreated }) {
                 tab.
               </p>
             )}
+            {Object.values(result.bundleResults || {}).some(Boolean) ? (
+              <ul className="stack-sm">
+                {Object.entries(result.bundleResults)
+                  .filter(([, bundle]) => bundle)
+                  .map(([recipient, bundle]) => (
+                    <li key={recipient} className="muted small share-link-box">
+                      <span>
+                        {recipient} now has a bundle page grouping their active
+                        links.
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => copyBundleUrl(recipient, bundle.url)}
+                      >
+                        {copiedBundle === recipient ? (
+                          <CheckIcon size={13} />
+                        ) : (
+                          <CopyIcon size={13} />
+                        )}
+                        {copiedBundle === recipient ? " Copied" : " Copy bundle link"}
+                      </button>
+                    </li>
+                  ))}
+              </ul>
+            ) : null}
             <button type="button" className="btn btn-ghost" onClick={onClose}>
               Done
             </button>
@@ -1353,6 +1390,46 @@ function SharesTab({ emailConfigured, onCount }) {
     }
   };
 
+  // A durable, always-visible view of every recipient's bundle page — so
+  // the link doesn't only exist as a one-time success message. Grouped
+  // client-side from the shares list already fetched; a bundle is never a
+  // second source of truth (see lib/bundles.js), so this is purely a
+  // different view of the same rows.
+  const bundleGroups = useMemo(() => {
+    if (!shares) return [];
+    const byBundle = new Map();
+    shares.forEach((share) => {
+      if (!share.bundleId) return;
+      const group = byBundle.get(share.bundleId) || {
+        bundleId: share.bundleId,
+        email: share.email,
+        total: 0,
+        live: 0,
+        soonestExpiresAt: null,
+      };
+      group.total += 1;
+      if (!share.revoked && !isShareExpired(share)) {
+        group.live += 1;
+        if (!group.soonestExpiresAt || share.expiresAt < group.soonestExpiresAt) {
+          group.soonestExpiresAt = share.expiresAt;
+        }
+      }
+      byBundle.set(share.bundleId, group);
+    });
+    return Array.from(byBundle.values()).sort((a, b) => a.email.localeCompare(b.email));
+  }, [shares]);
+
+  const copyBundleUrlFor = async (bundleId) => {
+    try {
+      const url = `${window.location.origin}/watch/bundle/${bundleId}`;
+      await navigator.clipboard.writeText(url);
+      setCopiedId(`bundle-group:${bundleId}`);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      setError("Could not copy the bundle link");
+    }
+  };
+
   const sendEmail = async (share) => {
     setBusyId(share.id);
     setError("");
@@ -1366,7 +1443,11 @@ function SharesTab({ emailConfigured, onCount }) {
   };
 
   const revoke = async (share) => {
-    if (!window.confirm(`Revoke the link for ${share.email}? It stops working immediately.`)) {
+    if (
+      !window.confirm(
+        `Revoke the link for ${share.email}? It stops working immediately — you can restore it later if needed.`
+      )
+    ) {
       return;
     }
     try {
@@ -1377,6 +1458,42 @@ function SharesTab({ emailConfigured, onCount }) {
     } catch (err) {
       setError(err.message);
     }
+  };
+
+  const restoreShare = async (share) => {
+    setBusyId(share.id);
+    setError("");
+    try {
+      await api(`/api/admin/shares?id=${encodeURIComponent(share.id)}`, {
+        method: "PATCH",
+      });
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusyId(null);
+  };
+
+  const deleteForever = async (share) => {
+    if (
+      !window.confirm(
+        `Permanently delete the revoked link for ${share.email}? This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    setBusyId(share.id);
+    setError("");
+    try {
+      await api(`/api/admin/shares?id=${encodeURIComponent(share.id)}`, {
+        method: "DELETE",
+        body: { permanent: true },
+      });
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusyId(null);
   };
 
   const promptHours = (defaultValue) => {
@@ -1478,7 +1595,7 @@ function SharesTab({ emailConfigured, onCount }) {
     const ids = [...selected];
     if (
       !window.confirm(
-        `Revoke ${ids.length} link${ids.length === 1 ? "" : "s"}? They stop working immediately.`
+        `Revoke ${ids.length} link${ids.length === 1 ? "" : "s"}? They stop working immediately — you can restore them later if needed.`
       )
     ) {
       return;
@@ -1513,6 +1630,44 @@ function SharesTab({ emailConfigured, onCount }) {
   return (
     <div className="stack-lg">
       {error ? <div className="notice notice-error">{error}</div> : null}
+      {bundleGroups.length > 0 ? (
+        <section className="card">
+          <div className="card-head">
+            <h3>Bundle pages ({bundleGroups.length})</h3>
+          </div>
+          <p className="muted small">
+            One page per recipient grouping their active links — a durable
+            place to grab the link again, not just at share-creation time.
+          </p>
+          <div className="row-list">
+            {bundleGroups.map((group) => (
+              <div key={group.bundleId} className="row">
+                <div className="row-main">
+                  <strong className="row-title">{group.email}</strong>
+                  <span className="muted small">
+                    {group.live} of {group.total} link{group.total === 1 ? "" : "s"} active
+                    {group.soonestExpiresAt
+                      ? ` · soonest expiry ${new Date(group.soonestExpiresAt).toLocaleString()}`
+                      : ""}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => copyBundleUrlFor(group.bundleId)}
+                >
+                  {copiedId === `bundle-group:${group.bundleId}` ? (
+                    <CheckIcon size={13} />
+                  ) : (
+                    <CopyIcon size={13} />
+                  )}
+                  {copiedId === `bundle-group:${group.bundleId}` ? " Copied" : " Copy bundle link"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
       <section className="card">
         <div className="card-head">
           <h3>Share links ({shares ? shares.length : "…"})</h3>
@@ -1523,7 +1678,9 @@ function SharesTab({ emailConfigured, onCount }) {
             ? " New links are emailed automatically; use Email to resend."
             : " Configure email delivery in Settings to send links automatically."}
           {" "}Once a recipient has 2+ active links they&apos;re grouped into
-          one bundle page and one consolidated email.
+          one bundle page and one consolidated email. Revoking a link is
+          recoverable — use Restore to undo it, or Delete permanently once
+          you&apos;re sure.
         </p>
         {selected.size > 0 ? (
           <div className="bulk-toolbar">
@@ -1601,7 +1758,13 @@ function SharesTab({ emailConfigured, onCount }) {
                       ({new Date(share.expiresAt).toLocaleString()})
                     </span>
                   </div>
-                  {expired ? <span className="badge badge-danger">Expired</span> : null}
+                  {share.revoked ? (
+                    <span className="badge badge-danger" title={share.revokedAt ? `Revoked ${new Date(share.revokedAt).toLocaleString()}` : undefined}>
+                      Revoked
+                    </span>
+                  ) : expired ? (
+                    <span className="badge badge-danger">Expired</span>
+                  ) : null}
                   {share.bundleId ? (
                     <span className="badge badge-info" title="Grouped into this recipient's bundle page">
                       Bundled
@@ -1643,53 +1806,78 @@ function SharesTab({ emailConfigured, onCount }) {
                     </span>
                   ) : null}
                   <div className="row-actions">
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => copy(share)}>
-                      {copiedId === share.id ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
-                      {copiedId === share.id ? " Copied" : " Copy"}
-                    </button>
-                    {share.bundleId ? (
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => copyBundleLink(share)}
-                        title="Copy this recipient's bundle page link"
-                      >
-                        {copiedId === `bundle:${share.id}` ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
-                        {copiedId === `bundle:${share.id}` ? " Copied" : " Copy bundle"}
-                      </button>
-                    ) : null}
-                    {emailConfigured ? (
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        disabled={busyId === share.id}
-                        onClick={() => sendEmail(share)}
-                        title={share.emailedAt ? "Resend the email" : "Email the link"}
-                      >
-                        <MailIcon size={13} />{" "}
-                        {busyId === share.id
-                          ? "Sending…"
-                          : share.emailedAt
-                            ? "Resend"
-                            : "Email"}
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      disabled={busyId === share.id}
-                      onClick={() => extendOne(share)}
-                      title="Extend this link's expiry in place — same URL, no re-notification"
-                    >
-                      {busyId === share.id ? "Extending…" : "Extend"}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-danger btn-sm"
-                      onClick={() => revoke(share)}
-                    >
-                      Revoke
-                    </button>
+                    {share.revoked ? (
+                      <>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          disabled={busyId === share.id}
+                          onClick={() => restoreShare(share)}
+                          title="Undo the revoke — same link, same URL, no re-notification"
+                        >
+                          {busyId === share.id ? "Restoring…" : "Restore"}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          disabled={busyId === share.id}
+                          onClick={() => deleteForever(share)}
+                        >
+                          Delete permanently
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => copy(share)}>
+                          {copiedId === share.id ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
+                          {copiedId === share.id ? " Copied" : " Copy"}
+                        </button>
+                        {share.bundleId ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => copyBundleLink(share)}
+                            title="Copy this recipient's bundle page link"
+                          >
+                            {copiedId === `bundle:${share.id}` ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
+                            {copiedId === `bundle:${share.id}` ? " Copied" : " Copy bundle"}
+                          </button>
+                        ) : null}
+                        {emailConfigured ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            disabled={busyId === share.id}
+                            onClick={() => sendEmail(share)}
+                            title={share.emailedAt ? "Resend the email" : "Email the link"}
+                          >
+                            <MailIcon size={13} />{" "}
+                            {busyId === share.id
+                              ? "Sending…"
+                              : share.emailedAt
+                                ? "Resend"
+                                : "Email"}
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          disabled={busyId === share.id}
+                          onClick={() => extendOne(share)}
+                          title="Extend this link's expiry in place — same URL, no re-notification"
+                        >
+                          {busyId === share.id ? "Extending…" : "Extend"}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          onClick={() => revoke(share)}
+                          title="Revoke this link — recoverable via Restore until it's permanently deleted"
+                        >
+                          Revoke
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               );
@@ -2061,6 +2249,8 @@ const ACTION_LABELS = {
   "share.bulk_create": "Bulk share links created",
   "share.extend": "Share link(s) extended",
   "share.revoke": "Share link revoked",
+  "share.unrevoke": "Share link restored",
+  "share.delete": "Share link permanently deleted",
   "share.email": "Share link emailed",
   "video.rename": "Video renamed",
   "video.delete": "Video deleted",

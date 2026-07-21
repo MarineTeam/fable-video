@@ -5,6 +5,28 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Soft revoke, restore, and permanent delete for share links** — revoking
+  a link now flags it in place instead of deleting it, so an accidental
+  revoke can be undone with the same id/URL and no re-notification. The
+  Shares tab shows a "Revoked" badge with **Restore** and **Delete
+  permanently** actions; Extend and email-resend explicitly refuse a
+  revoked link rather than silently reviving it (`lib/shares.js`'s
+  `revokeShare` / `unrevokeShare` / `permanentlyDeleteShare`, `PATCH
+  /api/admin/shares` for restore, `DELETE /api/admin/shares` with
+  `{ permanent: true }` for permanent delete).
+- **Persistent bundle-link access** — a "Bundle pages" section in the
+  Shares tab lists every recipient's bundle with a durable "Copy bundle
+  link" button, and the bulk-share creation result now also surfaces each
+  new/updated bundle's link — not just a one-time toast at share-creation
+  time (`pages/api/admin/share-bulk.js`'s `bundleResults`).
+- **"My activity" page** — a per-viewer watch history page (`/activity`,
+  linked from the nav) listing every video the viewer has made progress
+  on, finished or not, most-recent first, with a resume/rewatch link and
+  progress bar. Backed by `GET /api/progress?all=1`, the uncapped,
+  all-videos counterpart to the existing capped continue-watching list.
+
 ## [1.10.0] - 2026-07-21
 
 Email watermark, per-video share analytics, and bulk video operations —

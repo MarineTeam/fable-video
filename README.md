@@ -250,11 +250,12 @@ pages/
   _app.js                 Theme bootstrap, Inter font, idle-timeout mount
   _document.js            No-flash palette script (applies cached theme pre-paint)
   index.js                Homepage — thumbnail grid/list, search, collections, continue-watching
+  activity.js             "My activity" — per-viewer full watch history (server-gated)
   admin.js                Tabbed admin panel (server-gated) — Videos/Viewers/Shares/Settings/Activity/Analytics
   api/
     videos.js             Page of videos for approved viewers (rate-limited)
     collections.js        Collection list for the homepage filter (approved viewers)
-    progress.js           Per-viewer playback progress / watch history
+    progress.js           Per-viewer playback progress / watch history (continue-watching + full history)
     theme.js              Public GET palette; admin POST to update it
     push/subscribe.js     Register/remove a viewer's Web Push subscription
     share-track.js        Real-playback events (play/progress/ended) for one share link
@@ -269,7 +270,8 @@ pages/
       share-bulk.js        Bulk-create one link per video x recipient pair (rate-limited)
       share-extend.js      Extend one or more links' expiry in place (single or bulk)
       share-email.js      Send/resend the email (single or bulk; bundle-consolidated if bundled)
-      shares.js           List / revoke share links, single or bulk (view/playback stats, emailed status)
+      shares.js           List / revoke (soft) / restore / permanently delete share links, single
+                          or bulk (view/playback stats, emailed status)
       upload.js           Create Bunny video + signed TUS auth (rate-limited)
       collections.js      Create / list / delete collections
       audit.js            Recent admin actions
@@ -295,7 +297,7 @@ lib/
   redis.js                Upstash Redis connection + key prefix helper k()
   store.js                Settings, viewers, order, theme, progress (Redis-backed)
   shares.js               Share-link records (app-level expiry + grace-window TTL), view/
-                          playback tracking, extend
+                          playback tracking, extend, soft revoke/restore, permanent delete
   bundles.js              One-bundle-per-recipient grouping (ids only, always read live)
   email.js                Resend delivery + share/bundle email templates (inert until configured)
   push.js                 Web Push subscriptions + send + new-video announce (inert until configured)

@@ -797,6 +797,11 @@ code {
   transition: width 0.2s ease;
 }
 
+.activity-row-link {
+  color: inherit;
+  text-decoration: none;
+}
+
 /* ---------- watch pages ---------- */
 
 .watch-head {

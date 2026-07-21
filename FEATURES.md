@@ -61,6 +61,9 @@ setup and architecture, see [README.md](./README.md).
   if the player protocol is unavailable — plain playback still works.
 - **Continue-watching** — the homepage shows a strip of in-progress videos with
   progress bars, newest first. Finished and barely-started videos are excluded.
+- **My activity** — a full watch-history page (`/activity`, linked from the
+  nav) listing every video the viewer has progressed on, finished or not,
+  most-recent first, with a resume/rewatch link and progress bar.
 
 ### Notifications & installable app
 - **Push notifications** — approved viewers can opt in with a "Notify me" button
@@ -105,9 +108,12 @@ setup and architecture, see [README.md](./README.md).
   many times playback started, the furthest percentage watched, and whether
   it was watched to completion. This distinguishes someone who opened the
   link from someone who actually watched.
-- **Instant revocation** — kill any active link immediately, one click, or
-  select several and **bulk revoke** them in one action (each link revoked
-  independently, per-link success/failure result).
+- **Instant, recoverable revocation** — kill any active link immediately, one
+  click, or select several and **bulk revoke** them in one action (each link
+  revoked independently, per-link success/failure result). Revoking is a
+  soft flag, not a delete — a revoked link shows a **Revoked** badge in the
+  Shares tab with **Restore** (undo the revoke, same id/URL, no
+  re-notification) and **Delete permanently** (irreversible) actions.
 - Expired/revoked links show a clean "expired or doesn't exist" message.
 - **Unguessable IDs** — share IDs are random 16-byte tokens, format-validated
   before any lookup.
@@ -129,6 +135,11 @@ setup and architecture, see [README.md](./README.md).
   copy of any item's title or status. A recipient's first share still gets a
   plain single-link email; every later notification (new shares, resends)
   becomes one consolidated email once they're bundled.
+- **Durable bundle-link access** — a "Bundle pages" section in the Shares
+  tab lists every recipient's bundle with a persistent "Copy bundle link"
+  button, so the link isn't only available in the moment a bundle is
+  created. The bulk-share creation result also surfaces each new/updated
+  bundle's link directly.
 - **Email watermark, per link** — a Default / Always / Never selector when
   creating a share link (single or bulk) overrides the video's and the
   global watermark setting for that link. See "Email watermark" under

@@ -105,6 +105,10 @@ export default async function handler(req, res) {
   });
 
   const emailResults = {};
+  // Surfaced back to the admin UI so a durable "Copy bundle link" button
+  // can be shown per recipient right in the create-links result, not just
+  // buried in the email that recipient receives.
+  const bundleResults = {};
   await Promise.all(
     Array.from(byRecipient.entries()).map(async ([recipient, newShareIds]) => {
       // One bundle per recipient: attach to their existing bundle, or
@@ -116,6 +120,9 @@ export default async function handler(req, res) {
       } catch (err) {
         console.error("Could not update the recipient's bundle:", err);
       }
+      bundleResults[recipient] = bundle?.bundle
+        ? { id: bundle.id, url: bundleUrl(req, bundle.id) }
+        : null;
 
       if (!shouldEmail || !emailEnabled()) return;
       try {
@@ -169,5 +176,6 @@ export default async function handler(req, res) {
     skippedVideoIds,
     emailConfigured: emailEnabled(),
     emailResults,
+    bundleResults,
   });
 }
