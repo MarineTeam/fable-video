@@ -1,7 +1,13 @@
 // Admin settings: homepage video count, plus read-only config state the
 // admin panel needs (email delivery configuration).
 import { requireAdmin } from "../../../lib/guard";
-import { getSettings, MAX_VIDEO_COUNT, saveSettings } from "../../../lib/store";
+import {
+  getSettings,
+  getWatermarkSettings,
+  MAX_VIDEO_COUNT,
+  saveSettings,
+  saveWatermarkEnabled,
+} from "../../../lib/store";
 import { emailEnabled, emailFrom, siteName } from "../../../lib/email";
 import { pushEnabled } from "../../../lib/push";
 import { logAction } from "../../../lib/audit";
@@ -12,9 +18,13 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
-      const settings = await getSettings();
+      const [settings, watermark] = await Promise.all([
+        getSettings(),
+        getWatermarkSettings(),
+      ]);
       return res.json({
         ...settings,
+        watermarkEnabled: watermark.enabled,
         emailConfigured: emailEnabled(),
         emailFrom: emailEnabled() ? emailFrom() : null,
         siteName: siteName(),
@@ -27,23 +37,46 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "POST") {
-    const videoCount = Number(req.body?.videoCount);
-    if (
-      !Number.isFinite(videoCount) ||
-      videoCount < 1 ||
-      videoCount > MAX_VIDEO_COUNT
-    ) {
-      return res
-        .status(400)
-        .json({ error: `Video count must be between 1 and ${MAX_VIDEO_COUNT}` });
+    const body = req.body || {};
+    const updates = [];
+
+    if (body.videoCount !== undefined) {
+      const videoCount = Number(body.videoCount);
+      if (
+        !Number.isFinite(videoCount) ||
+        videoCount < 1 ||
+        videoCount > MAX_VIDEO_COUNT
+      ) {
+        return res
+          .status(400)
+          .json({ error: `Video count must be between 1 and ${MAX_VIDEO_COUNT}` });
+      }
+      updates.push(["videoCount", Math.floor(videoCount)]);
     }
+    if (body.watermarkEnabled !== undefined) {
+      updates.push(["watermarkEnabled", Boolean(body.watermarkEnabled)]);
+    }
+    if (!updates.length) {
+      return res.status(400).json({ error: "Nothing to update" });
+    }
+
     try {
-      await saveSettings({ videoCount: Math.floor(videoCount) });
+      await Promise.all(
+        updates.map(([key, value]) =>
+          key === "watermarkEnabled"
+            ? saveWatermarkEnabled(value)
+            : saveSettings({ [key]: value })
+        )
+      );
     } catch (err) {
       console.error("Could not save settings:", err);
       return res.status(502).json({ error: "Could not save settings" });
     }
-    await logAction(admin, "settings.update", `video count → ${Math.floor(videoCount)}`);
+    await logAction(
+      admin,
+      "settings.update",
+      updates.map(([key, value]) => `${key} → ${value}`).join(", ")
+    );
     return res.json({ ok: true });
   }
 

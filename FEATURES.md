@@ -129,6 +129,10 @@ setup and architecture, see [README.md](./README.md).
   copy of any item's title or status. A recipient's first share still gets a
   plain single-link email; every later notification (new shares, resends)
   becomes one consolidated email once they're bundled.
+- **Email watermark, per link** — a Default / Always / Never selector when
+  creating a share link (single or bulk) overrides the video's and the
+  global watermark setting for that link. See "Email watermark" under
+  People & oversight for the full layered resolution order.
 
 ---
 
@@ -144,6 +148,14 @@ setup and architecture, see [README.md](./README.md).
 - **Delete** videos (removes from bunny.net and prunes them from the saved order).
 - **Drag-to-reorder** and **search/filter** the library.
 - **Collections** — create/delete collections and assign each video to one.
+- **Bulk operations** — multi-select videos and **bulk delete** or **move to
+  a collection** in one action, mirroring the bulk-share UX. Each video is
+  processed independently (one failure never blocks the rest), with a
+  per-item success/failure report.
+- **Per-video watermark override** — a Default / Always / Never select per
+  video overrides the global watermark setting for every share of that
+  video (unless a per-share or exemption override applies — see "Email
+  watermark" below).
 
 ---
 
@@ -160,9 +172,22 @@ setup and architecture, see [README.md](./README.md).
 - **Analytics dashboard** — total views, 30-day views, watch time, video count, a
   30-day views chart, and a most-watched list (from bunny.net video stats + the
   statistics API).
+- **Per-video share analytics** — a collapsible panel rolling up existing
+  per-share tracking by video: link count, unique recipients, views,
+  playback starts, completions and completion rate, and average
+  furthest-percent watched. Reads only fields already stored on share
+  records — no new tracking is added.
 - **Manual push broadcast** — send a notification to every currently approved
   viewer (and admins); click-through targets are restricted to same-origin paths.
-  - **Content-protection panel** — explains the tokenized-playback model and the bunny.net "Block Direct URL File Access" setting.
+- **Content-protection panel** — explains the tokenized-playback model and the bunny.net "Block Direct URL File Access" setting.
+- **Email watermark** — overlays the viewer's email and a timestamp on
+  playback as a deterrent against re-sharing recordings. Layered,
+  most-specific-wins resolution: a per-recipient **exemption** (managed in
+  Settings, applies to any viewer or admin email) always wins; then a
+  per-share Always/Never choice (set at share creation); then a per-video
+  override (Videos tab); otherwise a global on/off default (Settings tab)
+  applies. Applies to both private share-link playback and direct
+  approved-viewer playback.
 
 ## Admin panel structure _(admin)_
 - **Tabbed layout** — Videos, Viewers, Shares, Settings, Activity, Analytics — so

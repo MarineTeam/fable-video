@@ -1,9 +1,10 @@
 import { useEffect, useRef } from "react";
+import WatermarkOverlay from "./WatermarkOverlay";
 
 // Wraps the tokenized bunny.net embed with player.js to remember playback
 // position per viewer. Degrades gracefully: if the player.js protocol is
 // unavailable, plain playback still works — resume simply does nothing.
-export default function ResumablePlayer({ src, videoId }) {
+export default function ResumablePlayer({ src, videoId, watermark }) {
   const iframeRef = useRef(null);
 
   useEffect(() => {
@@ -78,6 +79,7 @@ export default function ResumablePlayer({ src, videoId }) {
         allowFullScreen
         title="Video player"
       />
+      <WatermarkOverlay text={watermark} />
     </div>
   );
 }

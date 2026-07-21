@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import WatermarkOverlay from "./WatermarkOverlay";
 
 // Wraps the tokenized bunny.net embed with player.js to report real
 // playback — not just the page-load "view" already stamped server-side —
@@ -6,7 +7,7 @@ import { useEffect, useRef } from "react";
 // furthest-watched-percent updates, and a completion stamp on "ended".
 // Degrades gracefully: if player.js is unavailable, plain playback still
 // works, just without playback tracking.
-export default function ShareTrackedPlayer({ src, shareId }) {
+export default function ShareTrackedPlayer({ src, shareId, watermark }) {
   const iframeRef = useRef(null);
 
   useEffect(() => {
@@ -72,6 +73,7 @@ export default function ShareTrackedPlayer({ src, shareId }) {
         allowFullScreen
         title="Video player"
       />
+      <WatermarkOverlay text={watermark} />
     </div>
   );
 }

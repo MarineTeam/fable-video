@@ -9,6 +9,12 @@ import { auth0 } from "../../lib/auth0";
 import { normalizeEmail } from "../../lib/auth";
 import { getShare, isShareLive, shareViewPatch, updateShare } from "../../lib/shares";
 import { signEmbedUrl } from "../../lib/bunny";
+import {
+  getVideoWatermarkOverride,
+  getWatermarkSettings,
+  isWatermarkExempt,
+} from "../../lib/store";
+import { resolveWatermark } from "../../lib/watermark";
 import ShareTrackedPlayer from "../../components/ShareTrackedPlayer";
 import ShareGateMessage from "../../components/ShareGateMessage";
 
@@ -44,6 +50,26 @@ export async function getServerSideProps({ req, params, resolvedUrl }) {
 
   await updateShare(params.shareId, shareViewPatch(share)).catch(() => {});
 
+  // Best-effort — a watermark-resolution failure must never block playback,
+  // it just falls back to no watermark for this load.
+  let watermarkText = null;
+  try {
+    const [{ enabled }, videoMode, exempt] = await Promise.all([
+      getWatermarkSettings(),
+      getVideoWatermarkOverride(share.videoId),
+      isWatermarkExempt(email),
+    ]);
+    const show = resolveWatermark({
+      globalEnabled: enabled,
+      videoMode,
+      shareMode: share.watermark || "default",
+      exempt,
+    });
+    if (show) watermarkText = `${email} · ${new Date().toLocaleString()}`;
+  } catch (err) {
+    console.error("Could not resolve watermark settings:", err);
+  }
+
   return {
     props: {
       state: "ok",
@@ -51,11 +77,12 @@ export async function getServerSideProps({ req, params, resolvedUrl }) {
       shareId: params.shareId,
       title: share.videoTitle || "Untitled",
       embedSrc: signEmbedUrl(share.videoId),
+      watermarkText,
     },
   };
 }
 
-export default function SharedWatch({ state, user, shareId, title, embedSrc }) {
+export default function SharedWatch({ state, user, shareId, title, embedSrc, watermarkText }) {
   if (state === "gone") {
     return (
       <>
@@ -100,7 +127,7 @@ export default function SharedWatch({ state, user, shareId, title, embedSrc }) {
             </a>
           </span>
         </div>
-        <ShareTrackedPlayer src={embedSrc} shareId={shareId} />
+        <ShareTrackedPlayer src={embedSrc} shareId={shareId} watermark={watermarkText} />
       </div>
     </div>
   );

@@ -331,24 +331,29 @@ Viewers/Shares:
 
 - **Videos** — upload (drag-and-drop, progress, cancel/retry), rename, delete,
   drag-to-reorder, search, encoding-status badges, per-video collection
-  assignment, per-video private share-link creation (with an "email the
-  link" option), and **multi-select bulk sharing** (select several videos,
-  share them with several recipients in one request). Includes a
-  Collections manager (create/delete).
+  assignment, a per-video **watermark override** (Default/Always/Never),
+  per-video private share-link creation (with an "email the link" option),
+  and **multi-select bulk sharing** (select several videos, share them with
+  several recipients in one request) as well as **bulk delete** and **bulk
+  move to a collection**. Includes a Collections manager (create/delete).
 - **Viewers** — add/remove approved emails, **bulk add** (paste a list), and each
   viewer's **last-seen** time.
 - **Shares** — every share link with recipient, expiry, **view count/last
   viewed**, **playback** (plays, furthest % watched, completed), **bundled**
   status, and **emailed** status; email/resend, extend expiry, and revoke —
   each single or **multi-select bulk**, with per-link success/failure
-  results (email is bundle-consolidated when bundled).
+  results (email is bundle-consolidated when bundled). Creating a link
+  (single or bulk) includes a **watermark** override.
 - **Settings** — homepage video count, the site **color palette** (7 presets +
-  custom, applied to all visitors), and the email/push status panels.
+  custom, applied to all visitors), the **email watermark** global default
+  and exemption list, and the email/push status panels.
 - **Activity** — recent admin actions (viewer add/remove, share
-  create/bulk-create/extend/revoke/email, video rename/delete/reorder,
-  settings, palette, collections), each with actor and time.
+  create/bulk-create/extend/revoke/email, video rename/delete/bulk-delete/
+  reorder/collection change/watermark, watermark exemptions, settings,
+  palette, collections), each with actor and time.
 - **Analytics** — total views, 30-day views, watch time, video count, a 30-day
-  views chart, and a most-watched list.
+  views chart, a most-watched list, and a collapsible **per-video share
+  analytics** panel rolling up existing share-link tracking.
 
 ---
 
@@ -388,6 +393,10 @@ surfaces in the admin UI).
 - **Idle sign-out** logs users out after 30 minutes of inactivity.
 - Direct bunny.net CDN file URLs are never used by the app; to lock them down
   fully, enable **Block Direct URL File Access** on the library's Security tab.
+- **Email watermark** is a re-sharing deterrent, not DRM — it overlays the
+  viewer's email on playback but does not prevent screen recording. Layered
+  resolution (exemption → per-share → per-video → global default) is in
+  `lib/watermark.js`.
 
 ---
 

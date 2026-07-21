@@ -6,7 +6,13 @@ import AppShell from "../../../components/AppShell";
 import ResumablePlayer from "../../../components/ResumablePlayer";
 import { auth0 } from "../../../lib/auth0";
 import { isAdmin, normalizeEmail } from "../../../lib/auth";
-import { isApprovedViewer } from "../../../lib/store";
+import {
+  getVideoWatermarkOverride,
+  getWatermarkSettings,
+  isApprovedViewer,
+  isWatermarkExempt,
+} from "../../../lib/store";
+import { resolveWatermark } from "../../../lib/watermark";
 import { getVideo, signEmbedUrl } from "../../../lib/bunny";
 
 export async function getServerSideProps({ req, params, resolvedUrl }) {
@@ -41,6 +47,24 @@ export async function getServerSideProps({ req, params, resolvedUrl }) {
   }
   if (!video?.guid) return { notFound: true };
 
+  // Best-effort — a watermark-resolution failure must never block playback,
+  // it just falls back to no watermark for this load.
+  let watermarkText = null;
+  try {
+    const [{ enabled }, videoMode, exempt] = await Promise.all([
+      getWatermarkSettings(),
+      getVideoWatermarkOverride(video.guid),
+      isWatermarkExempt(email),
+    ]);
+    // No per-share layer applies here — this is direct approved-viewer
+    // playback, not a share link.
+    if (resolveWatermark({ globalEnabled: enabled, videoMode, exempt })) {
+      watermarkText = `${email} · ${new Date().toLocaleString()}`;
+    }
+  } catch (err) {
+    console.error("Could not resolve watermark settings:", err);
+  }
+
   return {
     props: {
       user: { email, name: session.user.name || email },
@@ -51,11 +75,12 @@ export async function getServerSideProps({ req, params, resolvedUrl }) {
         length: video.length || 0,
       },
       embedSrc: signEmbedUrl(video.guid),
+      watermarkText,
     },
   };
 }
 
-export default function WatchVideo({ user, admin, video, embedSrc }) {
+export default function WatchVideo({ user, admin, video, embedSrc, watermarkText }) {
   return (
     <AppShell user={user} admin={admin} canNotify>
       <Head>
@@ -67,7 +92,7 @@ export default function WatchVideo({ user, admin, video, embedSrc }) {
         </Link>
         <h1 className="page-title">{video.title}</h1>
       </div>
-      <ResumablePlayer src={embedSrc} videoId={video.id} />
+      <ResumablePlayer src={embedSrc} videoId={video.id} watermark={watermarkText} />
     </AppShell>
   );
 }
