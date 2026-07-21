@@ -6,7 +6,8 @@ import { allowRequest } from "../../../lib/ratelimit";
 import { getVideo } from "../../../lib/bunny";
 import { isValidEmail, normalizeEmail } from "../../../lib/auth";
 import { createShare, shareUrl, updateShare } from "../../../lib/shares";
-import { emailEnabled, sendShareEmail } from "../../../lib/email";
+import { bundleUrl, ensureBundleForRecipient, liveBundleItems } from "../../../lib/bundles";
+import { emailEnabled, sendBulkShareEmail, sendShareEmail } from "../../../lib/email";
 import { logAction } from "../../../lib/audit";
 
 export default async function handler(req, res) {
@@ -58,18 +59,42 @@ export default async function handler(req, res) {
   const { id, share } = created;
   const url = shareUrl(req, id);
 
+  // One bundle per recipient: attach this new share to their existing
+  // bundle, or create one (sweeping in any other already-live shares) once
+  // they cross 2 active shares. Best-effort — grouping must never fail
+  // share creation itself.
+  let bundle = null;
+  try {
+    bundle = await ensureBundleForRecipient({ email: recipient, newShareIds: [id], hours });
+  } catch (err) {
+    console.error("Could not update the recipient's bundle:", err);
+  }
+
   // Automatic email delivery — failures never lose the link; the admin can
-  // still copy it (or hit "Email link" again from the Shares tab).
+  // still copy it (or hit "Email link" again from the Shares tab). Once a
+  // bundle exists, every notification becomes one consolidated email
+  // listing everything currently live for that recipient, not just this
+  // one new link.
   let emailed = false;
   let emailError = null;
   if (shouldEmail && emailEnabled()) {
     try {
-      await sendShareEmail({
-        recipient,
-        videoTitle: share.videoTitle,
-        url,
-        expiresAt: share.expiresAt,
-      });
+      if (bundle?.bundle) {
+        const items = await liveBundleItems(bundle.bundle, bundle.id);
+        const links = items.map((it) => ({
+          videoTitle: it.videoTitle,
+          url: shareUrl(req, it.id),
+          expiresAt: it.expiresAt,
+        }));
+        await sendBulkShareEmail({ recipient, links, bundleUrl: bundleUrl(req, bundle.id) });
+      } else {
+        await sendShareEmail({
+          recipient,
+          videoTitle: share.videoTitle,
+          url,
+          expiresAt: share.expiresAt,
+        });
+      }
       await updateShare(id, { emailedAt: new Date().toISOString() }).catch(() => {});
       emailed = true;
     } catch (err) {
@@ -90,5 +115,6 @@ export default async function handler(req, res) {
     emailed,
     emailError,
     emailConfigured: emailEnabled(),
+    bundle: bundle?.bundle ? { id: bundle.id, url: bundleUrl(req, bundle.id) } : null,
   });
 }

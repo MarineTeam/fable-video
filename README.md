@@ -257,15 +257,19 @@ pages/
     progress.js           Per-viewer playback progress / watch history
     theme.js              Public GET palette; admin POST to update it
     push/subscribe.js     Register/remove a viewer's Web Push subscription
+    share-track.js        Real-playback events (play/progress/ended) for one share link
     admin/
       videos.js           List (ordered) / rename / set-collection / delete (announces new-ready videos)
       notify.js           Manual admin push broadcast (rate-limited)
       viewers.js          List (with last-seen) / add (single or bulk) / remove
       settings.js         Homepage video count + email/push status
       order.js            Custom homepage video order
-      share.js            Create a private share link (rate-limited, auto-emails recipient)
-      share-email.js      Send/resend the email for an existing share link
-      shares.js           List / revoke active share links (viewed + emailed status)
+      share.js            Create a private share link (rate-limited, auto-emails recipient;
+                           attaches to/creates the recipient's bundle)
+      share-bulk.js        Bulk-create one link per video x recipient pair (rate-limited)
+      share-extend.js      Extend one or more links' expiry in place (single or bulk)
+      share-email.js      Send/resend the email (single or bulk; bundle-consolidated if bundled)
+      shares.js           List / revoke share links (view/playback stats, emailed status)
       upload.js           Create Bunny video + signed TUS auth (rate-limited)
       collections.js      Create / list / delete collections
       audit.js            Recent admin actions
@@ -273,11 +277,14 @@ pages/
   watch/
     video/[id].js         Plays a library video for an approved viewer (resumable)
     [shareId].js          Plays a video via a private share link (forced login + email match)
+    bundle/[bundleId].js  Lists everything currently shared with one recipient (same gate)
 components/
   AppShell.js             Header/layout shell
   PushToggle.js           "Notify me" opt-in button (Web Push subscribe/unsubscribe)
   IdleTimeout.js          30-minute inactivity auto sign-out
   ResumablePlayer.js      Wraps the Bunny embed via player.js for resume + progress
+  ShareTrackedPlayer.js   Wraps the Bunny embed via player.js for share-link playback tracking
+  ShareGateMessage.js     Shared "link/bundle isn't available" card (share + bundle pages)
   icons.js                Inline SVG icons
 lib/
   auth0.js                Auth0 v4 client (session handling)
@@ -287,8 +294,10 @@ lib/
                           URLs, thumbnail URLs (token-signed), statistics
   redis.js                Upstash Redis connection + key prefix helper k()
   store.js                Settings, viewers, order, theme, progress (Redis-backed)
-  shares.js               Share-link records (TTL), viewed/emailed stamps, listing
-  email.js                Resend delivery + share-link email template (inert until configured)
+  shares.js               Share-link records (app-level expiry + grace-window TTL), view/
+                          playback tracking, extend
+  bundles.js              One-bundle-per-recipient grouping (ids only, always read live)
+  email.js                Resend delivery + share/bundle email templates (inert until configured)
   push.js                 Web Push subscriptions + send + new-video announce (inert until configured)
   videoList.js            Viewer-facing library (ordered, ready-only, signed thumbnails)
   order.js                Apply custom video order (new uploads float to top, newest first)
@@ -296,7 +305,7 @@ lib/
   theme-client.js         Apply + cache palette in the browser
   audit.js                Append-only admin action log (capped)
   ratelimit.js            Sliding-window limiter (fails open)
-  __tests__/              Vitest smoke tests (auth, order, theme, email)
+  __tests__/              Vitest smoke tests (auth, order, theme, email, shares)
 styles/globals.css        Design system (dark glassmorphism, gradient accents, Inter)
 public/
   manifest.webmanifest    PWA manifest (name, icons, standalone display)
@@ -322,18 +331,23 @@ Viewers/Shares:
 
 - **Videos** — upload (drag-and-drop, progress, cancel/retry), rename, delete,
   drag-to-reorder, search, encoding-status badges, per-video collection
-  assignment, and per-video private share-link creation (with an "email the
-  link" option). Includes a Collections manager (create/delete).
+  assignment, per-video private share-link creation (with an "email the
+  link" option), and **multi-select bulk sharing** (select several videos,
+  share them with several recipients in one request). Includes a
+  Collections manager (create/delete).
 - **Viewers** — add/remove approved emails, **bulk add** (paste a list), and each
   viewer's **last-seen** time.
-- **Shares** — every active private link with recipient, expiry,
-  **viewed/not-viewed** status, and **emailed** status; email/resend with one
-  click; revoke instantly.
+- **Shares** — every share link with recipient, expiry, **view count/last
+  viewed**, **playback** (plays, furthest % watched, completed), **bundled**
+  status, and **emailed** status; email/resend, single or **multi-select
+  bulk** (bundle-consolidated if bundled, per-link results); **extend**
+  expiry in place (single or multi-select bulk, with per-link results);
+  revoke instantly.
 - **Settings** — homepage video count, the site **color palette** (7 presets +
   custom, applied to all visitors), and the email/push status panels.
 - **Activity** — recent admin actions (viewer add/remove, share
-  create/revoke/email, video rename/delete/reorder, settings, palette,
-  collections), each with actor and time.
+  create/bulk-create/extend/revoke/email, video rename/delete/reorder,
+  settings, palette, collections), each with actor and time.
 - **Analytics** — total views, 30-day views, watch time, video count, a 30-day
   views chart, and a most-watched list.
 

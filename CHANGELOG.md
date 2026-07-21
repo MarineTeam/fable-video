@@ -20,6 +20,38 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`components/ShareTrackedPlayer.js`, `POST /api/share-track`,
   `lib/shares.js`'s `shareViewPatch`/`sharePlaybackPatch`). Distinguishes
   who opened a link from who actually watched.
+- **One consolidated bundle page per recipient** — once a recipient has 2 or
+  more active share links (from one bulk action or accumulated over
+  separate actions), they're grouped into a single bundle
+  (`lib/bundles.js`), viewable on one page at `/watch/bundle/[bundleId]`,
+  gated by the same Auth0-login-plus-email-match check as an individual
+  share link. The bundle record is a pure list of share ids — every item's
+  title/status is read live from its own share record on each load, so
+  revoking or letting one item expire is reflected instantly with no write
+  to the bundle. The first-ever bundle for a recipient sweeps in their
+  other already-live, not-yet-bundled shares. A recipient's first (and
+  only) share still gets the existing plain single-link email; once
+  bundled, every later notification (including resends) becomes one
+  consolidated email listing everything currently live for them, with a
+  link to the bundle page.
+- **Extend a share link's expiry in place** — a new "Extend" action
+  (`pages/api/admin/share-extend.js`, single or bulk with per-item
+  success/failure reporting) pushes a link's expiry out without changing
+  its id/URL and without re-notifying the recipient — the missing
+  symmetric counterpart to Revoke. Works on an already-expired-but-not-
+  revoked link (share records now outlive their nominal expiry by a
+  30-day grace window so they can still be extended — see
+  `lib/shares.js`'s `GRACE_SECONDS`/`isShareLive`); a revoked link has no
+  record left, so Extend can never double as a silent un-revoke.
+  Extending a bundled item also extends its bundle's expiry to match.
+- **Bulk resend** — multi-select rows in the Shares tab and hit "Resend N"
+  to (re)send the delivery email for every selected link in one action
+  (`pages/api/admin/share-email.js` now accepts `{ ids }` alongside the
+  existing single-`{ id }` shape). Each link is resent independently and
+  reported success/failure on its own — one bad or expired link never
+  blocks the rest. Selected rows that share a bundled recipient are
+  grouped before sending so that recipient gets one consolidated email,
+  not a duplicate per row.
 
 ## [1.8.1] - 2026-07-16
 
