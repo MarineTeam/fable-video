@@ -1,6 +1,6 @@
 # Features
 
-A catalog of what the Marine Video Portal does, current as of **v1.8.0**.
+A catalog of what the Marine Video Portal does, current as of **v1.9.0**.
 Grouped by audience; items marked _(admin)_ live in the `/admin` panel. For
 setup and architecture, see [README.md](./README.md).
 

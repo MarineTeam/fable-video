@@ -5,6 +5,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-07-21
+
+Bulk sharing and recipient bundles — share several videos with several
+people in one action, see who actually watched (not just who opened the
+link), and manage links in bulk from the Shares tab.
+
 ### Added
 
 - **Bulk video sharing** — select multiple videos in the admin Videos tab and
