@@ -109,6 +109,19 @@ setup and architecture, see [README.md](./README.md).
 - Expired/revoked links show a clean "expired or doesn't exist" message.
 - **Unguessable IDs** — share IDs are random 16-byte tokens, format-validated
   before any lookup.
+- **Extend expiry in place** — push a link's expiry out without changing its
+  URL or re-notifying the recipient (the counterpart to Revoke). Works even
+  on an already-expired-but-not-revoked link. Bulk extend mirrors bulk
+  creation: multi-select, one hours value, per-link success/failure result.
+- **One consolidated bundle per recipient** — once someone has 2+ active
+  share links (from one bulk action or built up over separate ones), they're
+  automatically grouped into a single bundle page listing everything
+  currently shared with them, gated the same way as an individual link.
+  Revoking, expiring, or extending an individual item is reflected on the
+  bundle page instantly — the bundle only ever stores a list of ids, never a
+  copy of any item's title or status. A recipient's first share still gets a
+  plain single-link email; every later notification (new shares, resends)
+  becomes one consolidated email once they're bundled.
 
 ---
 

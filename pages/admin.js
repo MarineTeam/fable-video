@@ -180,6 +180,13 @@ function ShareCreator({ video, emailConfigured, onClose, onCreated }) {
               Expires {new Date(result.expiresAt).toLocaleString()}. Manage it
               from the Shares tab.
             </p>
+            {result.bundle ? (
+              <p className="muted small">
+                This recipient now has multiple active links, grouped into
+                one bundle page — the email links there instead of just this
+                video.
+              </p>
+            ) : null}
             <button type="button" className="btn btn-ghost" onClick={onClose}>
               Done
             </button>
@@ -1093,11 +1100,18 @@ function ViewersTab({ onCount }) {
 /* Shares tab                                                          */
 /* ------------------------------------------------------------------ */
 
+function isShareExpired(share) {
+  return new Date(share.expiresAt).getTime() <= Date.now();
+}
+
 function SharesTab({ emailConfigured, onCount }) {
   const [shares, setShares] = useState(null);
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
+  const [selected, setSelected] = useState(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkReport, setBulkReport] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -1120,6 +1134,17 @@ function SharesTab({ emailConfigured, onCount }) {
       setTimeout(() => setCopiedId(null), 2000);
     } catch {
       setError("Could not copy the link");
+    }
+  };
+
+  const copyBundleLink = async (share) => {
+    try {
+      const url = `${window.location.origin}/watch/bundle/${share.bundleId}`;
+      await navigator.clipboard.writeText(url);
+      setCopiedId(`bundle:${share.id}`);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      setError("Could not copy the bundle link");
     }
   };
 
@@ -1149,100 +1174,237 @@ function SharesTab({ emailConfigured, onCount }) {
     }
   };
 
+  const promptHours = (defaultValue) => {
+    const raw = window.prompt("Extend by how many hours? (max 720)", String(defaultValue));
+    if (!raw) return null;
+    const hours = Number(raw);
+    if (!Number.isFinite(hours) || hours <= 0) {
+      setError("Enter a positive number of hours");
+      return null;
+    }
+    return hours;
+  };
+
+  const extendOne = async (share) => {
+    const hours = promptHours(72);
+    if (!hours) return;
+    setBusyId(share.id);
+    setError("");
+    try {
+      const data = await api("/api/admin/share-extend", {
+        method: "POST",
+        body: { id: share.id, hours },
+      });
+      const result = data.results?.[share.id];
+      if (!result?.ok) throw new Error(result?.error || "Could not extend this link");
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusyId(null);
+  };
+
+  const toggleSelect = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const extendSelected = async () => {
+    const hours = promptHours(72);
+    if (!hours) return;
+    setBulkBusy(true);
+    setError("");
+    setBulkReport(null);
+    try {
+      const data = await api("/api/admin/share-extend", {
+        method: "POST",
+        body: { ids: [...selected], hours },
+      });
+      const entries = Object.entries(data.results || {});
+      const succeeded = entries.filter(([, r]) => r.ok).length;
+      setBulkReport({
+        succeeded,
+        failed: entries.length - succeeded,
+        errors: entries.filter(([, r]) => !r.ok),
+      });
+      setSelected(new Set());
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBulkBusy(false);
+  };
+
   return (
     <div className="stack-lg">
       {error ? <div className="notice notice-error">{error}</div> : null}
       <section className="card">
         <div className="card-head">
-          <h3>Active share links ({shares ? shares.length : "…"})</h3>
+          <h3>Share links ({shares ? shares.length : "…"})</h3>
         </div>
         <p className="muted small">
           Private links are tied to one recipient email and require login.
           {emailConfigured
             ? " New links are emailed automatically; use Email to resend."
             : " Configure email delivery in Settings to send links automatically."}
+          {" "}Once a recipient has 2+ active links they&apos;re grouped into
+          one bundle page and one consolidated email.
         </p>
+        {selected.size > 0 ? (
+          <div className="bulk-toolbar">
+            <span className="muted small">{selected.size} selected</span>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={bulkBusy}
+              onClick={extendSelected}
+            >
+              {bulkBusy ? "Extending…" : "Extend selected"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setSelected(new Set())}
+            >
+              Clear
+            </button>
+          </div>
+        ) : null}
+        {bulkReport ? (
+          <p className="notice notice-ok">
+            Extended {bulkReport.succeeded} link{bulkReport.succeeded === 1 ? "" : "s"}
+            {bulkReport.failed
+              ? `; ${bulkReport.failed} failed (${bulkReport.errors
+                  .map(([id, r]) => r.error)
+                  .join(", ")})`
+              : ""}
+            .
+          </p>
+        ) : null}
         {shares === null ? (
           <p className="muted">Loading…</p>
         ) : shares.length === 0 ? (
-          <p className="muted">No active share links.</p>
+          <p className="muted">No share links.</p>
         ) : (
           <div className="row-list">
-            {shares.map((share) => (
-              <div key={share.id} className="row share-row">
-                <div className="row-main">
-                  <strong className="row-title">{share.videoTitle}</strong>
-                  <span className="muted small">
-                    for {share.email} · expires in {expiresIn(share.expiresAt)}{" "}
-                    ({new Date(share.expiresAt).toLocaleString()})
-                  </span>
-                </div>
-                {share.viewCount ? (
-                  <span
-                    className="badge badge-ok"
-                    title={`Last opened ${new Date(share.lastViewedAt).toLocaleString()}`}
-                  >
-                    Viewed {share.viewCount}×
-                  </span>
-                ) : (
-                  <span className="badge">Not viewed</span>
-                )}
-                {share.playCount ? (
-                  <span
-                    className="badge badge-info"
-                    title={`${share.playCount} playback(s) started`}
-                  >
-                    Played {share.playCount}×
-                  </span>
-                ) : null}
-                {share.completedAt ? (
-                  <span
-                    className="badge badge-ok"
-                    title={`Completed ${new Date(share.completedAt).toLocaleString()}`}
-                  >
-                    Completed
-                  </span>
-                ) : share.furthestPercent ? (
-                  <span className="badge" title="Furthest point reached in playback">
-                    {share.furthestPercent}% watched
-                  </span>
-                ) : null}
-                {share.emailedAt ? (
-                  <span className="badge badge-info" title={new Date(share.emailedAt).toLocaleString()}>
-                    Emailed
-                  </span>
-                ) : null}
-                <div className="row-actions">
-                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => copy(share)}>
-                    {copiedId === share.id ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
-                    {copiedId === share.id ? " Copied" : " Copy"}
-                  </button>
-                  {emailConfigured ? (
+            {shares.map((share) => {
+              const expired = isShareExpired(share);
+              return (
+                <div key={share.id} className="row share-row">
+                  <input
+                    type="checkbox"
+                    className="row-check"
+                    checked={selected.has(share.id)}
+                    onChange={() => toggleSelect(share.id)}
+                    aria-label={`Select the link for ${share.email}`}
+                  />
+                  <div className="row-main">
+                    <strong className="row-title">{share.videoTitle}</strong>
+                    <span className="muted small">
+                      for {share.email} ·{" "}
+                      {expired
+                        ? "expired"
+                        : `expires in ${expiresIn(share.expiresAt)}`}{" "}
+                      ({new Date(share.expiresAt).toLocaleString()})
+                    </span>
+                  </div>
+                  {expired ? <span className="badge badge-danger">Expired</span> : null}
+                  {share.bundleId ? (
+                    <span className="badge badge-info" title="Grouped into this recipient's bundle page">
+                      Bundled
+                    </span>
+                  ) : null}
+                  {share.viewCount ? (
+                    <span
+                      className="badge badge-ok"
+                      title={`Last opened ${new Date(share.lastViewedAt).toLocaleString()}`}
+                    >
+                      Viewed {share.viewCount}×
+                    </span>
+                  ) : (
+                    <span className="badge">Not viewed</span>
+                  )}
+                  {share.playCount ? (
+                    <span
+                      className="badge badge-info"
+                      title={`${share.playCount} playback(s) started`}
+                    >
+                      Played {share.playCount}×
+                    </span>
+                  ) : null}
+                  {share.completedAt ? (
+                    <span
+                      className="badge badge-ok"
+                      title={`Completed ${new Date(share.completedAt).toLocaleString()}`}
+                    >
+                      Completed
+                    </span>
+                  ) : share.furthestPercent ? (
+                    <span className="badge" title="Furthest point reached in playback">
+                      {share.furthestPercent}% watched
+                    </span>
+                  ) : null}
+                  {share.emailedAt ? (
+                    <span className="badge badge-info" title={new Date(share.emailedAt).toLocaleString()}>
+                      Emailed
+                    </span>
+                  ) : null}
+                  <div className="row-actions">
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => copy(share)}>
+                      {copiedId === share.id ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
+                      {copiedId === share.id ? " Copied" : " Copy"}
+                    </button>
+                    {share.bundleId ? (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => copyBundleLink(share)}
+                        title="Copy this recipient's bundle page link"
+                      >
+                        {copiedId === `bundle:${share.id}` ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
+                        {copiedId === `bundle:${share.id}` ? " Copied" : " Copy bundle"}
+                      </button>
+                    ) : null}
+                    {emailConfigured ? (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        disabled={busyId === share.id}
+                        onClick={() => sendEmail(share)}
+                        title={share.emailedAt ? "Resend the email" : "Email the link"}
+                      >
+                        <MailIcon size={13} />{" "}
+                        {busyId === share.id
+                          ? "Sending…"
+                          : share.emailedAt
+                            ? "Resend"
+                            : "Email"}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className="btn btn-ghost btn-sm"
                       disabled={busyId === share.id}
-                      onClick={() => sendEmail(share)}
-                      title={share.emailedAt ? "Resend the email" : "Email the link"}
+                      onClick={() => extendOne(share)}
+                      title="Extend this link's expiry in place — same URL, no re-notification"
                     >
-                      <MailIcon size={13} />{" "}
-                      {busyId === share.id
-                        ? "Sending…"
-                        : share.emailedAt
-                          ? "Resend"
-                          : "Email"}
+                      {busyId === share.id ? "Extending…" : "Extend"}
                     </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="btn btn-danger btn-sm"
-                    onClick={() => revoke(share)}
-                  >
-                    Revoke
-                  </button>
+                    <button
+                      type="button"
+                      className="btn btn-danger btn-sm"
+                      onClick={() => revoke(share)}
+                    >
+                      Revoke
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
@@ -1489,6 +1651,7 @@ const ACTION_LABELS = {
   "viewer.remove": "Viewer removed",
   "share.create": "Share link created",
   "share.bulk_create": "Bulk share links created",
+  "share.extend": "Share link(s) extended",
   "share.revoke": "Share link revoked",
   "share.email": "Share link emailed",
   "video.rename": "Video renamed",

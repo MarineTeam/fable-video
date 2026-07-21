@@ -1,14 +1,16 @@
 // Bulk-share several videos with several recipients in one request. Creates
 // one independently-revocable share link per {video, recipient} pair — the
 // cross product — and, when email delivery is configured, sends each
-// recipient exactly one email listing only their own links. Rate-limited
+// recipient exactly one email. A bad video id never fails the whole batch:
+// it's skipped and reported, and the rest still get shared. Rate-limited
 // like a single share creation.
 import { requireAdmin } from "../../../lib/guard";
 import { allowRequest } from "../../../lib/ratelimit";
 import { getVideo } from "../../../lib/bunny";
 import { isValidEmail, normalizeEmail } from "../../../lib/auth";
 import { createShares, shareUrl, updateShare } from "../../../lib/shares";
-import { emailEnabled, sendBulkShareEmail } from "../../../lib/email";
+import { bundleUrl, ensureBundleForRecipient, liveBundleItems } from "../../../lib/bundles";
+import { emailEnabled, sendBulkShareEmail, sendShareEmail } from "../../../lib/email";
 import { logAction } from "../../../lib/audit";
 
 const MAX_VIDEOS = 25;
@@ -57,18 +59,29 @@ export default async function handler(req, res) {
       .json({ error: "Too many share links created — try again shortly" });
   }
 
-  let videos;
-  try {
-    videos = await Promise.all(videoIds.map((id) => getVideo(id)));
-  } catch (err) {
-    console.error("Video not found:", err);
-    return res.status(404).json({ error: "One or more selected videos could not be found" });
+  // Look up every video individually so one missing/deleted video doesn't
+  // fail the whole batch — it's skipped and reported back instead.
+  const videoLookups = await Promise.all(
+    videoIds.map(async (id) => {
+      try {
+        const video = await getVideo(id);
+        return { id, title: video.title || "Untitled", ok: true };
+      } catch (err) {
+        console.error("Video not found:", err);
+        return { id, ok: false };
+      }
+    })
+  );
+  const validVideos = videoLookups.filter((v) => v.ok);
+  const skippedVideoIds = videoLookups.filter((v) => !v.ok).map((v) => v.id);
+  if (!validVideos.length) {
+    return res.status(404).json({ error: "None of the selected videos could be found" });
   }
 
   const pairs = [];
-  videos.forEach((video, i) => {
+  validVideos.forEach((video) => {
     emails.forEach((email) => {
-      pairs.push({ videoId: videoIds[i], videoTitle: video.title || "Untitled", email });
+      pairs.push({ videoId: video.id, videoTitle: video.title, email });
     });
   });
 
@@ -80,51 +93,78 @@ export default async function handler(req, res) {
     return res.status(502).json({ error: "Could not create the share links" });
   }
 
-  // Group by recipient so each person gets exactly one email listing only
-  // their own links, never anyone else's.
+  // Group by recipient — every person gets exactly one bundle update and
+  // one email, never anyone else's links.
   const byRecipient = new Map();
   created.forEach(({ id, share }) => {
-    const list = byRecipient.get(share.email) || [];
-    list.push({
-      id,
-      videoTitle: share.videoTitle,
-      url: shareUrl(req, id),
-      expiresAt: share.expiresAt,
-    });
-    byRecipient.set(share.email, list);
+    const ids = byRecipient.get(share.email) || [];
+    ids.push(id);
+    byRecipient.set(share.email, ids);
   });
 
   const emailResults = {};
-  if (shouldEmail && emailEnabled()) {
-    await Promise.all(
-      Array.from(byRecipient.entries()).map(async ([recipient, links]) => {
-        try {
-          await sendBulkShareEmail({ recipient, links });
-          const emailedAt = new Date().toISOString();
-          await Promise.all(
-            links.map((l) => updateShare(l.id, { emailedAt }).catch(() => {}))
-          );
-          emailResults[recipient] = { emailed: true };
-        } catch (err) {
-          emailResults[recipient] = {
-            emailed: false,
-            error: err?.message || "Email delivery failed",
-          };
+  await Promise.all(
+    Array.from(byRecipient.entries()).map(async ([recipient, newShareIds]) => {
+      // One bundle per recipient: attach to their existing bundle, or
+      // create one (sweeping in other already-live shares) once they cross
+      // 2 active shares. Best-effort — never fails the batch.
+      let bundle = null;
+      try {
+        bundle = await ensureBundleForRecipient({ email: recipient, newShareIds, hours });
+      } catch (err) {
+        console.error("Could not update the recipient's bundle:", err);
+      }
+
+      if (!shouldEmail || !emailEnabled()) return;
+      try {
+        if (bundle?.bundle) {
+          const items = await liveBundleItems(bundle.bundle, bundle.id);
+          const links = items.map((it) => ({
+            videoTitle: it.videoTitle,
+            url: shareUrl(req, it.id),
+            expiresAt: it.expiresAt,
+          }));
+          await sendBulkShareEmail({
+            recipient,
+            links,
+            bundleUrl: bundleUrl(req, bundle.id),
+          });
+        } else {
+          // Genuinely this recipient's first and only active share.
+          const only = created.find((c) => c.share.email === recipient);
+          await sendShareEmail({
+            recipient,
+            videoTitle: only.share.videoTitle,
+            url: shareUrl(req, only.id),
+            expiresAt: only.share.expiresAt,
+          });
         }
-      })
-    );
-  }
+        const emailedAt = new Date().toISOString();
+        await Promise.all(
+          newShareIds.map((id) => updateShare(id, { emailedAt }).catch(() => {}))
+        );
+        emailResults[recipient] = { emailed: true };
+      } catch (err) {
+        emailResults[recipient] = {
+          emailed: false,
+          error: err?.message || "Email delivery failed",
+        };
+      }
+    })
+  );
 
   await logAction(
     admin,
     "share.bulk_create",
-    `${created.length} link(s): ${videoIds.length} video(s) → ${emails.length} recipient(s)`
+    `${created.length} link(s): ${validVideos.length} video(s) → ${emails.length} recipient(s)` +
+      (skippedVideoIds.length ? ` (${skippedVideoIds.length} video(s) skipped)` : "")
   );
 
   return res.status(201).json({
     created: created.length,
-    videos: videoIds.length,
+    videos: validVideos.length,
     recipients: emails.length,
+    skippedVideoIds,
     emailConfigured: emailEnabled(),
     emailResults,
   });

@@ -1,14 +1,16 @@
 // Plays a video via a private share link: forced Auth0 login, and playback
 // only if the logged-in email matches the intended recipient. Mismatches see
 // a generic message that never reveals who the link was meant for; expired
-// or revoked links show a clean "expired or doesn't exist" message. The
-// first successful open stamps the share's viewed status (preserving TTL).
+// or revoked links show the same clean "expired or doesn't exist" message
+// (isShareLive, not mere record existence — see lib/shares.js's grace-window
+// comment). Every open stamps the share's view count (preserving TTL).
 import Head from "next/head";
 import { auth0 } from "../../lib/auth0";
 import { normalizeEmail } from "../../lib/auth";
-import { getShare, shareViewPatch, updateShare } from "../../lib/shares";
+import { getShare, isShareLive, shareViewPatch, updateShare } from "../../lib/shares";
 import { signEmbedUrl } from "../../lib/bunny";
 import ShareTrackedPlayer from "../../components/ShareTrackedPlayer";
+import ShareGateMessage from "../../components/ShareGateMessage";
 
 export async function getServerSideProps({ req, params, resolvedUrl }) {
   const session = await auth0.getSession(req);
@@ -29,7 +31,10 @@ export async function getServerSideProps({ req, params, resolvedUrl }) {
   } catch {
     share = null;
   }
-  if (!share) {
+  // A record can exist past its nominal expiresAt (grace window, so an
+  // admin can Extend it) — that must read as "gone" to the recipient, same
+  // as a revoked or never-existed id.
+  if (!isShareLive(share)) {
     return { props: { state: "gone", user } };
   }
   if (share.email !== email) {
@@ -50,25 +55,6 @@ export async function getServerSideProps({ req, params, resolvedUrl }) {
   };
 }
 
-function ShareMessage({ title, children, user }) {
-  return (
-    <div className="share-page">
-      <div className="center-panel">
-        <div className="card narrow-card">
-          <h1 className="panel-title">{title}</h1>
-          <div className="muted">{children}</div>
-          <p className="muted small">
-            Signed in as <strong>{user.email}</strong>
-          </p>
-          <a href="/auth/logout" className="btn btn-ghost">
-            Sign out / switch account
-          </a>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function SharedWatch({ state, user, shareId, title, embedSrc }) {
   if (state === "gone") {
     return (
@@ -76,9 +62,9 @@ export default function SharedWatch({ state, user, shareId, title, embedSrc }) {
         <Head>
           <title>Link unavailable — Marine Video Portal</title>
         </Head>
-        <ShareMessage title="This link isn&apos;t available" user={user}>
+        <ShareGateMessage title="This link isn&apos;t available" user={user}>
           <p>This private link has expired or doesn&apos;t exist.</p>
-        </ShareMessage>
+        </ShareGateMessage>
       </>
     );
   }
@@ -89,12 +75,12 @@ export default function SharedWatch({ state, user, shareId, title, embedSrc }) {
         <Head>
           <title>Private link — Marine Video Portal</title>
         </Head>
-        <ShareMessage title="This link was made for someone else" user={user}>
+        <ShareGateMessage title="This link was made for someone else" user={user}>
           <p>
             This private link only works for the account it was sent to. Try
             signing in with the email address where you received it.
           </p>
-        </ShareMessage>
+        </ShareGateMessage>
       </>
     );
   }
