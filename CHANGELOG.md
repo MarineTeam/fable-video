@@ -5,6 +5,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-07-21
+
+Email watermark, per-video share analytics, and bulk video operations —
+deterrence against re-sharing recordings, at-a-glance share performance per
+video, and faster housekeeping across many videos at once.
+
 ### Added
 
 - **Email watermark** — an overlay of the viewer's email and a timestamp,
