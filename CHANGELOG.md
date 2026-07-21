@@ -52,6 +52,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   blocks the rest. Selected rows that share a bundled recipient are
   grouped before sending so that recipient gets one consolidated email,
   not a duplicate per row.
+- **Bulk revoke** — multi-select rows in the Shares tab and hit "Revoke N"
+  to kill every selected link in one action (`pages/api/admin/shares.js`'s
+  `DELETE` now accepts `{ ids }` alongside the existing single-`?id=`
+  shape). Each link is revoked independently — one bad id never blocks
+  the rest — and revocation stays idempotent, same as before: revoking an
+  id that's already gone still reports success.
 
 ## [1.8.1] - 2026-07-16
 

@@ -1269,6 +1269,42 @@ function SharesTab({ emailConfigured, onCount }) {
     setBulkBusy(false);
   };
 
+  const revokeSelected = async () => {
+    const ids = [...selected];
+    if (
+      !window.confirm(
+        `Revoke ${ids.length} link${ids.length === 1 ? "" : "s"}? They stop working immediately.`
+      )
+    ) {
+      return;
+    }
+    setBulkBusy(true);
+    setError("");
+    setBulkReport(null);
+    try {
+      const data = await api("/api/admin/shares", {
+        method: "DELETE",
+        body: { ids },
+      });
+      // A single selected id gets the row-level {ok:true} shape instead of
+      // {results}; normalize both into one report.
+      const results = data.results || { [ids[0]]: { ok: true } };
+      const entries = Object.entries(results);
+      const succeeded = entries.filter(([, r]) => r.ok).length;
+      setBulkReport({
+        action: "Revoked",
+        succeeded,
+        failed: entries.length - succeeded,
+        errors: entries.filter(([, r]) => !r.ok),
+      });
+      setSelected(new Set());
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBulkBusy(false);
+  };
+
   return (
     <div className="stack-lg">
       {error ? <div className="notice notice-error">{error}</div> : null}
@@ -1304,6 +1340,14 @@ function SharesTab({ emailConfigured, onCount }) {
               onClick={extendSelected}
             >
               {bulkBusy ? "Extending…" : "Extend selected"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger btn-sm"
+              disabled={bulkBusy}
+              onClick={revokeSelected}
+            >
+              {bulkBusy ? "Revoking…" : `Revoke ${selected.size}`}
             </button>
             <button
               type="button"
