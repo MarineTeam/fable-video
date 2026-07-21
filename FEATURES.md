@@ -63,7 +63,10 @@ setup and architecture, see [README.md](./README.md).
   progress bars, newest first. Finished and barely-started videos are excluded.
 - **My activity** — a full watch-history page (`/activity`, linked from the
   nav) listing every video the viewer has progressed on, finished or not,
-  most-recent first, with a resume/rewatch link and progress bar.
+  most-recent first, with a resume/rewatch link and progress bar. Admins
+  additionally get a **"View as"** dropdown, populated from the approved
+  viewers list, to look up any approved viewer's watch history the same
+  way.
 
 ### Notifications & installable app
 - **Push notifications** — approved viewers can opt in with a "Notify me" button

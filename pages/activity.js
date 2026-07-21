@@ -69,10 +69,25 @@ function NotApproved({ user }) {
 export default function Activity({ user, admin, approved }) {
   const [items, setItems] = useState(null);
   const [error, setError] = useState("");
+  const [viewers, setViewers] = useState([]);
+  const [viewAs, setViewAs] = useState("");
+
+  useEffect(() => {
+    if (!admin) return;
+    fetch("/api/admin/viewers")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setViewers(data?.viewers || []))
+      .catch(() => {});
+  }, [admin]);
 
   useEffect(() => {
     if (!approved) return;
-    fetch("/api/progress?all=1")
+    setItems(null);
+    setError("");
+    const url = viewAs
+      ? `/api/progress?all=1&email=${encodeURIComponent(viewAs)}`
+      : "/api/progress?all=1";
+    fetch(url)
       .then(async (res) => {
         const data = await res.json().catch(() => null);
         if (!res.ok) throw new Error(data?.error || "Could not load watch history");
@@ -82,7 +97,7 @@ export default function Activity({ user, admin, approved }) {
         setError(err.message);
         setItems([]);
       });
-  }, [approved]);
+  }, [approved, viewAs]);
 
   if (!approved) {
     return (
@@ -101,14 +116,33 @@ export default function Activity({ user, admin, approved }) {
         <title>My activity — Marine Video Portal</title>
       </Head>
       <div className="page-head">
-        <h1 className="page-title">My activity</h1>
+        <h1 className="page-title">{viewAs ? `${viewAs}'s activity` : "My activity"}</h1>
+        {admin ? (
+          <label className="field activity-viewer-picker">
+            <span className="field-label">View as</span>
+            <select
+              className="input"
+              value={viewAs}
+              onChange={(e) => setViewAs(e.target.value)}
+            >
+              <option value="">Myself</option>
+              {viewers.map((v) => (
+                <option key={v.email} value={v.email}>
+                  {v.email}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
       </div>
       {error ? <div className="notice notice-error">{error}</div> : null}
       {items === null ? (
         <div className="muted loading-note">Loading…</div>
       ) : items.length === 0 ? (
         <div className="card empty-state">
-          You haven&apos;t watched any videos yet.
+          {viewAs
+            ? `${viewAs} hasn't watched any videos yet.`
+            : "You haven't watched any videos yet."}
         </div>
       ) : (
         <div className="card">

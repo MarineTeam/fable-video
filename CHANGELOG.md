@@ -26,6 +26,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   on, finished or not, most-recent first, with a resume/rewatch link and
   progress bar. Backed by `GET /api/progress?all=1`, the uncapped,
   all-videos counterpart to the existing capped continue-watching list.
+  Admins get a "View as" dropdown (populated from the approved-viewer
+  list) to look up any approved viewer's history the same way
+  (admin-only, and the target must itself be an approved viewer or admin —
+  `GET /api/progress?all=1&email=...`).
 
 ## [1.10.0] - 2026-07-21
 

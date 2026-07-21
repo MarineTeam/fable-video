@@ -802,6 +802,10 @@ code {
   text-decoration: none;
 }
 
+.activity-viewer-picker {
+  min-width: 220px;
+}
+
 /* ---------- watch pages ---------- */
 
 .watch-head {
