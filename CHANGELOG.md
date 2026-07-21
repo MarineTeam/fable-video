@@ -44,6 +44,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `lib/shares.js`'s `GRACE_SECONDS`/`isShareLive`); a revoked link has no
   record left, so Extend can never double as a silent un-revoke.
   Extending a bundled item also extends its bundle's expiry to match.
+- **Bulk resend** — multi-select rows in the Shares tab and hit "Resend N"
+  to (re)send the delivery email for every selected link in one action
+  (`pages/api/admin/share-email.js` now accepts `{ ids }` alongside the
+  existing single-`{ id }` shape). Each link is resent independently and
+  reported success/failure on its own — one bad or expired link never
+  blocks the rest. Selected rows that share a bundled recipient are
+  grouped before sending so that recipient gets one consolidated email,
+  not a duplicate per row.
 
 ## [1.8.1] - 2026-07-16
 

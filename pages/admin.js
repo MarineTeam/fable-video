@@ -1227,6 +1227,36 @@ function SharesTab({ emailConfigured, onCount }) {
       const entries = Object.entries(data.results || {});
       const succeeded = entries.filter(([, r]) => r.ok).length;
       setBulkReport({
+        action: "Extended",
+        succeeded,
+        failed: entries.length - succeeded,
+        errors: entries.filter(([, r]) => !r.ok),
+      });
+      setSelected(new Set());
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBulkBusy(false);
+  };
+
+  const resendSelected = async () => {
+    const ids = [...selected];
+    setBulkBusy(true);
+    setError("");
+    setBulkReport(null);
+    try {
+      const data = await api("/api/admin/share-email", {
+        method: "POST",
+        body: { ids },
+      });
+      // A single selected id gets the row-level {ok, emailedAt} shape
+      // instead of {results}; normalize both into one report.
+      const results = data.results || { [ids[0]]: { ok: true, emailedAt: data.emailedAt } };
+      const entries = Object.entries(results);
+      const succeeded = entries.filter(([, r]) => r.ok).length;
+      setBulkReport({
+        action: "Emailed",
         succeeded,
         failed: entries.length - succeeded,
         errors: entries.filter(([, r]) => !r.ok),
@@ -1257,6 +1287,16 @@ function SharesTab({ emailConfigured, onCount }) {
         {selected.size > 0 ? (
           <div className="bulk-toolbar">
             <span className="muted small">{selected.size} selected</span>
+            {emailConfigured ? (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={bulkBusy}
+                onClick={resendSelected}
+              >
+                {bulkBusy ? "Emailing…" : `Resend ${selected.size}`}
+              </button>
+            ) : null}
             <button
               type="button"
               className="btn btn-primary btn-sm"
@@ -1275,8 +1315,8 @@ function SharesTab({ emailConfigured, onCount }) {
           </div>
         ) : null}
         {bulkReport ? (
-          <p className="notice notice-ok">
-            Extended {bulkReport.succeeded} link{bulkReport.succeeded === 1 ? "" : "s"}
+          <p className={bulkReport.failed ? "notice notice-error" : "notice notice-ok"}>
+            {bulkReport.action} {bulkReport.succeeded} link{bulkReport.succeeded === 1 ? "" : "s"}
             {bulkReport.failed
               ? `; ${bulkReport.failed} failed (${bulkReport.errors
                   .map(([id, r]) => r.error)

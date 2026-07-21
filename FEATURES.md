@@ -113,6 +113,11 @@ setup and architecture, see [README.md](./README.md).
   URL or re-notifying the recipient (the counterpart to Revoke). Works even
   on an already-expired-but-not-revoked link. Bulk extend mirrors bulk
   creation: multi-select, one hours value, per-link success/failure result.
+- **Bulk resend** — multi-select links in the Shares tab and resend the
+  delivery email for all of them in one action. Each link is resent
+  independently with its own success/failure result; selected links that
+  share a bundled recipient are grouped so that person gets one email, not
+  a duplicate per selected row.
 - **One consolidated bundle per recipient** — once someone has 2+ active
   share links (from one bulk action or built up over separate ones), they're
   automatically grouped into a single bundle page listing everything

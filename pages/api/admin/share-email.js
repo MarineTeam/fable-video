@@ -1,15 +1,47 @@
-// Send (or resend) the delivery email for an existing share link — used from
-// the Shares tab for links created before email was configured, links whose
-// first send failed, or recipients who lost the email. If the link belongs
-// to a bundle, resends the consolidated bundle email (every currently-live
-// link for that recipient) rather than a single-link email, for the same
-// reason share creation does: never a new standalone email once someone has
-// a bundle.
+// Send (or resend) the delivery email for one or more existing share links —
+// used from the Shares tab for links created before email was configured,
+// links whose first send failed, or recipients who lost the email. Accepts
+// a single { id } (unchanged response shape, used by the row-level
+// Email/Resend button) or a bulk { ids: [...] } (per-id success/failure
+// results, used by the multi-select "Resend selected" action) — a bad id
+// never blocks the rest of the batch.
+//
+// If a selected link belongs to a bundle, it resends the consolidated
+// bundle email (every currently-live link for that recipient) rather than a
+// single-link email — same reason share creation does: never a new
+// standalone email once someone has a bundle. When a bulk resend selects
+// several rows that share one bundled recipient, only one email actually
+// goes out for that recipient (grouped before sending), not one per row.
 import { requireAdmin } from "../../../lib/guard";
 import { getShare, isShareLive, shareUrl, updateShare } from "../../../lib/shares";
 import { bundleUrl, getBundle, liveBundleItems } from "../../../lib/bundles";
 import { emailEnabled, sendBulkShareEmail, sendShareEmail } from "../../../lib/email";
 import { logAction } from "../../../lib/audit";
+
+const MAX_IDS = 100;
+
+async function resendForRecipient(req, { email, primaryId, share, bundle }) {
+  if (bundle) {
+    const items = await liveBundleItems(bundle, share.bundleId);
+    const links = items.map((it) => ({
+      videoTitle: it.videoTitle,
+      url: shareUrl(req, it.id),
+      expiresAt: it.expiresAt,
+    }));
+    await sendBulkShareEmail({
+      recipient: email,
+      links,
+      bundleUrl: bundleUrl(req, share.bundleId),
+    });
+  } else {
+    await sendShareEmail({
+      recipient: email,
+      videoTitle: share.videoTitle,
+      url: shareUrl(req, primaryId),
+      expiresAt: share.expiresAt,
+    });
+  }
+}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -25,52 +57,102 @@ export default async function handler(req, res) {
     });
   }
 
-  const id = String(req.body?.id || "");
-  let share = null;
-  try {
-    share = await getShare(id);
-  } catch (err) {
-    console.error("Could not look up the share link:", err);
-    return res.status(502).json({ error: "Could not look up the share link" });
+  const ids = Array.isArray(req.body?.ids)
+    ? [...new Set(req.body.ids.filter((id) => typeof id === "string" && id))]
+    : typeof req.body?.id === "string" && req.body.id
+      ? [req.body.id]
+      : [];
+
+  if (!ids.length) {
+    return res.status(400).json({ error: "Select at least one share link to email" });
   }
-  if (!share) {
-    return res.status(404).json({ error: "Share link not found" });
-  }
-  if (!isShareLive(share)) {
-    return res.status(400).json({ error: "This link has expired — extend it before emailing it" });
+  if (ids.length > MAX_IDS) {
+    return res.status(400).json({ error: `Email at most ${MAX_IDS} links at once` });
   }
 
-  const bundle = share.bundleId ? await getBundle(share.bundleId).catch(() => null) : null;
+  // Look up every selected share independently — a missing or expired link
+  // never blocks emailing the rest of the batch.
+  const results = {};
+  const shares = {};
+  await Promise.all(
+    ids.map(async (id) => {
+      try {
+        const share = await getShare(id);
+        if (!share) {
+          results[id] = { ok: false, error: "Link not found" };
+          return;
+        }
+        if (!isShareLive(share)) {
+          results[id] = { ok: false, error: "Link has expired — extend it before emailing it" };
+          return;
+        }
+        shares[id] = share;
+      } catch (err) {
+        console.error("Could not look up share link for resend:", err);
+        results[id] = { ok: false, error: "Could not look up this link" };
+      }
+    })
+  );
 
-  try {
-    if (bundle) {
-      const items = await liveBundleItems(bundle, share.bundleId);
-      const links = items.map((it) => ({
-        videoTitle: it.videoTitle,
-        url: shareUrl(req, it.id),
-        expiresAt: it.expiresAt,
-      }));
-      await sendBulkShareEmail({
-        recipient: share.email,
-        links,
-        bundleUrl: bundleUrl(req, share.bundleId),
-      });
-    } else {
-      await sendShareEmail({
-        recipient: share.email,
-        videoTitle: share.videoTitle,
-        url: shareUrl(req, id),
-        expiresAt: share.expiresAt,
-      });
-    }
-  } catch (err) {
-    return res
-      .status(502)
-      .json({ error: err?.message || "Email delivery failed" });
-  }
+  // Group the still-eligible ids by recipient so a bundle recipient with
+  // several selected rows gets exactly one email, not one per row.
+  const byRecipient = new Map();
+  Object.entries(shares).forEach(([id, share]) => {
+    const group = byRecipient.get(share.email) || [];
+    group.push(id);
+    byRecipient.set(share.email, group);
+  });
 
   const emailedAt = new Date().toISOString();
-  await updateShare(id, { emailedAt }).catch(() => {});
-  await logAction(admin, "share.email", `${share.videoTitle} → ${share.email}`);
-  return res.json({ ok: true, emailedAt });
+  let succeeded = 0;
+
+  await Promise.all(
+    Array.from(byRecipient.entries()).map(async ([email, groupIds]) => {
+      const primaryId = groupIds[0];
+      const primaryShare = shares[primaryId];
+      const bundle = primaryShare.bundleId
+        ? await getBundle(primaryShare.bundleId).catch(() => null)
+        : null;
+      try {
+        await resendForRecipient(req, { email, primaryId, share: primaryShare, bundle });
+        await Promise.all(groupIds.map((id) => updateShare(id, { emailedAt }).catch(() => {})));
+        groupIds.forEach((id) => {
+          results[id] = { ok: true, emailedAt };
+          succeeded += 1;
+        });
+      } catch (err) {
+        console.error("Could not email share link(s):", err);
+        const message = err?.message || "Email delivery failed";
+        groupIds.forEach((id) => {
+          results[id] = { ok: false, error: message };
+        });
+      }
+    })
+  );
+
+  if (succeeded > 0) {
+    await logAction(
+      admin,
+      "share.email",
+      `Emailed ${succeeded}/${ids.length} link(s) to ${byRecipient.size} recipient(s)`
+    );
+  }
+
+  // Preserve the original single-id response shape for the row-level
+  // Email/Resend button.
+  if (ids.length === 1) {
+    const only = results[ids[0]];
+    if (!only.ok) {
+      const status =
+        only.error === "Link not found"
+          ? 404
+          : only.error.startsWith("Link has expired")
+            ? 400
+            : 502;
+      return res.status(status).json({ error: only.error });
+    }
+    return res.json({ ok: true, emailedAt: only.emailedAt });
+  }
+
+  return res.json({ results });
 }
