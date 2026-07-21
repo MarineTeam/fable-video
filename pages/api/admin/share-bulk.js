@@ -12,6 +12,7 @@ import { createShares, shareUrl, updateShare } from "../../../lib/shares";
 import { bundleUrl, ensureBundleForRecipient, liveBundleItems } from "../../../lib/bundles";
 import { emailEnabled, sendBulkShareEmail, sendShareEmail } from "../../../lib/email";
 import { logAction } from "../../../lib/audit";
+import { clampWatermarkMode } from "../../../lib/watermark";
 
 const MAX_VIDEOS = 25;
 const MAX_RECIPIENTS = 25;
@@ -33,6 +34,7 @@ export default async function handler(req, res) {
     : [];
   const hours = req.body?.hours;
   const shouldEmail = req.body?.sendEmail !== false;
+  const watermark = clampWatermarkMode(req.body?.watermark);
 
   if (!videoIds.length) {
     return res.status(400).json({ error: "Select at least one video" });
@@ -87,7 +89,7 @@ export default async function handler(req, res) {
 
   let created;
   try {
-    created = await createShares(pairs, { hours, createdBy: admin });
+    created = await createShares(pairs, { hours, createdBy: admin, watermark });
   } catch (err) {
     console.error("Could not create the share links:", err);
     return res.status(502).json({ error: "Could not create the share links" });

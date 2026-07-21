@@ -3,6 +3,7 @@
 // statistics API.
 import { requireAdmin } from "../../../lib/guard";
 import { getStatistics, listAllVideos } from "../../../lib/bunny";
+import { listShares, rollupShareAnalyticsByVideo } from "../../../lib/shares";
 
 // bunny.net has returned chart data both as { "date": value } maps and as
 // arrays of points; normalize defensively.
@@ -36,11 +37,12 @@ export default async function handler(req, res) {
   const iso = (d) => d.toISOString().slice(0, 10);
 
   try {
-    const [videos, stats] = await Promise.all([
+    const [videos, stats, shares] = await Promise.all([
       listAllVideos(),
       getStatistics({ dateFrom: iso(dateFrom), dateTo: iso(dateTo) }).catch(
         () => null
       ),
+      listShares().catch(() => []),
     ]);
 
     const totalViews = videos.reduce((sum, v) => sum + (v.views || 0), 0);
@@ -65,6 +67,7 @@ export default async function handler(req, res) {
       videoCount: videos.length,
       chart,
       mostWatched,
+      shareRollup: rollupShareAnalyticsByVideo(shares),
     });
   } catch (err) {
     console.error("Could not load analytics:", err);

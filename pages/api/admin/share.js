@@ -9,6 +9,7 @@ import { createShare, shareUrl, updateShare } from "../../../lib/shares";
 import { bundleUrl, ensureBundleForRecipient, liveBundleItems } from "../../../lib/bundles";
 import { emailEnabled, sendBulkShareEmail, sendShareEmail } from "../../../lib/email";
 import { logAction } from "../../../lib/audit";
+import { clampWatermarkMode } from "../../../lib/watermark";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -27,6 +28,7 @@ export default async function handler(req, res) {
   const { videoId, hours } = req.body || {};
   const recipient = normalizeEmail(req.body?.email);
   const shouldEmail = req.body?.sendEmail !== false;
+  const watermark = clampWatermarkMode(req.body?.watermark);
 
   if (!videoId || typeof videoId !== "string") {
     return res.status(400).json({ error: "videoId is required" });
@@ -51,6 +53,7 @@ export default async function handler(req, res) {
       email: recipient,
       hours,
       createdBy: admin,
+      watermark,
     });
   } catch (err) {
     console.error("Could not create the share link:", err);

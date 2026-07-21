@@ -5,6 +5,40 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-07-21
+
+Email watermark, per-video share analytics, and bulk video operations —
+deterrence against re-sharing recordings, at-a-glance share performance per
+video, and faster housekeeping across many videos at once.
+
+### Added
+
+- **Email watermark** — an overlay of the viewer's email and a timestamp,
+  tiled across the player, as a deterrent against re-sharing recordings.
+  Resolved per play with a layered, most-specific-wins order: a
+  per-recipient **exemption** always wins (never watermarked, regardless of
+  anything else); then a per-share **Always/Never** choice, set in the
+  single and bulk share forms; then a per-video override, set from a select
+  in the Videos tab; otherwise a global default toggle in Settings applies.
+  Exemptions (any viewer or admin email) are managed from Settings. Applies
+  to both private share-link playback and direct approved-viewer playback
+  (`lib/watermark.js`'s `resolveWatermark`, `components/WatermarkOverlay.js`,
+  `pages/api/admin/watermark-exempt.js`).
+- **Per-video share analytics** — a collapsible panel in the Analytics tab,
+  and a per-row "Stats" toggle in the Videos tab, both rolling up existing
+  per-share tracking by video: link count, unique recipients, views,
+  playback starts, completions and completion rate, and average
+  furthest-percent watched. Reads only fields already stored on share
+  records (`lib/shares.js`'s `rollupShareAnalyticsByVideo`, also exposed
+  from `pages/api/admin/shares.js`'s existing GET) — no new tracking or
+  extra Redis reads are added.
+- **Bulk video operations** — multi-select rows in the Videos tab and
+  **bulk delete** or **move to a collection** in one action, mirroring the
+  bulk-share UX. Each video is processed independently — one failure never
+  blocks the rest — with a per-item success/failure report
+  (`pages/api/admin/videos.js`'s `bulk-delete` / `bulk-set-collection`
+  actions).
+
 ## [1.9.0] - 2026-07-21
 
 Bulk sharing and recipient bundles — share several videos with several

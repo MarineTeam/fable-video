@@ -835,6 +835,26 @@ code {
   border: 0;
 }
 
+.watermark-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  overflow: hidden;
+}
+
+.watermark-overlay span {
+  position: absolute;
+  transform: translate(-50%, -50%) rotate(-18deg);
+  color: rgba(255, 255, 255, 0.28);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+  user-select: none;
+}
+
 .share-page {
   min-height: 100vh;
   display: flex;
@@ -925,6 +945,19 @@ code {
 
 .row + .row {
   border-top: 1px solid var(--border);
+}
+
+.video-item + .video-item {
+  border-top: 1px solid var(--border);
+}
+
+.video-item .video-row + .row {
+  border-top: none;
+}
+
+.video-stats-row {
+  padding-top: 0;
+  padding-bottom: 0.65rem;
 }
 
 .row-main {
@@ -1177,6 +1210,12 @@ code {
 }
 
 /* ---------- admin: analytics ---------- */
+
+.collapsible-summary {
+  cursor: pointer;
+  color: var(--text);
+  font-size: 0.98rem;
+}
 
 .stat-grid {
   display: grid;

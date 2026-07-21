@@ -104,6 +104,7 @@ function ShareCreator({ video, emailConfigured, onClose, onCreated }) {
   const [email, setEmail] = useState("");
   const [hours, setHours] = useState(72);
   const [sendMail, setSendMail] = useState(emailConfigured);
+  const [watermark, setWatermark] = useState("default");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
@@ -121,6 +122,7 @@ function ShareCreator({ video, emailConfigured, onClose, onCreated }) {
           email,
           hours: Number(hours),
           sendEmail: sendMail,
+          watermark,
         },
       });
       setResult(data);
@@ -215,6 +217,18 @@ function ShareCreator({ video, emailConfigured, onClose, onCreated }) {
                 onChange={(e) => setHours(e.target.value)}
               />
             </label>
+            <label className="field">
+              <span className="field-label">Watermark</span>
+              <select
+                className="input"
+                value={watermark}
+                onChange={(e) => setWatermark(e.target.value)}
+              >
+                <option value="default">Default (use video/global setting)</option>
+                <option value="on">Always show</option>
+                <option value="off">Never show</option>
+              </select>
+            </label>
             <label className="check-row">
               <input
                 type="checkbox"
@@ -255,6 +269,7 @@ function BulkShareCreator({ videos, emailConfigured, onClose, onCreated }) {
   const [emailsText, setEmailsText] = useState("");
   const [hours, setHours] = useState(72);
   const [sendMail, setSendMail] = useState(emailConfigured);
+  const [watermark, setWatermark] = useState("default");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
@@ -286,6 +301,7 @@ function BulkShareCreator({ videos, emailConfigured, onClose, onCreated }) {
           emails: parsedEmails,
           hours: Number(hours),
           sendEmail: sendMail,
+          watermark,
         },
       });
       setResult(data);
@@ -375,6 +391,18 @@ function BulkShareCreator({ videos, emailConfigured, onClose, onCreated }) {
                 onChange={(e) => setHours(e.target.value)}
               />
             </label>
+            <label className="field">
+              <span className="field-label">Watermark</span>
+              <select
+                className="input"
+                value={watermark}
+                onChange={(e) => setWatermark(e.target.value)}
+              >
+                <option value="default">Default (use video/global setting)</option>
+                <option value="on">Always show</option>
+                <option value="off">Never show</option>
+              </select>
+            </label>
             <label className="check-row">
               <input
                 type="checkbox"
@@ -431,6 +459,11 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
   const [renaming, setRenaming] = useState(null);
   const [newCollection, setNewCollection] = useState("");
   const [error, setError] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkReport, setBulkReport] = useState(null);
+  const [bulkCollection, setBulkCollection] = useState("");
+  const [shareStats, setShareStats] = useState(null);
+  const [statsFor, setStatsFor] = useState(null);
   const dragIndex = useRef(null);
   const fileInput = useRef(null);
   const tusUploads = useRef(new Map());
@@ -457,6 +490,21 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Fetched once, separately from `load`'s auto-refresh cycle (which can
+  // fire every 5s while a video is processing) — share stats don't change
+  // that often and this avoids hammering Redis on every encoding poll.
+  useEffect(() => {
+    api("/api/admin/shares")
+      .then((data) => {
+        const map = {};
+        (data.rollup || []).forEach((row) => {
+          map[row.videoId] = row;
+        });
+        setShareStats(map);
+      })
+      .catch(() => {});
+  }, []);
 
   // Auto-refresh encoding badges while anything is processing.
   const anyProcessing = (videos || []).some((v) => v.status === "processing");
@@ -637,6 +685,77 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
     }
   };
 
+  const setWatermarkMode = async (video, mode) => {
+    try {
+      await api("/api/admin/videos", {
+        method: "POST",
+        body: { action: "set-watermark", id: video.id, watermark: mode },
+      });
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const bulkDelete = async () => {
+    if (
+      !window.confirm(
+        `Delete ${selected.size} video(s) from bunny.net? This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    setBulkBusy(true);
+    setBulkReport(null);
+    try {
+      const data = await api("/api/admin/videos", {
+        method: "POST",
+        body: { action: "bulk-delete", ids: [...selected] },
+      });
+      const entries = Object.entries(data.results || {});
+      const succeeded = entries.filter(([, r]) => r.ok).length;
+      setBulkReport({
+        action: "Deleted",
+        succeeded,
+        failed: entries.length - succeeded,
+        errors: entries.filter(([, r]) => !r.ok),
+      });
+      setSelected(new Set());
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBulkBusy(false);
+  };
+
+  const bulkSetCollection = async () => {
+    setBulkBusy(true);
+    setBulkReport(null);
+    try {
+      const data = await api("/api/admin/videos", {
+        method: "POST",
+        body: {
+          action: "bulk-set-collection",
+          ids: [...selected],
+          collectionId: bulkCollection,
+        },
+      });
+      const entries = Object.entries(data.results || {});
+      const succeeded = entries.filter(([, r]) => r.ok).length;
+      setBulkReport({
+        action: "Updated",
+        succeeded,
+        failed: entries.length - succeeded,
+        errors: entries.filter(([, r]) => !r.ok),
+      });
+      setSelected(new Set());
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBulkBusy(false);
+  };
+
   const removeVideo = async (video) => {
     if (!window.confirm(`Delete "${video.title}" from bunny.net? This cannot be undone.`)) {
       return;
@@ -784,6 +903,35 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
             >
               <LinkIcon size={13} /> Share selected
             </button>
+            <select
+              className="input input-sm"
+              value={bulkCollection}
+              onChange={(e) => setBulkCollection(e.target.value)}
+              aria-label="Move selected to collection"
+            >
+              <option value="">No collection</option>
+              {collections.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={bulkBusy}
+              onClick={bulkSetCollection}
+            >
+              {bulkBusy ? "Moving…" : "Move"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger btn-sm"
+              disabled={bulkBusy}
+              onClick={bulkDelete}
+            >
+              {bulkBusy ? "Deleting…" : `Delete ${selected.size}`}
+            </button>
             <button
               type="button"
               className="btn btn-ghost btn-sm"
@@ -792,6 +940,17 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
               Clear
             </button>
           </div>
+        ) : null}
+        {bulkReport ? (
+          <p className={bulkReport.failed ? "notice notice-error" : "notice notice-ok"}>
+            {bulkReport.action} {bulkReport.succeeded} video{bulkReport.succeeded === 1 ? "" : "s"}
+            {bulkReport.failed
+              ? `; ${bulkReport.failed} failed (${bulkReport.errors
+                  .map(([, r]) => r.error)
+                  .join(", ")})`
+              : ""}
+            .
+          </p>
         ) : null}
         {!canReorder ? (
           <p className="muted small">Clear the filter to drag-reorder.</p>
@@ -808,8 +967,8 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
         ) : (
           <div className="row-list">
             {visible.map((video, index) => (
+              <div key={video.id} className="video-item">
               <div
-                key={video.id}
                 className="row video-row"
                 draggable={canReorder}
                 onDragStart={handleDragStart(index)}
@@ -882,6 +1041,17 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
                     </option>
                   ))}
                 </select>
+                <select
+                  className="input input-sm"
+                  value={video.watermark || "default"}
+                  onChange={(e) => setWatermarkMode(video, e.target.value)}
+                  aria-label="Watermark"
+                  title="Email watermark for this video"
+                >
+                  <option value="default">Watermark: default</option>
+                  <option value="on">Watermark: always</option>
+                  <option value="off">Watermark: never</option>
+                </select>
                 <div className="row-actions">
                   <button
                     type="button"
@@ -890,6 +1060,16 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
                     title="Create a private share link"
                   >
                     <LinkIcon size={13} /> Share
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() =>
+                      setStatsFor((cur) => (cur === video.id ? null : video.id))
+                    }
+                    title="Per-video share analytics"
+                  >
+                    {statsFor === video.id ? "Hide stats" : "Stats"}
                   </button>
                   <button
                     type="button"
@@ -908,6 +1088,31 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
                     <TrashIcon size={14} />
                   </button>
                 </div>
+              </div>
+              {statsFor === video.id ? (
+                <div className="row video-stats-row">
+                  {shareStats === null ? (
+                    <p className="muted small">Loading share analytics…</p>
+                  ) : shareStats[video.id] ? (
+                    <span className="muted small">
+                      {shareStats[video.id].shares} link
+                      {shareStats[video.id].shares === 1 ? "" : "s"} ·{" "}
+                      {shareStats[video.id].uniqueRecipients} recipient
+                      {shareStats[video.id].uniqueRecipients === 1 ? "" : "s"} ·{" "}
+                      {shareStats[video.id].views} view
+                      {shareStats[video.id].views === 1 ? "" : "s"} ·{" "}
+                      {shareStats[video.id].started} started ·{" "}
+                      {shareStats[video.id].completed} completed (
+                      {shareStats[video.id].completionRate}%) · avg{" "}
+                      {shareStats[video.id].avgProgress}% watched
+                    </span>
+                  ) : (
+                    <p className="muted small">
+                      No share links for this video yet.
+                    </p>
+                  )}
+                </div>
+              ) : null}
               </div>
             ))}
           </div>
@@ -1510,6 +1715,11 @@ function SettingsTab({ config, onConfig }) {
   const [pushTitle, setPushTitle] = useState("");
   const [pushBody, setPushBody] = useState("");
   const [pushNote, setPushNote] = useState("");
+  const [watermarkEnabled, setWatermarkEnabled] = useState(config.watermarkEnabled);
+  const [watermarkNote, setWatermarkNote] = useState("");
+  const [exemptions, setExemptions] = useState(null);
+  const [exemptInput, setExemptInput] = useState("");
+  const [exemptError, setExemptError] = useState("");
 
   useEffect(() => {
     api("/api/theme")
@@ -1522,6 +1732,57 @@ function SettingsTab({ config, onConfig }) {
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    api("/api/admin/watermark-exempt")
+      .then((data) => setExemptions(data.exemptions))
+      .catch(() => {});
+  }, []);
+
+  const toggleWatermark = async (enabled) => {
+    setError("");
+    setWatermarkNote("");
+    try {
+      await api("/api/admin/settings", {
+        method: "POST",
+        body: { watermarkEnabled: enabled },
+      });
+      setWatermarkEnabled(enabled);
+      onConfig({ watermarkEnabled: enabled });
+      setWatermarkNote("Saved.");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const addExemption = async (e) => {
+    e.preventDefault();
+    setExemptError("");
+    const email = exemptInput.trim().toLowerCase();
+    if (!email) return;
+    try {
+      await api("/api/admin/watermark-exempt", {
+        method: "POST",
+        body: { email },
+      });
+      setExemptInput("");
+      const data = await api("/api/admin/watermark-exempt");
+      setExemptions(data.exemptions);
+    } catch (err) {
+      setExemptError(err.message);
+    }
+  };
+
+  const removeExemption = async (email) => {
+    try {
+      await api(`/api/admin/watermark-exempt?email=${encodeURIComponent(email)}`, {
+        method: "DELETE",
+      });
+      setExemptions((list) => (list || []).filter((e) => e !== email));
+    } catch (err) {
+      setExemptError(err.message);
+    }
+  };
 
   const saveCount = async (e) => {
     e.preventDefault();
@@ -1630,6 +1891,69 @@ function SettingsTab({ config, onConfig }) {
             Apply custom colors
           </button>
         </div>
+      </section>
+
+      <section className="card">
+        <h3>Email watermark</h3>
+        <p className="muted small">
+          Overlays the viewer&apos;s email on playback as a deterrent against
+          re-sharing. Resolved per play, most specific wins: an exempted
+          viewer never sees one; otherwise a per-share Always/Never choice
+          (set when the link was created) wins next; then a per-video
+          override (in the Videos tab); otherwise this global default
+          applies.
+        </p>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={Boolean(watermarkEnabled)}
+            onChange={(e) => toggleWatermark(e.target.checked)}
+          />
+          <span>Enabled by default for all playback</span>
+        </label>
+        {watermarkNote ? <span className="muted small">{watermarkNote}</span> : null}
+
+        <h3 style={{ marginTop: "1.2rem" }}>Exempt from watermark</h3>
+        <p className="muted small">
+          These emails (viewers or admins) never see a watermark, regardless
+          of any other setting.
+        </p>
+        <form onSubmit={addExemption} className="inline-form">
+          <input
+            type="email"
+            className="input input-sm"
+            placeholder="person@example.com"
+            value={exemptInput}
+            onChange={(e) => setExemptInput(e.target.value)}
+          />
+          <button type="submit" className="btn btn-primary btn-sm">
+            Exempt
+          </button>
+        </form>
+        {exemptError ? <div className="notice notice-error">{exemptError}</div> : null}
+        {exemptions === null ? (
+          <p className="muted small">Loading…</p>
+        ) : exemptions.length === 0 ? (
+          <p className="muted small">No exemptions.</p>
+        ) : (
+          <div className="row-list">
+            {exemptions.map((email) => (
+              <div key={email} className="row">
+                <div className="row-main">
+                  <strong className="row-title">{email}</strong>
+                </div>
+                <button
+                  type="button"
+                  className="icon-btn icon-btn-danger"
+                  aria-label={`Remove exemption for ${email}`}
+                  onClick={() => removeExemption(email)}
+                >
+                  <TrashIcon size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="card">
@@ -1743,12 +2067,17 @@ const ACTION_LABELS = {
   "video.upload": "Upload started",
   "video.upload.cancel": "Upload cancelled",
   "video.collection": "Video collection changed",
+  "video.watermark": "Video watermark setting changed",
+  "video.bulk_delete": "Videos bulk-deleted",
+  "video.bulk_collection": "Videos bulk-moved to a collection",
   "order.update": "Library reordered",
   "settings.update": "Settings changed",
   "push.broadcast": "Notification broadcast",
   "theme.update": "Palette changed",
   "collection.create": "Collection created",
   "collection.delete": "Collection deleted",
+  "watermark.exempt_add": "Watermark exemption added",
+  "watermark.exempt_remove": "Watermark exemption removed",
 };
 
 function ActivityTab() {
@@ -1873,6 +2202,42 @@ function AnalyticsTab() {
           </div>
         )}
       </section>
+
+      {data.shareRollup && data.shareRollup.length > 0 ? (
+        <section className="card">
+          <details>
+            <summary className="collapsible-summary">
+              <strong>Per-video share analytics</strong>
+              <span className="muted small">
+                {" "}
+                — {data.shareRollup.length} video
+                {data.shareRollup.length === 1 ? "" : "s"} with share links
+              </span>
+            </summary>
+            <p className="muted small" style={{ marginTop: "0.6rem" }}>
+              Rolled up from existing share-link tracking (opens, playback
+              starts, completions) — no new data is collected.
+            </p>
+            <div className="row-list">
+              {data.shareRollup.map((row) => (
+                <div key={row.videoId} className="row">
+                  <div className="row-main">
+                    <strong className="row-title">{row.videoTitle}</strong>
+                    <span className="muted small">
+                      {row.shares} link{row.shares === 1 ? "" : "s"} ·{" "}
+                      {row.uniqueRecipients} recipient
+                      {row.uniqueRecipients === 1 ? "" : "s"} · {row.views} view
+                      {row.views === 1 ? "" : "s"} · {row.started} started ·{" "}
+                      {row.completed} completed ({row.completionRate}%) · avg{" "}
+                      {row.avgProgress}% watched
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </details>
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -1898,6 +2263,7 @@ export default function Admin({ user }) {
     emailConfigured: false,
     emailFrom: null,
     pushConfigured: false,
+    watermarkEnabled: false,
   });
 
   useEffect(() => {
@@ -1908,6 +2274,7 @@ export default function Admin({ user }) {
           emailConfigured: data.emailConfigured,
           emailFrom: data.emailFrom,
           pushConfigured: data.pushConfigured,
+          watermarkEnabled: data.watermarkEnabled,
         })
       )
       .catch(() => {});
