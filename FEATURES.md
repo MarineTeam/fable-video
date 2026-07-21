@@ -156,6 +156,10 @@ setup and architecture, see [README.md](./README.md).
   video overrides the global watermark setting for every share of that
   video (unless a per-share or exemption override applies — see "Email
   watermark" below).
+- **Per-video share analytics, inline** — a "Stats" toggle per video row
+  expands the same share-link rollup shown in the Analytics tab (link
+  count, unique recipients, views, started/completed, avg progress) without
+  leaving the Videos tab.
 
 ---
 

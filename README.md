@@ -331,7 +331,8 @@ Viewers/Shares:
 
 - **Videos** — upload (drag-and-drop, progress, cancel/retry), rename, delete,
   drag-to-reorder, search, encoding-status badges, per-video collection
-  assignment, a per-video **watermark override** (Default/Always/Never),
+  assignment, a per-video **watermark override** (Default/Always/Never), a
+  per-row **Stats** toggle showing that video's share-link analytics inline,
   per-video private share-link creation (with an "email the link" option),
   and **multi-select bulk sharing** (select several videos, share them with
   several recipients in one request) as well as **bulk delete** and **bulk

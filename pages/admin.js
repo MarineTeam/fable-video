@@ -462,6 +462,8 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkReport, setBulkReport] = useState(null);
   const [bulkCollection, setBulkCollection] = useState("");
+  const [shareStats, setShareStats] = useState(null);
+  const [statsFor, setStatsFor] = useState(null);
   const dragIndex = useRef(null);
   const fileInput = useRef(null);
   const tusUploads = useRef(new Map());
@@ -488,6 +490,21 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Fetched once, separately from `load`'s auto-refresh cycle (which can
+  // fire every 5s while a video is processing) — share stats don't change
+  // that often and this avoids hammering Redis on every encoding poll.
+  useEffect(() => {
+    api("/api/admin/shares")
+      .then((data) => {
+        const map = {};
+        (data.rollup || []).forEach((row) => {
+          map[row.videoId] = row;
+        });
+        setShareStats(map);
+      })
+      .catch(() => {});
+  }, []);
 
   // Auto-refresh encoding badges while anything is processing.
   const anyProcessing = (videos || []).some((v) => v.status === "processing");
@@ -950,8 +967,8 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
         ) : (
           <div className="row-list">
             {visible.map((video, index) => (
+              <div key={video.id} className="video-item">
               <div
-                key={video.id}
                 className="row video-row"
                 draggable={canReorder}
                 onDragStart={handleDragStart(index)}
@@ -1046,6 +1063,16 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
                   </button>
                   <button
                     type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() =>
+                      setStatsFor((cur) => (cur === video.id ? null : video.id))
+                    }
+                    title="Per-video share analytics"
+                  >
+                    {statsFor === video.id ? "Hide stats" : "Stats"}
+                  </button>
+                  <button
+                    type="button"
                     className="icon-btn"
                     aria-label="Rename"
                     onClick={() => setRenaming({ id: video.id, title: video.title })}
@@ -1061,6 +1088,31 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
                     <TrashIcon size={14} />
                   </button>
                 </div>
+              </div>
+              {statsFor === video.id ? (
+                <div className="row video-stats-row">
+                  {shareStats === null ? (
+                    <p className="muted small">Loading share analytics…</p>
+                  ) : shareStats[video.id] ? (
+                    <span className="muted small">
+                      {shareStats[video.id].shares} link
+                      {shareStats[video.id].shares === 1 ? "" : "s"} ·{" "}
+                      {shareStats[video.id].uniqueRecipients} recipient
+                      {shareStats[video.id].uniqueRecipients === 1 ? "" : "s"} ·{" "}
+                      {shareStats[video.id].views} view
+                      {shareStats[video.id].views === 1 ? "" : "s"} ·{" "}
+                      {shareStats[video.id].started} started ·{" "}
+                      {shareStats[video.id].completed} completed (
+                      {shareStats[video.id].completionRate}%) · avg{" "}
+                      {shareStats[video.id].avgProgress}% watched
+                    </span>
+                  ) : (
+                    <p className="muted small">
+                      No share links for this video yet.
+                    </p>
+                  )}
+                </div>
+              ) : null}
               </div>
             ))}
           </div>

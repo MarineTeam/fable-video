@@ -947,6 +947,19 @@ code {
   border-top: 1px solid var(--border);
 }
 
+.video-item + .video-item {
+  border-top: 1px solid var(--border);
+}
+
+.video-item .video-row + .row {
+  border-top: none;
+}
+
+.video-stats-row {
+  padding-top: 0;
+  padding-bottom: 0.65rem;
+}
+
 .row-main {
   flex: 1;
   min-width: 180px;

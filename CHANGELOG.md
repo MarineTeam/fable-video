@@ -18,12 +18,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   to both private share-link playback and direct approved-viewer playback
   (`lib/watermark.js`'s `resolveWatermark`, `components/WatermarkOverlay.js`,
   `pages/api/admin/watermark-exempt.js`).
-- **Per-video share analytics** — a collapsible panel in the Analytics tab
-  rolling up existing per-share tracking by video: link count, unique
-  recipients, views, playback starts, completions and completion rate, and
-  average furthest-percent watched. Reads only fields already stored on
-  share records (`lib/shares.js`'s `rollupShareAnalyticsByVideo`) — no new
-  tracking is added.
+- **Per-video share analytics** — a collapsible panel in the Analytics tab,
+  and a per-row "Stats" toggle in the Videos tab, both rolling up existing
+  per-share tracking by video: link count, unique recipients, views,
+  playback starts, completions and completion rate, and average
+  furthest-percent watched. Reads only fields already stored on share
+  records (`lib/shares.js`'s `rollupShareAnalyticsByVideo`, also exposed
+  from `pages/api/admin/shares.js`'s existing GET) — no new tracking or
+  extra Redis reads are added.
 - **Bulk video operations** — multi-select rows in the Videos tab and
   **bulk delete** or **move to a collection** in one action, mirroring the
   bulk-share UX. Each video is processed independently — one failure never

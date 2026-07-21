@@ -7,7 +7,12 @@
 // result, and a Redis error on one link doesn't stop the rest from being
 // revoked.
 import { requireAdmin } from "../../../lib/guard";
-import { listShares, revokeShare, shareUrl } from "../../../lib/shares";
+import {
+  listShares,
+  revokeShare,
+  rollupShareAnalyticsByVideo,
+  shareUrl,
+} from "../../../lib/shares";
 import { logAction } from "../../../lib/audit";
 
 const MAX_IDS = 100;
@@ -24,6 +29,10 @@ export default async function handler(req, res) {
           ...share,
           url: shareUrl(req, share.id),
         })),
+        // Per-video rollup of the same tracking data, keyed for the Videos
+        // tab's inline "Stats" panel — no extra Redis reads, just a
+        // different view of the list already fetched above.
+        rollup: rollupShareAnalyticsByVideo(shares),
       });
     } catch (err) {
       console.error("Could not load share links:", err);
