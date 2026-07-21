@@ -269,7 +269,7 @@ pages/
       share-bulk.js        Bulk-create one link per video x recipient pair (rate-limited)
       share-extend.js      Extend one or more links' expiry in place (single or bulk)
       share-email.js      Send/resend the email (single or bulk; bundle-consolidated if bundled)
-      shares.js           List / revoke share links (view/playback stats, emailed status)
+      shares.js           List / revoke share links, single or bulk (view/playback stats, emailed status)
       upload.js           Create Bunny video + signed TUS auth (rate-limited)
       collections.js      Create / list / delete collections
       audit.js            Recent admin actions
@@ -339,10 +339,9 @@ Viewers/Shares:
   viewer's **last-seen** time.
 - **Shares** — every share link with recipient, expiry, **view count/last
   viewed**, **playback** (plays, furthest % watched, completed), **bundled**
-  status, and **emailed** status; email/resend, single or **multi-select
-  bulk** (bundle-consolidated if bundled, per-link results); **extend**
-  expiry in place (single or multi-select bulk, with per-link results);
-  revoke instantly.
+  status, and **emailed** status; email/resend, extend expiry, and revoke —
+  each single or **multi-select bulk**, with per-link success/failure
+  results (email is bundle-consolidated when bundled).
 - **Settings** — homepage video count, the site **color palette** (7 presets +
   custom, applied to all visitors), and the email/push status panels.
 - **Activity** — recent admin actions (viewer add/remove, share

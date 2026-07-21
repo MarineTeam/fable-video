@@ -1,6 +1,6 @@
 # Features
 
-A catalog of what the Marine Video Portal does, current as of **v1.8.0**.
+A catalog of what the Marine Video Portal does, current as of **v1.9.0**.
 Grouped by audience; items marked _(admin)_ live in the `/admin` panel. For
 setup and architecture, see [README.md](./README.md).
 
@@ -105,7 +105,9 @@ setup and architecture, see [README.md](./README.md).
   many times playback started, the furthest percentage watched, and whether
   it was watched to completion. This distinguishes someone who opened the
   link from someone who actually watched.
-- **Instant revocation** — kill any active link immediately, one click.
+- **Instant revocation** — kill any active link immediately, one click, or
+  select several and **bulk revoke** them in one action (each link revoked
+  independently, per-link success/failure result).
 - Expired/revoked links show a clean "expired or doesn't exist" message.
 - **Unguessable IDs** — share IDs are random 16-byte tokens, format-validated
   before any lookup.
