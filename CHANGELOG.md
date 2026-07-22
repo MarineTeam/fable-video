@@ -5,6 +5,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-07-22
+
+Geo-location whitelist — the whole site can now be restricted to a set of
+countries, with a separate env-var-based bypass list so a traveling admin
+can never get locked out.
+
 ### Added
 
 - **Geo-location whitelist** — two independent country whitelists, each read
