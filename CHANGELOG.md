@@ -7,17 +7,23 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **Geo-location whitelist** — an admin-managed enable/disable toggle plus a
-  list of allowed ISO 3166-1 alpha-2 country codes (e.g. `US`, `CA`), both
-  editable live from the Settings tab, no redeploy needed
-  (`pages/api/admin/settings.js`'s `geoEnabled`, new
-  `pages/api/admin/geo-countries.js`, `lib/store.js`). Enforced in `proxy.js`
-  against Vercel's `x-vercel-ip-country` request header, before the Auth0
-  middleware runs, cached a few seconds per instance like the video-list
-  cache. Only restricts anything once enabled **and** at least one country
-  is listed; a blocked visitor sees a generic "not available in your
-  region" page with no details about which countries are allowed
-  (`lib/geo.js`, `lib/geoBlockedPage.js`).
+- **Geo-location whitelist** — two independent country whitelists, each read
+  from an env var (`GEO_WHITELIST`, `ADMIN_GEO_WHITELIST`) so they can always
+  be edited directly in Vercel, and each gated by its own Redis-backed
+  enforcement toggle in the Settings tab (off by default, no redeploy
+  needed): **Enforce GEO_WHITELIST** restricts the entire site — including
+  login — to the listed countries; **Enforce ADMIN_GEO_WHITELIST bypass**
+  lets a visitor from one of *those* countries through regardless of
+  `GEO_WHITELIST`, so an admin traveling somewhere the main whitelist
+  doesn't cover can add their current country to `ADMIN_GEO_WHITELIST` in
+  Vercel and redeploy — without needing the app to be reachable to fix it
+  any other way. Enforced in `proxy.js` against Vercel's
+  `x-vercel-ip-country` request header, before the Auth0 middleware runs,
+  with the toggles cached a few seconds per instance like the video-list
+  cache. A blocked visitor sees a generic "not available in your region"
+  page with no details about which countries are allowed. Both lists are
+  shown read-only in the Settings tab (`lib/geo.js`, `lib/geoBlockedPage.js`,
+  `pages/api/admin/settings.js`).
 
 ## [1.11.0] - 2026-07-22
 

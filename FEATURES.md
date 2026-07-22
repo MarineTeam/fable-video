@@ -27,13 +27,15 @@ setup and architecture, see [README.md](./README.md).
   users.
 - Centralized identity logic in one shared helper (`lib/auth.js`). Auth0
   sign-ups can be disabled tenant-wide so strangers can't self-register.
-- **Geo-location whitelist** _(admin-managed, optional)_ — an enable/disable
-  toggle plus a list of allowed country codes, both editable live from the
-  Settings tab (Redis-backed, no redeploy needed). Enforced at the network
-  boundary (`proxy.js`) via Vercel's request geolocation, before login even
-  loads. Only restricts anything once enabled **and** at least one country
-  is listed; a blocked visitor sees a generic "not available in your
-  region" page.
+- **Geo-location whitelist** _(optional)_ — two country lists, each an env
+  var (`GEO_WHITELIST`, `ADMIN_GEO_WHITELIST`) so they're always editable
+  directly in Vercel, each with its own enforcement toggle in the Settings
+  tab (off by default). `GEO_WHITELIST` restricts the whole site, including
+  login; `ADMIN_GEO_WHITELIST` is a bypass list so an admin traveling
+  somewhere the main whitelist doesn't cover isn't locked out. Enforced at
+  the network boundary (`proxy.js`) via Vercel's request geolocation, before
+  login even loads. A blocked visitor sees a generic "not available in
+  your region" page; both lists show read-only in the Settings tab.
 
 ### Browsing the library
 - **Modern dark design** — glassmorphism, gradient accents, Inter typography.
@@ -248,6 +250,9 @@ setup and architecture, see [README.md](./README.md).
 - `NEXT_PUBLIC_VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` — enable Web Push.
 - `NEXT_PUBLIC_SITE_NAME` — portal name in the header.
 - `SENTRY_*` — enable error monitoring and source-map upload.
+- `GEO_WHITELIST` / `ADMIN_GEO_WHITELIST` — country lists for the geo
+  whitelist and its admin bypass; each inert until its own toggle is
+  enabled in the Settings tab (Vercel deployments only).
 
 ---
 
