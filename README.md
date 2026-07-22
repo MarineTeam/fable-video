@@ -167,19 +167,6 @@ Inert until both VAPID keys are set. Generate them with
 > **iOS only delivers push to the PWA once it's installed to the Home Screen**
 > (iOS/iPadOS 16.4+).
 
-### Optional — geo-location whitelist
-
-Inert until set. Restricts the **entire site** (including login) to the
-listed countries; only works when deployed on Vercel, since it reads Vercel's
-request geolocation. A visitor outside the whitelist sees a plain "not
-available in your region" page — no details about which countries are
-allowed. Local dev and non-Vercel hosts have no country header to check, so
-the site is left unrestricted rather than locked out.
-
-| Key | Description |
-| --- | --- |
-| `ALLOWED_COUNTRIES` | Comma-separated ISO 3166-1 alpha-2 country codes, e.g. `US,CA`. |
-
 ### Optional — branding & monitoring
 
 | Key | Description |
@@ -362,11 +349,13 @@ Viewers/Shares:
   (single or bulk) includes a **watermark** override.
 - **Settings** — homepage video count, the site **color palette** (7 presets +
   custom, applied to all visitors), the **email watermark** global default
-  and exemption list, and the email/push status panels.
+  and exemption list, a **geo-location whitelist** (enable/disable toggle
+  plus the list of allowed countries), and the email/push status panels.
 - **Activity** — recent admin actions (viewer add/remove, share
   create/bulk-create/extend/revoke/email, video rename/delete/bulk-delete/
-  reorder/collection change/watermark, watermark exemptions, settings,
-  palette, collections), each with actor and time.
+  reorder/collection change/watermark, watermark exemptions, geo whitelist
+  country add/remove, settings, palette, collections), each with actor and
+  time.
 - **Analytics** — total views, 30-day views, watch time, video count, a 30-day
   views chart, a most-watched list, and a collapsible **per-video share
   analytics** panel rolling up existing share-link tracking.

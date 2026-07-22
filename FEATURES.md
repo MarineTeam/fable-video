@@ -27,11 +27,13 @@ setup and architecture, see [README.md](./README.md).
   users.
 - Centralized identity logic in one shared helper (`lib/auth.js`). Auth0
   sign-ups can be disabled tenant-wide so strangers can't self-register.
-- **Geo-location whitelist** _(optional)_ — an `ALLOWED_COUNTRIES` env var
-  restricts the entire site to a comma-separated list of country codes,
-  enforced at the network boundary (`proxy.js`) via Vercel's request
-  geolocation, before login even loads. Inert until set; a blocked visitor
-  sees a generic "not available in your region" page.
+- **Geo-location whitelist** _(admin-managed, optional)_ — an enable/disable
+  toggle plus a list of allowed country codes, both editable live from the
+  Settings tab (Redis-backed, no redeploy needed). Enforced at the network
+  boundary (`proxy.js`) via Vercel's request geolocation, before login even
+  loads. Only restricts anything once enabled **and** at least one country
+  is listed; a blocked visitor sees a generic "not available in your
+  region" page.
 
 ### Browsing the library
 - **Modern dark design** — glassmorphism, gradient accents, Inter typography.
@@ -246,8 +248,6 @@ setup and architecture, see [README.md](./README.md).
 - `NEXT_PUBLIC_VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` — enable Web Push.
 - `NEXT_PUBLIC_SITE_NAME` — portal name in the header.
 - `SENTRY_*` — enable error monitoring and source-map upload.
-- `ALLOWED_COUNTRIES` — restrict the whole site to a comma-separated list of
-  country codes (Vercel deployments only).
 
 ---
 

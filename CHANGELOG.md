@@ -7,13 +7,17 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **Geo-location whitelist** — an optional `ALLOWED_COUNTRIES` env var
-  restricts the entire site (including login) to a comma-separated list of
-  ISO 3166-1 alpha-2 country codes, e.g. `US,CA`. Enforced in `proxy.js`
+- **Geo-location whitelist** — an admin-managed enable/disable toggle plus a
+  list of allowed ISO 3166-1 alpha-2 country codes (e.g. `US`, `CA`), both
+  editable live from the Settings tab, no redeploy needed
+  (`pages/api/admin/settings.js`'s `geoEnabled`, new
+  `pages/api/admin/geo-countries.js`, `lib/store.js`). Enforced in `proxy.js`
   against Vercel's `x-vercel-ip-country` request header, before the Auth0
-  middleware runs. Inert until set; a visitor outside the whitelist sees a
-  generic "not available in your region" page with no details about which
-  countries are allowed (`lib/geo.js`, `lib/geoBlockedPage.js`).
+  middleware runs, cached a few seconds per instance like the video-list
+  cache. Only restricts anything once enabled **and** at least one country
+  is listed; a blocked visitor sees a generic "not available in your
+  region" page with no details about which countries are allowed
+  (`lib/geo.js`, `lib/geoBlockedPage.js`).
 
 ## [1.11.0] - 2026-07-22
 

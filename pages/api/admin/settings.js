@@ -2,9 +2,11 @@
 // admin panel needs (email delivery configuration).
 import { requireAdmin } from "../../../lib/guard";
 import {
+  getGeoSettings,
   getSettings,
   getWatermarkSettings,
   MAX_VIDEO_COUNT,
+  saveGeoEnabled,
   saveSettings,
   saveWatermarkEnabled,
 } from "../../../lib/store";
@@ -18,13 +20,15 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
-      const [settings, watermark] = await Promise.all([
+      const [settings, watermark, geo] = await Promise.all([
         getSettings(),
         getWatermarkSettings(),
+        getGeoSettings(),
       ]);
       return res.json({
         ...settings,
         watermarkEnabled: watermark.enabled,
+        geoEnabled: geo.enabled,
         emailConfigured: emailEnabled(),
         emailFrom: emailEnabled() ? emailFrom() : null,
         siteName: siteName(),
@@ -56,17 +60,20 @@ export default async function handler(req, res) {
     if (body.watermarkEnabled !== undefined) {
       updates.push(["watermarkEnabled", Boolean(body.watermarkEnabled)]);
     }
+    if (body.geoEnabled !== undefined) {
+      updates.push(["geoEnabled", Boolean(body.geoEnabled)]);
+    }
     if (!updates.length) {
       return res.status(400).json({ error: "Nothing to update" });
     }
 
     try {
       await Promise.all(
-        updates.map(([key, value]) =>
-          key === "watermarkEnabled"
-            ? saveWatermarkEnabled(value)
-            : saveSettings({ [key]: value })
-        )
+        updates.map(([key, value]) => {
+          if (key === "watermarkEnabled") return saveWatermarkEnabled(value);
+          if (key === "geoEnabled") return saveGeoEnabled(value);
+          return saveSettings({ [key]: value });
+        })
       );
     } catch (err) {
       console.error("Could not save settings:", err);

@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server";
 import { auth0 } from "./lib/auth0";
-import { geoRestrictionEnabled, isAllowedCountry } from "./lib/geo";
+import { geoRestrictionActive, getGeoConfig, isAllowedCountry } from "./lib/geo";
 import { GEO_BLOCKED_HTML } from "./lib/geoBlockedPage";
 
 // Next.js 16 network boundary (replaces middleware.js). Mounts the Auth0 v4
 // routes (/auth/login, /auth/logout, /auth/callback, /auth/profile, ...) and
 // keeps rolling sessions alive on every request.
 export async function proxy(request) {
-  if (geoRestrictionEnabled()) {
+  const geoConfig = await getGeoConfig();
+  if (geoRestrictionActive(geoConfig)) {
     const country = request.headers.get("x-vercel-ip-country");
-    if (!isAllowedCountry(country)) {
+    if (!isAllowedCountry(country, geoConfig.countries)) {
       return new NextResponse(GEO_BLOCKED_HTML, {
         status: 403,
         headers: { "content-type": "text/html; charset=utf-8" },

@@ -1908,6 +1908,11 @@ function SettingsTab({ config, onConfig }) {
   const [exemptions, setExemptions] = useState(null);
   const [exemptInput, setExemptInput] = useState("");
   const [exemptError, setExemptError] = useState("");
+  const [geoEnabled, setGeoEnabled] = useState(config.geoEnabled);
+  const [geoNote, setGeoNote] = useState("");
+  const [countries, setCountries] = useState(null);
+  const [countryInput, setCountryInput] = useState("");
+  const [countryError, setCountryError] = useState("");
 
   useEffect(() => {
     api("/api/theme")
@@ -1924,6 +1929,12 @@ function SettingsTab({ config, onConfig }) {
   useEffect(() => {
     api("/api/admin/watermark-exempt")
       .then((data) => setExemptions(data.exemptions))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    api("/api/admin/geo-countries")
+      .then((data) => setCountries(data.countries))
       .catch(() => {});
   }, []);
 
@@ -1969,6 +1980,51 @@ function SettingsTab({ config, onConfig }) {
       setExemptions((list) => (list || []).filter((e) => e !== email));
     } catch (err) {
       setExemptError(err.message);
+    }
+  };
+
+  const toggleGeo = async (enabled) => {
+    setError("");
+    setGeoNote("");
+    try {
+      await api("/api/admin/settings", {
+        method: "POST",
+        body: { geoEnabled: enabled },
+      });
+      setGeoEnabled(enabled);
+      onConfig({ geoEnabled: enabled });
+      setGeoNote("Saved.");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const addCountry = async (e) => {
+    e.preventDefault();
+    setCountryError("");
+    const code = countryInput.trim().toUpperCase();
+    if (!code) return;
+    try {
+      await api("/api/admin/geo-countries", {
+        method: "POST",
+        body: { code },
+      });
+      setCountryInput("");
+      const data = await api("/api/admin/geo-countries");
+      setCountries(data.countries);
+    } catch (err) {
+      setCountryError(err.message);
+    }
+  };
+
+  const removeCountry = async (code) => {
+    try {
+      await api(`/api/admin/geo-countries?code=${encodeURIComponent(code)}`, {
+        method: "DELETE",
+      });
+      setCountries((list) => (list || []).filter((c) => c !== code));
+    } catch (err) {
+      setCountryError(err.message);
     }
   };
 
@@ -2145,6 +2201,76 @@ function SettingsTab({ config, onConfig }) {
       </section>
 
       <section className="card">
+        <h3>Geo-location whitelist</h3>
+        <p className="muted small">
+          Restricts the entire site — including login — to visitors from the
+          listed countries. Enforced at the network boundary using Vercel&apos;s
+          request geolocation, so it only takes effect when deployed on
+          Vercel; local dev and non-Vercel hosts are left unrestricted. A
+          blocked visitor sees a generic &quot;not available in your
+          region&quot; page. Only takes effect once enabled <em>and</em> at
+          least one country is listed below.
+        </p>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={Boolean(geoEnabled)}
+            onChange={(e) => toggleGeo(e.target.checked)}
+          />
+          <span>Enabled</span>
+        </label>
+        {geoNote ? <span className="muted small">{geoNote}</span> : null}
+
+        <h3 style={{ marginTop: "1.2rem" }}>Whitelisted countries</h3>
+        <p className="muted small">
+          2-letter ISO 3166-1 country codes, e.g. <code>US</code>,{" "}
+          <code>CA</code>.
+        </p>
+        <form onSubmit={addCountry} className="inline-form">
+          <input
+            type="text"
+            className="input input-sm"
+            placeholder="US"
+            maxLength={2}
+            value={countryInput}
+            onChange={(e) => setCountryInput(e.target.value)}
+            style={{ textTransform: "uppercase", width: "6ch" }}
+          />
+          <button type="submit" className="btn btn-primary btn-sm">
+            Add
+          </button>
+        </form>
+        {countryError ? (
+          <div className="notice notice-error">{countryError}</div>
+        ) : null}
+        {countries === null ? (
+          <p className="muted small">Loading…</p>
+        ) : countries.length === 0 ? (
+          <p className="muted small">
+            No countries listed{geoEnabled ? " — the whitelist is enabled but blocks nobody until at least one is added." : "."}
+          </p>
+        ) : (
+          <div className="row-list">
+            {countries.map((code) => (
+              <div key={code} className="row">
+                <div className="row-main">
+                  <strong className="row-title">{code}</strong>
+                </div>
+                <button
+                  type="button"
+                  className="icon-btn icon-btn-danger"
+                  aria-label={`Remove ${code} from the whitelist`}
+                  onClick={() => removeCountry(code)}
+                >
+                  <TrashIcon size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="card">
         <h3>Share-link email delivery</h3>
         {config.emailConfigured ? (
           <div className="notice notice-ok">
@@ -2268,6 +2394,8 @@ const ACTION_LABELS = {
   "collection.delete": "Collection deleted",
   "watermark.exempt_add": "Watermark exemption added",
   "watermark.exempt_remove": "Watermark exemption removed",
+  "geo.country_add": "Geo whitelist country added",
+  "geo.country_remove": "Geo whitelist country removed",
 };
 
 function ActivityTab() {
@@ -2454,6 +2582,7 @@ export default function Admin({ user }) {
     emailFrom: null,
     pushConfigured: false,
     watermarkEnabled: false,
+    geoEnabled: false,
   });
 
   useEffect(() => {
@@ -2465,6 +2594,7 @@ export default function Admin({ user }) {
           emailFrom: data.emailFrom,
           pushConfigured: data.pushConfigured,
           watermarkEnabled: data.watermarkEnabled,
+          geoEnabled: data.geoEnabled,
         })
       )
       .catch(() => {});
