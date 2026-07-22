@@ -19,6 +19,11 @@ export default function AppShell({ user, admin, canNotify, children }) {
             <Link href="/" className="nav-link">
               Library
             </Link>
+            {user ? (
+              <Link href="/activity" className="nav-link">
+                My activity
+              </Link>
+            ) : null}
             {admin ? (
               <Link href="/admin" className="nav-link">
                 Admin

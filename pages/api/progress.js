@@ -1,9 +1,16 @@
 // Per-viewer playback progress / watch history.
 //   GET ?videoId=...  -> saved position for one video (used by the player)
 //   GET               -> continue-watching list, enriched with video details
+//   GET ?all=1        -> full watch history (every video with any progress,
+//                        finished or not, uncapped) for the "My activity" page
+//   GET ?all=1&email=someone@x.com
+//                     -> an admin looking up an approved viewer's full
+//                        history instead of their own (admin-only; the
+//                        target must itself be an approved viewer or admin)
 //   POST              -> save progress { videoId, t, d }
 import { requireApproved } from "../../lib/guard";
-import { getProgress, saveProgress } from "../../lib/store";
+import { isAdmin, normalizeEmail } from "../../lib/auth";
+import { getProgress, isApprovedViewer, saveProgress } from "../../lib/store";
 import { listAllVideos, thumbnailUrl } from "../../lib/bunny";
 
 const MAX_CONTINUE_ITEMS = 8;
@@ -14,17 +21,46 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     const videoId = String(req.query.videoId || "").trim();
+    const all = req.query.all === "1" || req.query.all === "true";
+    const requestedEmail = req.query.email ? normalizeEmail(req.query.email) : null;
+
+    let target = email;
+    if (requestedEmail && requestedEmail !== email) {
+      if (!isAdmin(email)) {
+        return res.status(403).json({ error: "Admins only" });
+      }
+      let targetApproved = isAdmin(requestedEmail);
+      if (!targetApproved) {
+        try {
+          targetApproved = await isApprovedViewer(requestedEmail);
+        } catch {
+          targetApproved = false;
+        }
+      }
+      if (!targetApproved) {
+        return res.status(404).json({ error: "That address isn't an approved viewer" });
+      }
+      target = requestedEmail;
+    }
+
     try {
-      const progress = await getProgress(email);
+      const progress = await getProgress(target);
       if (videoId) {
         return res.json({ progress: progress[videoId] || null });
       }
 
-      const entries = Object.entries(progress)
+      let entries = Object.entries(progress)
         .map(([id, entry]) => ({ videoId: id, ...entry }))
-        .filter((e) => e.t > 10 && e.d > 0 && e.t < e.d * 0.95)
-        .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0))
-        .slice(0, MAX_CONTINUE_ITEMS);
+        .filter((e) => e.t > 10 && e.d > 0);
+
+      entries = all
+        // Full history: every video ever progressed on, finished included.
+        ? entries.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0))
+        // Continue-watching: only what's still unfinished, capped.
+        : entries
+            .filter((e) => e.t < e.d * 0.95)
+            .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0))
+            .slice(0, MAX_CONTINUE_ITEMS);
 
       if (!entries.length) return res.json({ items: [] });
 
@@ -34,10 +70,13 @@ export default async function handler(req, res) {
         .filter((e) => byId.has(e.videoId))
         .map((e) => {
           const video = byId.get(e.videoId);
+          const completed = e.t >= e.d * 0.95;
           return {
             videoId: e.videoId,
             t: e.t,
             d: e.d,
+            percent: Math.min(100, Math.round((e.t / e.d) * 100)),
+            completed,
             updatedAt: e.at || null,
             title: video.title || "Untitled",
             thumbnail: thumbnailUrl(video),

@@ -3,8 +3,10 @@
 // Accepts a single { id, hours } or a bulk { ids: [...], hours }; bulk
 // never fails the whole batch on one bad id — every id gets its own
 // success/failure result. Works on an already-expired-but-not-revoked link
-// (extends "from now"); a revoked link has no record left to extend, so it
-// naturally comes back not_found rather than being silently un-revoked.
+// (extends "from now"); a revoked link still has a record (see
+// lib/shares.js's soft revoke) but is refused explicitly, so extending can
+// never double as a silent un-revoke — restore it first via PATCH
+// /api/admin/shares.
 import { requireAdmin } from "../../../lib/guard";
 import { extendShare } from "../../../lib/shares";
 import { extendBundleTtl } from "../../../lib/bundles";
@@ -40,7 +42,13 @@ export default async function handler(req, res) {
       try {
         const outcome = await extendShare(id, hours);
         if (!outcome.ok) {
-          results[id] = { ok: false, error: "Link not found (revoked, or past its grace window)" };
+          results[id] = {
+            ok: false,
+            error:
+              outcome.error === "revoked"
+                ? "Link is revoked — restore it first"
+                : "Link not found (revoked, or past its grace window)",
+          };
           return;
         }
         results[id] = { ok: true, expiresAt: outcome.share.expiresAt };

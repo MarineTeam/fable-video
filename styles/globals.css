@@ -797,6 +797,15 @@ code {
   transition: width 0.2s ease;
 }
 
+.activity-row-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.activity-viewer-picker {
+  min-width: 220px;
+}
+
 /* ---------- watch pages ---------- */
 
 .watch-head {
