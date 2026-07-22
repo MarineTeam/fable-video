@@ -1908,6 +1908,10 @@ function SettingsTab({ config, onConfig }) {
   const [exemptions, setExemptions] = useState(null);
   const [exemptInput, setExemptInput] = useState("");
   const [exemptError, setExemptError] = useState("");
+  const [geoEnabled, setGeoEnabled] = useState(config.geoEnabled);
+  const [geoNote, setGeoNote] = useState("");
+  const [adminGeoEnabled, setAdminGeoEnabled] = useState(config.adminGeoEnabled);
+  const [adminGeoNote, setAdminGeoNote] = useState("");
 
   useEffect(() => {
     api("/api/theme")
@@ -1969,6 +1973,38 @@ function SettingsTab({ config, onConfig }) {
       setExemptions((list) => (list || []).filter((e) => e !== email));
     } catch (err) {
       setExemptError(err.message);
+    }
+  };
+
+  const toggleGeo = async (enabled) => {
+    setError("");
+    setGeoNote("");
+    try {
+      await api("/api/admin/settings", {
+        method: "POST",
+        body: { geoEnabled: enabled },
+      });
+      setGeoEnabled(enabled);
+      onConfig({ geoEnabled: enabled });
+      setGeoNote("Saved.");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const toggleAdminGeo = async (enabled) => {
+    setError("");
+    setAdminGeoNote("");
+    try {
+      await api("/api/admin/settings", {
+        method: "POST",
+        body: { adminGeoEnabled: enabled },
+      });
+      setAdminGeoEnabled(enabled);
+      onConfig({ adminGeoEnabled: enabled });
+      setAdminGeoNote("Saved.");
+    } catch (err) {
+      setError(err.message);
     }
   };
 
@@ -2142,6 +2178,64 @@ function SettingsTab({ config, onConfig }) {
             ))}
           </div>
         )}
+      </section>
+
+      <section className="card">
+        <h3>Geo-location whitelist</h3>
+        <p className="muted small">
+          Restricts the entire site — including login — to visitors from the
+          countries listed in the <code>GEO_WHITELIST</code> env var.
+          Enforced at the network boundary using Vercel&apos;s request
+          geolocation, so it only takes effect when deployed on Vercel; local
+          dev and non-Vercel hosts are left unrestricted. A blocked visitor
+          sees a generic &quot;not available in your region&quot; page. Both
+          lists below are set via env vars (Vercel → Settings → Environment
+          Variables → redeploy) rather than here, so an admin can always fix
+          their own access without depending on the app itself being
+          reachable.
+        </p>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={Boolean(geoEnabled)}
+            onChange={(e) => toggleGeo(e.target.checked)}
+          />
+          <span>
+            Enforce <code>GEO_WHITELIST</code>
+          </span>
+        </label>
+        {geoNote ? <span className="muted small">{geoNote}</span> : null}
+        <p className="muted small" style={{ marginTop: "0.4rem" }}>
+          {config.geoWhitelist?.length
+            ? config.geoWhitelist.join(", ")
+            : "GEO_WHITELIST is not set."}
+        </p>
+
+        <h3 style={{ marginTop: "1.2rem" }}>Admin bypass whitelist</h3>
+        <p className="muted small">
+          A visitor from a country in <code>ADMIN_GEO_WHITELIST</code> always
+          gets through, regardless of the whitelist above. This is a safety
+          valve so an admin traveling somewhere <code>GEO_WHITELIST</code>{" "}
+          doesn&apos;t cover isn&apos;t locked out of the whole site — add
+          the current country to <code>ADMIN_GEO_WHITELIST</code> in Vercel
+          and redeploy; it works even if the site is currently blocking you.
+        </p>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={Boolean(adminGeoEnabled)}
+            onChange={(e) => toggleAdminGeo(e.target.checked)}
+          />
+          <span>
+            Enforce <code>ADMIN_GEO_WHITELIST</code> bypass
+          </span>
+        </label>
+        {adminGeoNote ? <span className="muted small">{adminGeoNote}</span> : null}
+        <p className="muted small" style={{ marginTop: "0.4rem" }}>
+          {config.adminGeoWhitelist?.length
+            ? config.adminGeoWhitelist.join(", ")
+            : "ADMIN_GEO_WHITELIST is not set."}
+        </p>
       </section>
 
       <section className="card">
@@ -2454,6 +2548,10 @@ export default function Admin({ user }) {
     emailFrom: null,
     pushConfigured: false,
     watermarkEnabled: false,
+    geoEnabled: false,
+    adminGeoEnabled: false,
+    geoWhitelist: [],
+    adminGeoWhitelist: [],
   });
 
   useEffect(() => {
@@ -2465,6 +2563,10 @@ export default function Admin({ user }) {
           emailFrom: data.emailFrom,
           pushConfigured: data.pushConfigured,
           watermarkEnabled: data.watermarkEnabled,
+          geoEnabled: data.geoEnabled,
+          adminGeoEnabled: data.adminGeoEnabled,
+          geoWhitelist: data.geoWhitelist,
+          adminGeoWhitelist: data.adminGeoWhitelist,
         })
       )
       .catch(() => {});

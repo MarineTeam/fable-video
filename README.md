@@ -167,6 +167,21 @@ Inert until both VAPID keys are set. Generate them with
 > **iOS only delivers push to the PWA once it's installed to the Home Screen**
 > (iOS/iPadOS 16.4+).
 
+### Optional — geo-location whitelist
+
+Both env vars are lists only — each is inert until its matching enforcement
+toggle is switched on from the admin **Settings** tab (both toggles default
+off, and are Redis-backed like other admin settings). Restricting either
+list to env vars, rather than making them admin-editable too, means an
+admin can always fix their own access by editing Vercel's env vars and
+redeploying, even if the site (or the admin panel specifically) is
+currently blocking them.
+
+| Key | Description |
+| --- | --- |
+| `GEO_WHITELIST` | Comma-separated ISO 3166-1 alpha-2 country codes, e.g. `US,CA`. When enforcement is on, restricts the **entire site** (including login) to these countries. |
+| `ADMIN_GEO_WHITELIST` | Same format. When its own enforcement toggle is on, a visitor from one of these countries always gets through, regardless of `GEO_WHITELIST` — a safety valve for an admin traveling somewhere the main whitelist doesn't cover. |
+
 ### Optional — branding & monitoring
 
 | Key | Description |
@@ -349,7 +364,10 @@ Viewers/Shares:
   (single or bulk) includes a **watermark** override.
 - **Settings** — homepage video count, the site **color palette** (7 presets +
   custom, applied to all visitors), the **email watermark** global default
-  and exemption list, and the email/push status panels.
+  and exemption list, a **geo-location whitelist** (two independent
+  enable/disable toggles — `GEO_WHITELIST` and the `ADMIN_GEO_WHITELIST`
+  bypass — with both country lists shown read-only, since they're set via
+  env vars, not the admin panel), and the email/push status panels.
 - **Activity** — recent admin actions (viewer add/remove, share
   create/bulk-create/extend/revoke/email, video rename/delete/bulk-delete/
   reorder/collection change/watermark, watermark exemptions, settings,

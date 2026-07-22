@@ -5,6 +5,26 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Geo-location whitelist** — two independent country whitelists, each read
+  from an env var (`GEO_WHITELIST`, `ADMIN_GEO_WHITELIST`) so they can always
+  be edited directly in Vercel, and each gated by its own Redis-backed
+  enforcement toggle in the Settings tab (off by default, no redeploy
+  needed): **Enforce GEO_WHITELIST** restricts the entire site — including
+  login — to the listed countries; **Enforce ADMIN_GEO_WHITELIST bypass**
+  lets a visitor from one of *those* countries through regardless of
+  `GEO_WHITELIST`, so an admin traveling somewhere the main whitelist
+  doesn't cover can add their current country to `ADMIN_GEO_WHITELIST` in
+  Vercel and redeploy — without needing the app to be reachable to fix it
+  any other way. Enforced in `proxy.js` against Vercel's
+  `x-vercel-ip-country` request header, before the Auth0 middleware runs,
+  with the toggles cached a few seconds per instance like the video-list
+  cache. A blocked visitor sees a generic "not available in your region"
+  page with no details about which countries are allowed. Both lists are
+  shown read-only in the Settings tab (`lib/geo.js`, `lib/geoBlockedPage.js`,
+  `pages/api/admin/settings.js`).
+
 ## [1.11.0] - 2026-07-22
 
 Recoverable share revocation, durable bundle links, and per-viewer watch
