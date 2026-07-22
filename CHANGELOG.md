@@ -5,6 +5,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-07-22
+
+Recoverable share revocation, durable bundle links, and per-viewer watch
+history — an accidental revoke is no longer permanent by default, a
+recipient's bundle link is always reachable from the admin UI, and viewers
+(and admins, on their behalf) can see a full watch history, not just what's
+still in progress.
+
 ### Added
 
 - **Soft revoke, restore, and permanent delete for share links** — revoking
