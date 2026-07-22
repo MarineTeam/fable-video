@@ -167,6 +167,19 @@ Inert until both VAPID keys are set. Generate them with
 > **iOS only delivers push to the PWA once it's installed to the Home Screen**
 > (iOS/iPadOS 16.4+).
 
+### Optional — geo-location whitelist
+
+Inert until set. Restricts the **entire site** (including login) to the
+listed countries; only works when deployed on Vercel, since it reads Vercel's
+request geolocation. A visitor outside the whitelist sees a plain "not
+available in your region" page — no details about which countries are
+allowed. Local dev and non-Vercel hosts have no country header to check, so
+the site is left unrestricted rather than locked out.
+
+| Key | Description |
+| --- | --- |
+| `ALLOWED_COUNTRIES` | Comma-separated ISO 3166-1 alpha-2 country codes, e.g. `US,CA`. |
+
 ### Optional — branding & monitoring
 
 | Key | Description |

@@ -5,6 +5,16 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Geo-location whitelist** — an optional `ALLOWED_COUNTRIES` env var
+  restricts the entire site (including login) to a comma-separated list of
+  ISO 3166-1 alpha-2 country codes, e.g. `US,CA`. Enforced in `proxy.js`
+  against Vercel's `x-vercel-ip-country` request header, before the Auth0
+  middleware runs. Inert until set; a visitor outside the whitelist sees a
+  generic "not available in your region" page with no details about which
+  countries are allowed (`lib/geo.js`, `lib/geoBlockedPage.js`).
+
 ## [1.11.0] - 2026-07-22
 
 Recoverable share revocation, durable bundle links, and per-viewer watch
