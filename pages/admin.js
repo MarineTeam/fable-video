@@ -1603,6 +1603,7 @@ function SharesTab({ emailConfigured, onCount }) {
   );
 
   const cleanupStale = async () => {
+    if (staleShareCount === 0 && staleBundleCount === 0) return;
     if (
       !window.confirm(
         `Permanently delete ${staleShareCount} expired/revoked link(s)` +
@@ -1713,21 +1714,21 @@ function SharesTab({ emailConfigured, onCount }) {
       <section className="card">
         <div className="card-head">
           <h3>Share links ({shares ? shares.length : "…"})</h3>
-          {staleShareCount > 0 || staleBundleCount > 0 ? (
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              disabled={bulkBusy}
-              onClick={cleanupStale}
-              title="Permanently delete expired/revoked links and empty bundle pages instead of waiting out their 30-day grace window"
-            >
-              {bulkBusy
-                ? "Cleaning up…"
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={bulkBusy || (staleShareCount === 0 && staleBundleCount === 0)}
+            onClick={cleanupStale}
+            title="Permanently delete expired/revoked links and empty bundle pages instead of waiting out their 30-day grace window"
+          >
+            {bulkBusy
+              ? "Cleaning up…"
+              : staleShareCount + staleBundleCount === 0
+                ? "Nothing to clean up"
                 : `Clean up ${staleShareCount + staleBundleCount} stale item${
                     staleShareCount + staleBundleCount === 1 ? "" : "s"
                   }`}
-            </button>
-          ) : null}
+          </button>
         </div>
         <p className="muted small">
           Private links are tied to one recipient email and require login.
