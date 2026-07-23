@@ -13,7 +13,11 @@ import {
 } from "../../../lib/store";
 import { emailEnabled, emailFrom, siteName } from "../../../lib/email";
 import { pushEnabled } from "../../../lib/push";
-import { adminGeoWhitelist, geoWhitelist } from "../../../lib/geo";
+import {
+  adminGeoBypassEmails,
+  adminGeoWhitelist,
+  geoWhitelist,
+} from "../../../lib/geo";
 import { logAction } from "../../../lib/audit";
 
 export default async function handler(req, res) {
@@ -34,6 +38,7 @@ export default async function handler(req, res) {
         adminGeoEnabled: geo.adminGeoEnabled,
         geoWhitelist: geoWhitelist(),
         adminGeoWhitelist: adminGeoWhitelist(),
+        adminGeoBypassEmails: adminGeoBypassEmails(),
         emailConfigured: emailEnabled(),
         emailFrom: emailEnabled() ? emailFrom() : null,
         siteName: siteName(),

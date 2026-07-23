@@ -100,13 +100,17 @@ npm test
 Predicted (current baseline — **a moving target, see Provenance below**):
 
 ```
- Test Files  4 passed (4)
-      Tests  24 passed (24)
+ Test Files  7 passed (7)
+      Tests  62 passed (62)
 ```
 
-Verified fresh 2026-07-13: matched. Full run also printed `Duration ~390ms`, which
-is informational, not part of the prediction — don't treat a duration change as a
-failure.
+Verified fresh 2026-07-23 (after the `ADMIN_GEO_BYPASS_EMAILS` feature added 6 tests
+to `geo.test.js`, still 7 files): matched. Note the file count has already drifted
+past the "four files" language in section 3 below — `shares.test.js` and
+`watermark.test.js` exist too but aren't yet in that table; treat section 3's map as
+incomplete, not wrong about the files it does list. Full run also printed a
+`Duration` line, which is informational, not part of the prediction — don't treat a
+duration change as a failure.
 
 To run a single new/changed file instead of the whole suite while iterating:
 

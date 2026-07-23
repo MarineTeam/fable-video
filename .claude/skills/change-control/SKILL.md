@@ -88,18 +88,18 @@ explaining why, and never disable one just to get a PR through.
 npm test
 ```
 
-Expected output ends with (as of 2026-07-10):
+Expected output ends with (as of 2026-07-23):
 
 ```
- Test Files  4 passed (4)
-      Tests  24 passed (24)
+ Test Files  7 passed (7)
+      Tests  62 passed (62)
 ```
 
-The counts `4` and `24` are the current baseline. **If your change adds tests, these
+The counts `7` and `62` are the current baseline. **If your change adds tests, these
 numbers go UP — update this file's counts in the same PR.** If they go DOWN or anything
 reports `failed`, the gate failed. Tests live only in `lib/__tests__/` (auth, email,
-order, theme — pure logic; API routes and pages have no test coverage, so gates 1 and 3
-are their only automated checks).
+order, theme, geo, shares, watermark — pure logic; API routes and pages have no test
+coverage, so gates 1 and 3 are their only automated checks).
 
 ### Gate 3 — build
 

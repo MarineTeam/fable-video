@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth0 } from "./lib/auth0";
 import {
+  adminGeoBypassEmails,
   adminGeoWhitelist,
   geoWhitelist,
   getGeoEnforcement,
@@ -14,12 +15,25 @@ import { GEO_BLOCKED_HTML } from "./lib/geoBlockedPage";
 export async function proxy(request) {
   const enforcement = await getGeoEnforcement();
   if (enforcement.geoEnabled || enforcement.adminGeoEnabled) {
+    // Only read the session when a geo check might actually run — signed-
+    // out visitors have no email to check against ADMIN_GEO_BYPASS_EMAILS,
+    // and a session-read failure must not block the request (same
+    // fail-open reasoning as the rest of this check).
+    let email = null;
+    try {
+      const session = await auth0.getSession(request);
+      email = session?.user?.email || null;
+    } catch (err) {
+      console.error("Could not read session for geo bypass check:", err);
+    }
     const allowed = resolveGeoAccess({
       countryCode: request.headers.get("x-vercel-ip-country"),
       geoEnabled: enforcement.geoEnabled,
       geoWhitelist: geoWhitelist(),
       adminGeoEnabled: enforcement.adminGeoEnabled,
       adminGeoWhitelist: adminGeoWhitelist(),
+      email,
+      adminGeoBypassEmails: adminGeoBypassEmails(),
     });
     if (!allowed) {
       return new NextResponse(GEO_BLOCKED_HTML, {
