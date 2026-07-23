@@ -240,6 +240,10 @@ setup and architecture, see [README.md](./README.md).
   audit log are stored in Upstash Redis (via Vercel Storage), editable live from
   `/admin` without redeploying. All keys are namespaced with a `fablevideo:`
   prefix.
+- **Share links store as a single Redis hash, not one key per link** — loading
+  the admin Shares tab or acting on a bulk selection (revoke/unrevoke/delete/
+  extend/resend) costs a flat 1-2 Redis commands regardless of how many share
+  links exist or are selected, instead of scaling with the count.
 - **Opt-in Sentry error monitoring** — client/server/edge configs via the
   instrumentation hooks; inert until `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` are
   set.
