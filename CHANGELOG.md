@@ -5,6 +5,16 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Admin geo bypass by email** — `ADMIN_GEO_BYPASS_EMAILS`, a new
+  env-var-based list. A signed-in visitor whose email is on it always
+  gets through the geo-location whitelist, regardless of country and with
+  no enforcement toggle to flip (unlike `GEO_WHITELIST` /
+  `ADMIN_GEO_WHITELIST`). Meant to be armed before traveling as a standing
+  safety net, since it doesn't require knowing the destination country
+  ahead of time.
+
 ## [1.12.0] - 2026-07-22
 
 Geo-location whitelist — the whole site can now be restricted to a set of

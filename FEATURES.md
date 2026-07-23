@@ -36,6 +36,12 @@ setup and architecture, see [README.md](./README.md).
   the network boundary (`proxy.js`) via Vercel's request geolocation, before
   login even loads. A blocked visitor sees a generic "not available in
   your region" page; both lists show read-only in the Settings tab.
+- **Admin geo bypass by email** _(optional)_ — `ADMIN_GEO_BYPASS_EMAILS`,
+  a third env-var list: a signed-in visitor whose email is on it always
+  gets through, regardless of country and with no enforcement toggle to
+  flip. Meant to be armed before traveling as a standing safety net,
+  since `ADMIN_GEO_WHITELIST` requires knowing the destination country
+  ahead of time and env var changes only take effect on redeploy.
 
 ### Browsing the library
 - **Modern dark design** — glassmorphism, gradient accents, Inter typography.
@@ -253,6 +259,8 @@ setup and architecture, see [README.md](./README.md).
 - `GEO_WHITELIST` / `ADMIN_GEO_WHITELIST` — country lists for the geo
   whitelist and its admin bypass; each inert until its own toggle is
   enabled in the Settings tab (Vercel deployments only).
+- `ADMIN_GEO_BYPASS_EMAILS` — email-based geo bypass with no toggle; always
+  applies once set.
 
 ---
 

@@ -69,6 +69,9 @@ marked "SDK-internal" below and sourced from `lib/auth0.js`'s own comment plus R
 | `SENTRY_PROJECT` | Optional | `next.config.js:12` | Same | No | Build-time only |
 | `SENTRY_AUTH_TOKEN` | Optional | `next.config.js:13` | Same | **Yes** | Build-time only — never expose client-side, never `NEXT_PUBLIC_` |
 | `CI` | Not user-set | `next.config.js:14` (`silent: !process.env.CI`) | Unset locally → Sentry webpack plugin logs verbosely during `next build`. GitHub Actions sets `CI` automatically → silent in CI. | No | Framework/platform-set, not something you put in `.env.local` |
+| `GEO_WHITELIST` | Optional | `lib/geo.js:44-46` `geoWhitelist()`, read by `proxy.js` | Unset → empty list → `isAllowedCountry()` (`lib/geo.js:63-67`) allows everyone regardless of the `geoEnabled` toggle | No | Comma-separated ISO 3166-1 alpha-2 codes, e.g. `US,CA`. Only takes effect once the Settings-tab `geoEnabled` toggle is on |
+| `ADMIN_GEO_WHITELIST` | Optional | `lib/geo.js:48-50` `adminGeoWhitelist()`, read by `proxy.js` | Unset → empty list → the admin-bypass branch in `resolveGeoAccess()` (`lib/geo.js:83-85`) never matches | No | Same format as `GEO_WHITELIST`. Only takes effect once the Settings-tab `adminGeoEnabled` toggle is on |
+| `ADMIN_GEO_BYPASS_EMAILS` | Optional | `lib/geo.js:52-57` `adminGeoBypassEmails()`, read by `proxy.js` | Unset → empty list → no email-based bypass; `resolveGeoAccess()` falls through to the normal `GEO_WHITELIST`/`ADMIN_GEO_WHITELIST` checks | No (sensitive — it's an allowlist) | Comma-separated admin emails, normalized via `normalizeEmail()`. **No enforcement toggle** — applies as soon as it's set, regardless of `geoEnabled`/`adminGeoEnabled`. Meant to be armed before traveling since changes need a redeploy |
 
 \* "Required*" for Redis: required in the sense that admin panel + viewer approval need a
 working client, but the app doesn't crash at import time the way Auth0 does — it fails at

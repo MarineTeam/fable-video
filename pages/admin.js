@@ -2236,6 +2236,23 @@ function SettingsTab({ config, onConfig }) {
             ? config.adminGeoWhitelist.join(", ")
             : "ADMIN_GEO_WHITELIST is not set."}
         </p>
+
+        <h3 style={{ marginTop: "1.2rem" }}>Admin bypass emails</h3>
+        <p className="muted small">
+          A signed-in visitor whose email is in{" "}
+          <code>ADMIN_GEO_BYPASS_EMAILS</code> always gets through, no matter
+          the country and regardless of both toggles above — no enable
+          checkbox, being on the list is enough. Unlike the whitelists above,
+          this doesn&apos;t require knowing your destination country ahead of
+          time, so it&apos;s meant to be armed once, before traveling, as a
+          standing safety net rather than something fixed in the moment
+          (changes still need a Vercel redeploy to take effect).
+        </p>
+        <p className="muted small" style={{ marginTop: "0.4rem" }}>
+          {config.adminGeoBypassEmails?.length
+            ? config.adminGeoBypassEmails.join(", ")
+            : "ADMIN_GEO_BYPASS_EMAILS is not set."}
+        </p>
       </section>
 
       <section className="card">
@@ -2552,6 +2569,7 @@ export default function Admin({ user }) {
     adminGeoEnabled: false,
     geoWhitelist: [],
     adminGeoWhitelist: [],
+    adminGeoBypassEmails: [],
   });
 
   useEffect(() => {
@@ -2567,6 +2585,7 @@ export default function Admin({ user }) {
           adminGeoEnabled: data.adminGeoEnabled,
           geoWhitelist: data.geoWhitelist,
           adminGeoWhitelist: data.adminGeoWhitelist,
+          adminGeoBypassEmails: data.adminGeoBypassEmails,
         })
       )
       .catch(() => {});
