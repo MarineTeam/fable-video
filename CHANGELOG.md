@@ -7,6 +7,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Admin "Clean up stale items" action on the Shares tab.** Expired and
+  revoked share links, and bundle pages left with zero live items, already
+  linger in Redis for up to 30 days (a grace window that exists solely so
+  Extend/Restore keep working — see `lib/shares.js` / `lib/bundles.js`).
+  A new one-click button (`POST /api/admin/cleanup`, admin-gated) now lets
+  an admin permanently delete that backlog on demand instead of waiting it
+  out; the button only appears, and shows a live count, when there's
+  something stale to remove.
 - **Admin geo bypass by email** — `ADMIN_GEO_BYPASS_EMAILS`, a new
   env-var-based list. A signed-in visitor whose email is on it always
   gets through the geo-location whitelist, regardless of country and with
