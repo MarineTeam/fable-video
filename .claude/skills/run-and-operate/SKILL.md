@@ -146,6 +146,34 @@ Precisely:
    (never commit directly to `main`), open a PR to `main`, wait for CI to go green, merge.
    No manual deploy step exists for ordinary code changes — merging *is* the deploy trigger.
 
+### 2.1 One-time data migrations are manual — merging never runs them
+
+Unlike an env-var change (§4, needs a redeploy) or ordinary code (auto-deployed on merge),
+a **data-shape migration** — moving existing Redis data from an old key layout to a new
+one — is not part of the deploy pipeline at all. Nothing in CI or Vercel's build runs a
+migration script; if a change needs one, it must be run manually, by someone with real
+production Redis credentials, as its own step around the deploy.
+
+**Current example: `scripts/migrate-shares-to-hash.mjs`** (added when share storage moved
+from one Redis key per share to a single hash — see `domain-reference` section 4's
+"Historical note" and `architecture-contract`'s shares load-bearing decision). Run it
+**once**, with production `KV_REST_API_URL`/`KV_REST_API_TOKEN` (or the `UPSTASH_*`
+equivalents) available, ideally right around the deploy that ships the code reading the
+new shape:
+
+```bash
+node scripts/migrate-shares-to-hash.mjs            # dry run first — reports only, writes nothing
+node scripts/migrate-shares-to-hash.mjs --apply     # then actually copies the data forward
+```
+
+It only ever writes to the *new* key; it never deletes or modifies the *old* keys, so it's
+safe to re-run and safe to run either slightly before or slightly after the code deploy —
+but skipping it entirely means every share link created before the deploy silently stops
+resolving, the same class of mistake as the un-migrated `pvp:*` prefix rename
+(`failure-archaeology` FA-5). If a future change needs a similar migration, follow this
+script's shape: dry-run by default, an explicit `--apply` flag, never touch the old data,
+and a clear summary of what was/would be migrated.
+
 ---
 
 ## 3. Where output lands

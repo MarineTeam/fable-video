@@ -5,17 +5,25 @@
 // revoke; pass { permanent: true } to delete the record outright instead.
 // PATCH undoes a soft revoke in place — same id/URL, no new link. Every
 // action is idempotent-ish: revoking an id that's already gone still
-// reports success, it just has nothing left to do. Bulk never fails the
-// whole batch on one bad id — each id gets its own result, and a Redis
-// error on one link doesn't stop the rest from being processed.
+// reports success, it just has nothing left to do.
+//
+// DELETE/PATCH each do exactly one Redis read (batch HMGET, also used to
+// build the audit-log detail — no separate listShares() call) and one
+// Redis write (batch HSETEX/HDEL) for the whole selection, regardless of
+// how many ids are selected (up to MAX_IDS) — see lib/shares.js's
+// revokeShares/unrevokeShares/permanentlyDeleteShares. Because that read+
+// write is now one atomic pair of commands instead of a Promise.all of
+// per-id calls, a Redis failure fails the whole batch rather than leaving
+// per-id partial results — that's a more honest reflection of reality
+// anyway (a Redis outage isn't a per-key phenomenon).
 import { requireAdmin } from "../../../lib/guard";
 import {
   listShares,
-  permanentlyDeleteShare,
-  revokeShare,
+  permanentlyDeleteShares,
+  revokeShares,
   rollupShareAnalyticsByVideo,
   shareUrl,
-  unrevokeShare,
+  unrevokeShares,
 } from "../../../lib/shares";
 import { logAction } from "../../../lib/audit";
 
@@ -62,35 +70,20 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: `Revoke at most ${MAX_IDS} links at once` });
     }
 
-    let byId = new Map();
+    let results;
     try {
-      byId = new Map((await listShares()).map((s) => [s.id, s]));
+      results = permanent ? await permanentlyDeleteShares(ids) : await revokeShares(ids);
     } catch (err) {
-      console.error("Could not load share links:", err);
-      return res.status(502).json({ error: "Could not load share links" });
+      console.error(`Could not ${permanent ? "delete" : "revoke"} share link(s):`, err);
+      return res
+        .status(502)
+        .json({ error: `Could not ${permanent ? "delete" : "revoke"} the selected link(s)` });
     }
 
-    const results = {};
-    await Promise.all(
-      ids.map(async (id) => {
-        try {
-          if (permanent) await permanentlyDeleteShare(id);
-          else await revokeShare(id);
-          results[id] = { ok: true };
-        } catch (err) {
-          console.error("Could not revoke share link:", err);
-          results[id] = {
-            ok: false,
-            error: `Could not ${permanent ? "delete" : "revoke"} this link`,
-          };
-        }
-      })
-    );
-
-    const succeededIds = ids.filter((id) => results[id].ok);
+    const succeededIds = ids.filter((id) => results[id]?.ok);
     if (succeededIds.length) {
       const detail = succeededIds
-        .map((id) => byId.get(id))
+        .map((id) => results[id].share)
         .filter(Boolean)
         .map((s) => `${s.videoTitle} → ${s.email}`)
         .join("; ");
@@ -106,10 +99,16 @@ export default async function handler(req, res) {
 
     if (ids.length === 1) {
       const only = results[ids[0]];
-      if (!only.ok) return res.status(502).json({ error: only.error });
+      if (!only?.ok) {
+        return res
+          .status(502)
+          .json({ error: `Could not ${permanent ? "delete" : "revoke"} this link` });
+      }
       return res.json({ ok: true });
     }
-    return res.json({ results });
+    return res.json({
+      results: Object.fromEntries(ids.map((id) => [id, { ok: Boolean(results[id]?.ok) }])),
+    });
   }
 
   if (req.method === "PATCH") {
@@ -127,41 +126,34 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: `Restore at most ${MAX_IDS} links at once` });
     }
 
-    let byId = new Map();
+    let outcomes;
     try {
-      byId = new Map((await listShares()).map((s) => [s.id, s]));
+      outcomes = await unrevokeShares(ids);
     } catch (err) {
-      console.error("Could not load share links:", err);
-      return res.status(502).json({ error: "Could not load share links" });
+      console.error("Could not restore share link(s):", err);
+      return res.status(502).json({ error: "Could not restore the selected link(s)" });
     }
 
     const results = {};
-    await Promise.all(
-      ids.map(async (id) => {
-        try {
-          const outcome = await unrevokeShare(id);
-          if (!outcome.ok) {
-            results[id] = {
-              ok: false,
-              error:
-                outcome.error === "not_revoked"
-                  ? "This link isn't revoked"
-                  : "Link not found (past its grace window, or deleted)",
-            };
-            return;
-          }
-          results[id] = { ok: true };
-        } catch (err) {
-          console.error("Could not restore share link:", err);
-          results[id] = { ok: false, error: "Could not restore this link" };
-        }
-      })
-    );
+    ids.forEach((id) => {
+      const outcome = outcomes[id];
+      if (!outcome.ok) {
+        results[id] = {
+          ok: false,
+          error:
+            outcome.error === "not_revoked"
+              ? "This link isn't revoked"
+              : "Link not found (past its grace window, or deleted)",
+        };
+        return;
+      }
+      results[id] = { ok: true };
+    });
 
     const succeededIds = ids.filter((id) => results[id].ok);
     if (succeededIds.length) {
       const detail = succeededIds
-        .map((id) => byId.get(id))
+        .map((id) => outcomes[id].share)
         .filter(Boolean)
         .map((s) => `${s.videoTitle} → ${s.email}`)
         .join("; ");

@@ -5,7 +5,7 @@ import { requireAdmin } from "../../../lib/guard";
 import { allowRequest } from "../../../lib/ratelimit";
 import { getVideo } from "../../../lib/bunny";
 import { isValidEmail, normalizeEmail } from "../../../lib/auth";
-import { createShare, shareUrl, updateShare } from "../../../lib/shares";
+import { createShare, shareUrl, stampShares } from "../../../lib/shares";
 import { bundleUrl, ensureBundleForRecipient, liveBundleItems } from "../../../lib/bundles";
 import { emailEnabled, sendBulkShareEmail, sendShareEmail } from "../../../lib/email";
 import { logAction } from "../../../lib/audit";
@@ -98,7 +98,15 @@ export default async function handler(req, res) {
           expiresAt: share.expiresAt,
         });
       }
-      await updateShare(id, { emailedAt: new Date().toISOString() }).catch(() => {});
+      // share is already in hand from createShare above, but ensureBundleFor-
+      // Recipient (just above) may have tagged the record with a bundleId in
+      // Redis since then — merge that in locally (we already know it from
+      // `bundle`) rather than re-reading, so this stamp doesn't clobber it
+      // back to null.
+      const current = bundle?.bundle ? { ...share, bundleId: bundle.id } : share;
+      await stampShares({ [id]: current }, { emailedAt: new Date().toISOString() }).catch(
+        () => {}
+      );
       emailed = true;
     } catch (err) {
       emailError = err?.message || "Email delivery failed";

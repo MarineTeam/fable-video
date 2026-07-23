@@ -1,14 +1,20 @@
 // Extends one or more share links' expiry in place — same id/URL, no new
 // link, no re-notification (the missing symmetric counterpart to revoke).
-// Accepts a single { id, hours } or a bulk { ids: [...], hours }; bulk
-// never fails the whole batch on one bad id — every id gets its own
-// success/failure result. Works on an already-expired-but-not-revoked link
-// (extends "from now"); a revoked link still has a record (see
-// lib/shares.js's soft revoke) but is refused explicitly, so extending can
-// never double as a silent un-revoke — restore it first via PATCH
+// Accepts a single { id, hours } or a bulk { ids: [...], hours }; every id
+// gets its own success/failure result. Works on an already-expired-but-
+// not-revoked link (extends "from now"); a revoked link still has a record
+// (see lib/shares.js's soft revoke) but is refused explicitly, so extending
+// can never double as a silent un-revoke — restore it first via PATCH
 // /api/admin/shares.
+//
+// One Redis read (batch HMGET) + one write (batch HSETEX) for the whole
+// selection via lib/shares.js's extendShares, instead of a get+set per id.
+// Bundle TTLs are extended once per UNIQUE bundle among the successfully
+// extended shares, not once per share — extending 50 shares that all
+// belong to the same bundle used to call extendBundleTtl 50 times
+// redundantly.
 import { requireAdmin } from "../../../lib/guard";
-import { extendShare } from "../../../lib/shares";
+import { extendShares } from "../../../lib/shares";
 import { extendBundleTtl } from "../../../lib/bundles";
 import { logAction } from "../../../lib/audit";
 
@@ -36,38 +42,41 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: `Extend at most ${MAX_IDS} links at once` });
   }
 
-  const results = {};
-  await Promise.all(
-    ids.map(async (id) => {
-      try {
-        const outcome = await extendShare(id, hours);
-        if (!outcome.ok) {
-          results[id] = {
-            ok: false,
-            error:
-              outcome.error === "revoked"
-                ? "Link is revoked — restore it first"
-                : "Link not found (revoked, or past its grace window)",
-          };
-          return;
-        }
-        results[id] = { ok: true, expiresAt: outcome.share.expiresAt };
-        if (outcome.share.bundleId) {
-          await extendBundleTtl(outcome.share.bundleId, hours);
-        }
-      } catch (err) {
-        console.error("Could not extend share link:", err);
-        results[id] = { ok: false, error: "Could not extend this link" };
-      }
-    })
-  );
+  let outcomes;
+  try {
+    outcomes = await extendShares(ids, hours);
+  } catch (err) {
+    console.error("Could not extend share link(s):", err);
+    return res.status(502).json({ error: "Could not extend the selected link(s)" });
+  }
 
-  const succeeded = Object.values(results).filter((r) => r.ok).length;
-  if (succeeded > 0) {
+  const results = {};
+  ids.forEach((id) => {
+    const outcome = outcomes[id];
+    if (!outcome.ok) {
+      results[id] = {
+        ok: false,
+        error:
+          outcome.error === "revoked"
+            ? "Link is revoked — restore it first"
+            : "Link not found (revoked, or past its grace window)",
+      };
+      return;
+    }
+    results[id] = { ok: true, expiresAt: outcome.share.expiresAt };
+  });
+
+  const succeededIds = ids.filter((id) => results[id].ok);
+  if (succeededIds.length) {
+    const bundleIds = new Set(
+      succeededIds.map((id) => outcomes[id].share.bundleId).filter(Boolean)
+    );
+    await Promise.all([...bundleIds].map((bundleId) => extendBundleTtl(bundleId, hours)));
+
     await logAction(
       admin,
       "share.extend",
-      `Extended ${succeeded}/${ids.length} link(s) by ${hours || "default"} hour(s)`
+      `Extended ${succeededIds.length}/${ids.length} link(s) by ${hours || "default"} hour(s)`
     );
   }
 

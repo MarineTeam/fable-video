@@ -352,34 +352,54 @@ old prefix is orphaned data, not read by current code — see
 | `fablevideo:order` | string (JSON array of video GUIDs) | `saveOrder()` (`pages/api/admin/order.js`) | `getOrder()` → `applyOrder()` (`lib/order.js`) — homepage/admin ordering | none |
 | `fablevideo:theme` | string (JSON object `{preset, accent, accent2}`) | `saveTheme()` (`pages/api/theme.js` POST) | `getTheme()` (`pages/api/theme.js` GET, `pages/_app.js`) | none |
 | `fablevideo:progress:<email>` | hash, field = videoId, value = `{t, d, at}` | `saveProgress()` (`pages/api/progress.js` POST, called by `ResumablePlayer`) | `getProgress()` (`pages/api/progress.js` GET — resume position + continue-watching list) | none |
-| `fablevideo:share:<id>` | string (JSON share record) | `createShare()`, `updateShare()` (`pages/api/admin/share.js`, `pages/api/admin/share-email.js`, `pages/watch/[shareId].js`) | `getShare()`, `listShares()` | `ex` = `hours * 3600` at creation, **preserved** (not reset) on every `updateShare` |
-| `fablevideo:shares:index` | set of share ids | `createShare()` (`sadd`), pruned in `listShares()`/`revokeShare()` (`srem`) | `listShares()` (`smembers`) | none (the set itself never expires; membership is opportunistically pruned when a member's record is found expired) |
+| `fablevideo:shares` | **hash**, field = share id, value = JSON share record, **per-field TTL** (Redis 7.4 hash-field-TTL — `HEXPIRE`/`HSETEX` family; confirmed supported by Upstash via `@upstash/redis`'s command bindings) | `createShare(s)`/`stampShares`/`revokeShares`/`unrevokeShares`/`extendShares` — all via `writeShares()`'s `HSETEX` (`lib/shares.js`) | `getShare()` (`HGET`), `getShares()` (`HMGET`, batch), `listShares()` (`HGETALL`, whole hash in 1 command) | per-field: `ex` = `hours * 3600 + GRACE_SECONDS` at creation/extend, or `keepttl` (preserved exactly, no read-back) on any patch that doesn't move `expiresAt` |
 | `fablevideo:audit` | list, capped, JSON-string entries | `logAction()` (`lib/audit.js`, called from nearly every admin mutation) | `recentActions()` (`pages/api/admin/audit.js` — Activity tab) | none; length capped to 200 via `ltrim(key, 0, 199)` after every `lpush` |
 | `fablevideo:rl:<name>` | Ratelimit-internal keys (one family per limiter name/tokens/window combo) | `@upstash/ratelimit` internals via `limiterFor()` (`lib/ratelimit.js`) | same | window-scoped, managed by the `@upstash/ratelimit` library itself |
 | `fablevideo:push:subs` | hash, field = browser push `endpoint`, value = `{ email, sub, addedAt }` | `savePushSubscription()` (`pages/api/push/subscribe.js` POST) | `listPushSubscriptions()` → `sendPushToApproved()`; pruned via `hdel` on dead endpoints and on unsubscribe | none |
 | `fablevideo:push:notified` | set of video GUIDs already announced | `maybeAnnounceReadyVideos()` (`SADD` per newly-ready video, called from `pages/api/admin/videos.js`) | same (`SMEMBERS` to skip already-announced) | none |
 | `fablevideo:push:seeded` | string sentinel `"1"` | `maybeAnnounceReadyVideos()` on its first run | same (existence check, so the first run seeds `notified` without blasting the whole existing library) | none |
 
+**Historical note (pre-v1.13):** shares used to live as one STRING key per
+share (`fablevideo:share:<id>`) plus a SET index (`fablevideo:shares:index`)
+for listing. That shape was replaced by the single-hash design above because
+Upstash bills a multi-key command (the old `MGET` over every share key) per
+key touched, while a single-hash command (`HGETALL`/`HMGET`/`HSETEX`/`HDEL`)
+bills once regardless of field count — loading the admin Shares tab with
+1000 shares dropped from ~1001 commands to 1. `scripts/migrate-shares-to-hash.mjs`
+carries pre-existing data from the old shape into the new one; the old keys
+are never read by current code and are left in place afterward, inert —
+same resolution as the `pvp:*` orphans from the 2026-07-09 rename (see
+`failure-archaeology` FA-5). If you're reading a real Redis census and see
+both `fablevideo:share:*` keys and a populated `fablevideo:shares` hash,
+that's expected during/after this transition, not a bug.
+
 ### Share TTL lifecycle
 
-1. **Create** (`createShare` in `lib/shares.js`): `ttlHours =
+1. **Create** (`createShare`/`createShares` in `lib/shares.js`): `ttlHours =
    clampShareHours(hours)` (clamped to 1–720 hours, i.e. up to 30 days;
-   default 72 hours if unspecified/invalid). `r.set(shareKey(id), share, {
-   ex: ttlHours * 3600 })` — Redis will hard-delete the key at expiry with
-   no app-level cron needed.
-2. **Update** (`updateShare`, used to stamp `viewedAt` on first play and
-   `emailedAt` on send): reads the current record **and** its remaining TTL
-   via `r.ttl(key)` in parallel, merges the patch, then writes back with
-   `{ ex: ttl }` — i.e. it explicitly **preserves the remaining TTL** rather
-   than resetting the clock to a fresh full duration. If `ttl <= 0` (key
-   already gone or has no expiry) it returns `null` and does not write.
-3. **List** (`listShares`): reads all ids from the index set, `mget`s all
-   records in one round trip; any id whose record came back falsy (expired)
-   is collected into `dead` and removed from the index via `srem` — this is
-   the *only* place the index gets cleaned of naturally-expired entries, and
-   it only happens as a side effect of an admin viewing the Shares tab.
-4. **Revoke** (`revokeShare`): explicit `DEL` on the record plus `SREM` on
-   the index — immediate, not TTL-dependent.
+   default 72 hours if unspecified/invalid). `writeShares()` issues one
+   `HSETEX fablevideo:shares EX <ttlHours*3600 + GRACE_SECONDS> FIELDS ...`
+   covering every share in the call (1 command for a whole bulk-create
+   batch, since every pair in one call shares the same `hours`) — Redis
+   drops each field at its own expiry with no app-level cron needed.
+2. **Update** (`updateShare`/`stampShares`, used to stamp view/playback
+   patches and `emailedAt`): merges the patch onto the current record (read
+   via `getShare`/already in hand from an earlier batch read) and writes
+   back with `HSETEX ... KEEPTTL` — each field's own existing remaining TTL
+   is preserved exactly by Redis itself, with no separate `TTL` read-back
+   needed (the old per-key design had to `TTL` the key first to avoid
+   resetting it; hash-field `KEEPTTL` makes that read unnecessary).
+3. **List** (`listShares`): one `HGETALL` returns every non-expired share in
+   the hash — Redis's native per-field TTL means an already-expired share's
+   field is simply absent from the result; no app-level dead-id pruning
+   pass is needed (the old index-set design needed an opportunistic `SREM`
+   for this).
+4. **Revoke** (`revokeShares`, soft — the current, in-place-flag behavior;
+   `permanentlyDeleteShares` is the old ungraced-delete behavior, used to
+   finish off an already-revoked link): one `HMGET` (batch read) + one
+   `HSETEX ... KEEPTTL` (batch write of `{revoked: true, revokedAt}`) for
+   however many ids are selected — flat 2 commands regardless of selection
+   size, instead of a get+ttl+set per id.
 
 ---
 

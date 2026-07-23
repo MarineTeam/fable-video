@@ -8,7 +8,7 @@ import { requireAdmin } from "../../../lib/guard";
 import { allowRequest } from "../../../lib/ratelimit";
 import { getVideo } from "../../../lib/bunny";
 import { isValidEmail, normalizeEmail } from "../../../lib/auth";
-import { createShares, shareUrl, updateShare } from "../../../lib/shares";
+import { createShares, shareUrl, stampShares } from "../../../lib/shares";
 import { bundleUrl, ensureBundleForRecipient, liveBundleItems } from "../../../lib/bundles";
 import { emailEnabled, sendBulkShareEmail, sendShareEmail } from "../../../lib/email";
 import { logAction } from "../../../lib/audit";
@@ -109,6 +109,15 @@ export default async function handler(req, res) {
   // can be shown per recipient right in the create-links result, not just
   // buried in the email that recipient receives.
   const bundleResults = {};
+  const createdById = Object.fromEntries(created.map(({ id, share }) => [id, share]));
+  // ensureBundleForRecipient (below) may tag a newly-created share with a
+  // bundleId in Redis; track it per recipient here so the final stamp can
+  // merge it in locally instead of re-reading — otherwise stamping from the
+  // pre-bundle-tag createdById copy would clobber bundleId back to null.
+  const bundleIdByRecipient = new Map();
+  // Collected across every recipient group, stamped in ONE batch write
+  // after all sends settle, instead of a get+set per share per group.
+  const emailedIds = [];
   await Promise.all(
     Array.from(byRecipient.entries()).map(async ([recipient, newShareIds]) => {
       // One bundle per recipient: attach to their existing bundle, or
@@ -123,6 +132,7 @@ export default async function handler(req, res) {
       bundleResults[recipient] = bundle?.bundle
         ? { id: bundle.id, url: bundleUrl(req, bundle.id) }
         : null;
+      if (bundle?.bundle) bundleIdByRecipient.set(recipient, bundle.id);
 
       if (!shouldEmail || !emailEnabled()) return;
       try {
@@ -148,10 +158,7 @@ export default async function handler(req, res) {
             expiresAt: only.share.expiresAt,
           });
         }
-        const emailedAt = new Date().toISOString();
-        await Promise.all(
-          newShareIds.map((id) => updateShare(id, { emailedAt }).catch(() => {}))
-        );
+        emailedIds.push(...newShareIds);
         emailResults[recipient] = { emailed: true };
       } catch (err) {
         emailResults[recipient] = {
@@ -161,6 +168,20 @@ export default async function handler(req, res) {
       }
     })
   );
+
+  if (emailedIds.length) {
+    const emailedAt = new Date().toISOString();
+    const toStamp = Object.fromEntries(
+      emailedIds.map((id) => {
+        const share = createdById[id];
+        const bundleId = bundleIdByRecipient.get(share.email);
+        return [id, bundleId ? { ...share, bundleId } : share];
+      })
+    );
+    await stampShares(toStamp, { emailedAt }).catch((err) => {
+      console.error("Could not stamp emailedAt on share link(s):", err);
+    });
+  }
 
   await logAction(
     admin,

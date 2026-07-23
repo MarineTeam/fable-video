@@ -43,8 +43,12 @@
 //   fablevideo:order        1
 //   fablevideo:theme        1
 //   fablevideo:progress     <N individual keys, one per viewer email>
-//   fablevideo:share        <N live shares>
-//   fablevideo:shares       1   (the index set)
+//   fablevideo:share        <0 expected post-migration — legacy per-share keys,
+//                            see scripts/migrate-shares-to-hash.mjs; a nonzero
+//                            count here just means old keys haven't TTL'd out yet>
+//   fablevideo:shares       1   (single hash — every share is one field of this
+//                            one key as of v1.13; HLEN it directly for a share
+//                            count, this census only counts top-level keys)
 //   fablevideo:audit        1   (one capped list)
 //   fablevideo:rl           <N, one per rate-limited actor/window>
 //   fablevideo:push         <0-3: subs hash, notified set, seeded sentinel — only if Web Push is configured>

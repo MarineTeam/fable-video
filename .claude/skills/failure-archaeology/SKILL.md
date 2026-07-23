@@ -129,6 +129,14 @@ compare against current `fablevideo:*` equivalents, and copy over any that are s
 empty/default under the new prefix. Only do this if the pre-2026-07-09 data actually
 matters to the owner — ask first. See OPEN ITEMS below.
 
+**Later precedent done correctly:** the v1.13 share-storage migration (one Redis key per
+share → a single hash, for Redis-command economy — see `domain-reference` section 4 and
+`architecture-contract`'s shares load-bearing decision) is the same class of change this
+incident warns about, done with the lesson applied: `scripts/migrate-shares-to-hash.mjs`
+copies existing data into the new shape before/at deploy, dry-run by default, never
+deletes the old keys. Use it as the template for any future key-shape change instead of
+repeating FA-5's "no migration" mistake.
+
 ### FA-6 — Homepage was slow (three-commit arc)
 
 | Field | Detail |

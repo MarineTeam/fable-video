@@ -15,6 +15,23 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   safety net, since it doesn't require knowing the destination country
   ahead of time.
 
+### Performance
+
+- **Share links moved from one Redis key per share to a single hash,
+  cutting the Redis command cost of the Shares tab and every bulk action
+  by 1-2 orders of magnitude.** Loading the Shares tab with 1000 shares
+  used to cost ~1001 Redis commands (Upstash bills a multi-key `MGET` per
+  key); it now costs 1 (`HGETALL`, a single-hash command billed once
+  regardless of field count). Bulk revoke/unrevoke/delete/extend/resend of
+  up to 100 links now cost 2 commands total (one batch read, one batch
+  write) instead of several hundred. Bulk-extending shares that share a
+  bundle also now extends that bundle's TTL once per unique bundle instead
+  of once per share. **Action required before/at deploy:** run
+  `node scripts/migrate-shares-to-hash.mjs --apply` once against
+  production Redis to carry existing share links forward into the new
+  storage shape — see `run-and-operate` section 2.1. Skipping this makes
+  every share link created before the deploy stop resolving.
+
 ## [1.12.0] - 2026-07-22
 
 Geo-location whitelist — the whole site can now be restricted to a set of

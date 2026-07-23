@@ -367,7 +367,30 @@ Use this same trace method for any other route: open the handler, follow every f
 into `lib/store.js`/`lib/shares.js`/`lib/audit.js`/`lib/ratelimit.js`, and count each
 `redis()....` call — don't estimate, count the actual call sites.
 
-### 2.3 Measure homepage payload size
+### 2.3 A multi-key vs. single-hash command trap (worked example: the Shares tab)
+
+Not every Redis command costs the same on Upstash's REST pricing, and this repo hit the
+gap directly: a command that takes a **list of separate top-level keys** (`MGET`, `MSET`)
+is billed **per key**, while a command that reads/writes multiple **fields of one hash**
+(`HGETALL`, `HMGET`, `HSETEX`, `HDEL`) is billed **once**, because it only ever touches one
+key. Before v1.13, `GET /api/admin/shares` (`lib/shares.js`'s old `listShares()`) did
+`SMEMBERS` on an index set, then `MGET` over every share's own key — with 1000 stored
+shares that's ~1001 billed commands for one page load of the admin Shares tab, even though
+it's only 2 network round trips. `lib/shares.js` now stores every share as one field of a
+single hash (`k("shares")`), so the same load is `HGETALL` — **1 command, flat, regardless
+of share count.** Bulk admin actions (revoke/unrevoke/delete/extend/resend, up to 100 ids)
+went from a `Promise.all` of 2-4 Redis calls **per id** down to one `HMGET` (batch read) +
+one `HSETEX`/`HDEL` (batch write) for the **whole selection** — 2 commands total. See
+`domain-reference` section 4 and `architecture-contract`'s shares load-bearing decision for
+the full design.
+
+**The general lesson, for tracing any future route's command cost:** when you see a
+top-level `MGET`/`MSET` (or any command whose first non-key argument is a *list of key
+names*) inside a loop or over a growing collection, that's an O(N)-billed pattern worth
+questioning — check whether the data could live in one hash instead, so the read/write
+becomes a single-key, flat-cost command regardless of how large the collection grows.
+
+### 2.4 Measure homepage payload size
 
 ```bash
 curl -so /dev/null -w '%{size_download} bytes, http %{http_code}\n' https://<your-deployment>.vercel.app/
@@ -383,7 +406,7 @@ curl -so /dev/null -w '%{size_download} bytes\n' https://<your-deployment>.verce
 `requireApproved` — grab the cookie from a logged-in browser's DevTools if you need this
 against a real deployment.)
 
-### 2.4 Watch Vercel function logs for a specific label
+### 2.5 Watch Vercel function logs for a specific label
 
 No CLI is assumed here — use the dashboard. Vercel → your project → **Logs** (all functions)
 or **Functions** tab (per-route) → use the filter/search box for the exact `console.error`
@@ -412,7 +435,8 @@ instead of taking it on faith.
 | A video stuck on "Processing" (debugging-playbook row 10) | `check-bunny.mjs` | The real numeric status code and whether the whole library's status distribution looks normal, not just one video in isolation |
 | `429` rate-limit responses (debugging-playbook row 11) | `check-redis.mjs` (watch the `rl` family count) + recipe 2.2 | Whether the `fablevideo:rl:*` key family is growing as expected for the sliding window in use |
 | "Is this endpoint slow, or does it feel slow" | Recipe 2.1 (`curl -w`) | Real `ttfb`/`total` numbers instead of a subjective impression |
-| "Did my change make the payload bigger" | Recipe 2.3 | An actual byte count, before/after |
+| "Did my change make the payload bigger" | Recipe 2.4 | An actual byte count, before/after |
+| "Does this route's command cost scale with a growing collection (users, shares, ...)" | Recipe 2.3 | Whether it uses a top-level multi-key command (`MGET`/`MSET`, billed per key) vs. a single-hash command (`HGETALL`/`HMGET`, billed once) |
 | Nothing in `debugging-playbook`'s table matches at all | `check-env.mjs` first (rule out config drift), then whichever of `check-redis.mjs`/`check-bunny.mjs` touches the failing subsystem | Ground truth on the two most common invisible-failure surfaces (env resolution, Redis connectivity) before treating it as a code bug |
 
 ---

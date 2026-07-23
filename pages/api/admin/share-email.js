@@ -12,8 +12,14 @@
 // standalone email once someone has a bundle. When a bulk resend selects
 // several rows that share one bundled recipient, only one email actually
 // goes out for that recipient (grouped before sending), not one per row.
+//
+// Share lookups are one batch HMGET for every selected id (lib/shares.js's
+// getShares), and the post-send emailedAt stamp is one batch HSETEX
+// (stampShares) covering every successfully-emailed id — no per-id Redis
+// call in either direction, since every record involved is already in
+// memory from the initial batch read.
 import { requireAdmin } from "../../../lib/guard";
-import { getShare, isShareLive, shareUrl, updateShare } from "../../../lib/shares";
+import { getShares, isShareLive, shareUrl, stampShares } from "../../../lib/shares";
 import { bundleUrl, getBundle, liveBundleItems } from "../../../lib/bundles";
 import { emailEnabled, sendBulkShareEmail, sendShareEmail } from "../../../lib/email";
 import { logAction } from "../../../lib/audit";
@@ -70,29 +76,29 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: `Email at most ${MAX_IDS} links at once` });
   }
 
-  // Look up every selected share independently — a missing or expired link
-  // never blocks emailing the rest of the batch.
+  // One batch read for every selected id — a missing or expired link never
+  // blocks emailing the rest of the batch, it's just marked ineligible.
   const results = {};
   const shares = {};
-  await Promise.all(
-    ids.map(async (id) => {
-      try {
-        const share = await getShare(id);
-        if (!share) {
-          results[id] = { ok: false, error: "Link not found" };
-          return;
-        }
-        if (!isShareLive(share)) {
-          results[id] = { ok: false, error: "Link has expired — extend it before emailing it" };
-          return;
-        }
-        shares[id] = share;
-      } catch (err) {
-        console.error("Could not look up share link for resend:", err);
-        results[id] = { ok: false, error: "Could not look up this link" };
-      }
-    })
-  );
+  let found;
+  try {
+    found = await getShares(ids);
+  } catch (err) {
+    console.error("Could not look up share link(s) for resend:", err);
+    return res.status(502).json({ error: "Could not look up the selected link(s)" });
+  }
+  ids.forEach((id) => {
+    const share = found[id];
+    if (!share) {
+      results[id] = { ok: false, error: "Link not found" };
+      return;
+    }
+    if (!isShareLive(share)) {
+      results[id] = { ok: false, error: "Link has expired — extend it before emailing it" };
+      return;
+    }
+    shares[id] = share;
+  });
 
   // Group the still-eligible ids by recipient so a bundle recipient with
   // several selected rows gets exactly one email, not one per row.
@@ -105,6 +111,9 @@ export default async function handler(req, res) {
 
   const emailedAt = new Date().toISOString();
   let succeeded = 0;
+  // Collected across every recipient group and stamped in ONE batch write
+  // after all sends settle, instead of a get+set per id per group.
+  const emailedShares = {};
 
   await Promise.all(
     Array.from(byRecipient.entries()).map(async ([email, groupIds]) => {
@@ -115,8 +124,8 @@ export default async function handler(req, res) {
         : null;
       try {
         await resendForRecipient(req, { email, primaryId, share: primaryShare, bundle });
-        await Promise.all(groupIds.map((id) => updateShare(id, { emailedAt }).catch(() => {})));
         groupIds.forEach((id) => {
+          emailedShares[id] = shares[id];
           results[id] = { ok: true, emailedAt };
           succeeded += 1;
         });
@@ -129,6 +138,12 @@ export default async function handler(req, res) {
       }
     })
   );
+
+  if (Object.keys(emailedShares).length) {
+    await stampShares(emailedShares, { emailedAt }).catch((err) => {
+      console.error("Could not stamp emailedAt on share link(s):", err);
+    });
+  }
 
   if (succeeded > 0) {
     await logAction(
