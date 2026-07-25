@@ -5,6 +5,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-07-25
+
+Per-video "Private list" invites, one-click cleanup of the stale share/bundle
+backlog, an email-based geo-whitelist bypass, and a share-storage rewrite that
+cuts Redis command costs by 1-2 orders of magnitude — a new persistent way to
+manage exactly who can see one video, plus operational housekeeping and a cost
+fix landed alongside it.
+
 ### Added
 
 - **Per-video "Private list"** — a persistent, editable panel (Videos tab →
