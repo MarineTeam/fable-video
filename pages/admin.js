@@ -480,6 +480,225 @@ function BulkShareCreator({ videos, emailConfigured, onClose, onCreated }) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Private list — persistent per-video invite management               */
+/* ------------------------------------------------------------------ */
+
+function PrivateListManager({ video, emailConfigured, onClose, onChanged }) {
+  const [entries, setEntries] = useState(null);
+  const [loadError, setLoadError] = useState("");
+  const [emailsText, setEmailsText] = useState("");
+  const [hours, setHours] = useState(72);
+  const [sendMail, setSendMail] = useState(emailConfigured);
+  const [watermark, setWatermark] = useState("default");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [addResult, setAddResult] = useState(null);
+  const [removingEmail, setRemovingEmail] = useState(null);
+
+  const load = useCallback(async () => {
+    try {
+      const data = await api(
+        `/api/admin/video-shares?videoId=${encodeURIComponent(video.id)}`
+      );
+      setEntries(data.entries);
+      setLoadError("");
+    } catch (err) {
+      setLoadError(err.message);
+    }
+  }, [video.id]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const parsedEmails = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          emailsText
+            .split(/[\s,;\n]+/)
+            .map((e) => e.trim().toLowerCase())
+            .filter(Boolean)
+        )
+      ),
+    [emailsText]
+  );
+
+  const add = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    setAddResult(null);
+    try {
+      const data = await api("/api/admin/video-shares", {
+        method: "POST",
+        body: {
+          videoId: video.id,
+          emails: parsedEmails,
+          hours: Number(hours),
+          sendEmail: sendMail,
+          watermark,
+        },
+      });
+      setAddResult(data);
+      setEmailsText("");
+      await load();
+      onChanged?.();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
+  };
+
+  const remove = async (entry) => {
+    if (
+      !window.confirm(
+        `Remove ${entry.email} from this video's private list? Their access stops immediately.`
+      )
+    ) {
+      return;
+    }
+    setRemovingEmail(entry.email);
+    setError("");
+    try {
+      await api(
+        `/api/admin/video-shares?videoId=${encodeURIComponent(video.id)}&email=${encodeURIComponent(entry.email)}`,
+        { method: "DELETE" }
+      );
+      await load();
+      onChanged?.();
+    } catch (err) {
+      setError(err.message);
+    }
+    setRemovingEmail(null);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose} role="presentation">
+      <div className="modal card" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Private list">
+        <div className="modal-head">
+          <h3 className="modal-title">Private list</h3>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
+            <XIcon size={16} />
+          </button>
+        </div>
+        <p className="muted small">{video.title}</p>
+
+        <div className="stack">
+          {loadError ? <div className="notice notice-error">{loadError}</div> : null}
+          {entries === null ? (
+            <p className="muted small">Loading…</p>
+          ) : entries.length === 0 ? (
+            <p className="muted small">Nobody has private access to this video yet.</p>
+          ) : (
+            <div className="row-list">
+              {entries.map((entry) => (
+                <div key={entry.email} className="row">
+                  <div className="row-main">
+                    <strong className="row-title">{entry.email}</strong>
+                    <span className="muted small">
+                      Added {new Date(entry.createdAt).toLocaleDateString()} · expires{" "}
+                      {new Date(entry.expiresAt).toLocaleString()}
+                      {entry.emailedAt ? " · emailed" : ""}
+                      {entry.viewCount ? ` · viewed ${entry.viewCount}×` : ""}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    disabled={removingEmail === entry.email}
+                    onClick={() => remove(entry)}
+                  >
+                    {removingEmail === entry.email ? "Removing…" : "Remove"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <form onSubmit={add} className="stack">
+            <label className="field">
+              <span className="field-label">
+                Add people (comma, space, or newline separated)
+              </span>
+              <textarea
+                className="input"
+                rows={2}
+                required
+                value={emailsText}
+                onChange={(e) => setEmailsText(e.target.value)}
+                placeholder="alice@example.com, bob@example.com"
+              />
+              <span className="muted small">
+                {parsedEmails.length} email{parsedEmails.length === 1 ? "" : "s"}
+              </span>
+            </label>
+            <label className="field">
+              <span className="field-label">Expires after (hours, max 720)</span>
+              <input
+                type="number"
+                className="input"
+                min="1"
+                max="720"
+                value={hours}
+                onChange={(e) => setHours(e.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span className="field-label">Watermark</span>
+              <select
+                className="input"
+                value={watermark}
+                onChange={(e) => setWatermark(e.target.value)}
+              >
+                <option value="default">Default (use video/global setting)</option>
+                <option value="on">Always show</option>
+                <option value="off">Never show</option>
+              </select>
+            </label>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={sendMail && emailConfigured}
+                disabled={!emailConfigured}
+                onChange={(e) => setSendMail(e.target.checked)}
+              />
+              <span>
+                Notify new people by email
+                {!emailConfigured ? (
+                  <span className="muted small block">
+                    (email delivery isn&apos;t configured — see Settings)
+                  </span>
+                ) : null}
+              </span>
+            </label>
+            {error ? <div className="notice notice-error">{error}</div> : null}
+            {addResult ? (
+              <p className="muted small">
+                Added {addResult.added.length}
+                {addResult.skipped.length
+                  ? ` (${addResult.skipped.length} already on the list, untouched)`
+                  : ""}
+                .
+              </p>
+            ) : null}
+            <div className="row-actions">
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={busy || !parsedEmails.length}
+              >
+                {busy ? "Adding…" : "Add to list"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Videos tab                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -491,6 +710,7 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
   const [uploads, setUploads] = useState([]);
   const [dragOver, setDragOver] = useState(false);
   const [shareFor, setShareFor] = useState(null);
+  const [privateListFor, setPrivateListFor] = useState(null);
   const [selected, setSelected] = useState(() => new Set());
   const [bulkShareOpen, setBulkShareOpen] = useState(false);
   const [renaming, setRenaming] = useState(null);
@@ -1101,6 +1321,14 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
+                    onClick={() => setPrivateListFor(video)}
+                    title="Manage who has private access to this video"
+                  >
+                    Private list
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
                     onClick={() =>
                       setStatsFor((cur) => (cur === video.id ? null : video.id))
                     }
@@ -1212,6 +1440,14 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
             onSharesChanged?.();
             setSelected(new Set());
           }}
+        />
+      ) : null}
+      {privateListFor ? (
+        <PrivateListManager
+          video={privateListFor}
+          emailConfigured={emailConfigured}
+          onClose={() => setPrivateListFor(null)}
+          onChanged={onSharesChanged}
         />
       ) : null}
     </div>
@@ -2421,6 +2657,8 @@ const ACTION_LABELS = {
   "share.unrevoke": "Share link restored",
   "share.delete": "Share link permanently deleted",
   "share.email": "Share link emailed",
+  "share.list_add": "Private list: people added",
+  "share.list_remove": "Private list: person removed",
   "video.rename": "Video renamed",
   "video.delete": "Video deleted",
   "video.upload": "Upload started",

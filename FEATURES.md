@@ -162,6 +162,19 @@ setup and architecture, see [README.md](./README.md).
   creating a share link (single or bulk) overrides the video's and the
   global watermark setting for that link. See "Email watermark" under
   People & oversight for the full layered resolution order.
+- **Private list, per video** — a persistent, editable panel (Videos tab →
+  "Private list") showing everyone who currently has private access to that
+  one video, YouTube/Google-Drive style. Adding an email only creates a
+  share and sends the notification for people not already on the list —
+  someone already on it is left completely untouched (no duplicate link, no
+  re-sent email). Removing an email revokes its share immediately; inviting
+  that same email again later is a brand-new share, like anywhere else in
+  the app. A **"Notify new people by email"** checkbox (on by default) lets
+  an admin add someone without emailing them — the share is still fully
+  live either way, it's only the notification that's skipped. Uses the same
+  underlying share records, bundle grouping, and rate limit as the
+  single/bulk share flows — it's a different lens on the same data, not a
+  new kind of access.
 
 ---
 

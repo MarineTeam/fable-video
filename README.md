@@ -285,6 +285,9 @@ pages/
       share.js            Create a private share link (rate-limited, auto-emails recipient;
                            attaches to/creates the recipient's bundle)
       share-bulk.js        Bulk-create one link per video x recipient pair (rate-limited)
+      video-shares.js      Per-video "Private list" — list/add/remove people with access
+                           to one video (add skips existing recipients; remove revokes
+                           immediately; rate-limited on add)
       share-extend.js      Extend one or more links' expiry in place (single or bulk)
       share-email.js      Send/resend the email (single or bulk; bundle-consolidated if bundled)
       shares.js           List / revoke (soft) / restore / permanently delete share links, single
@@ -356,6 +359,13 @@ Viewers/Shares:
   and **multi-select bulk sharing** (select several videos, share them with
   several recipients in one request) as well as **bulk delete** and **bulk
   move to a collection**. Includes a Collections manager (create/delete).
+  A per-video **"Private list"** button opens a persistent, editable panel
+  of everyone with private access to that one video — add several emails at
+  once (only the ones not already on the list get a new share and a
+  notification; existing recipients are untouched), and remove someone to
+  revoke their access immediately. A "Notify new people by email" checkbox
+  (on by default) controls only the notification, not whether the share is
+  created.
 - **Viewers** — add/remove approved emails, **bulk add** (paste a list), and each
   viewer's **last-seen** time.
 - **Shares** — every share link with recipient, expiry, **view count/last
@@ -372,9 +382,9 @@ Viewers/Shares:
   with all three lists shown read-only, since they're set via env vars, not
   the admin panel), and the email/push status panels.
 - **Activity** — recent admin actions (viewer add/remove, share
-  create/bulk-create/extend/revoke/email, video rename/delete/bulk-delete/
-  reorder/collection change/watermark, watermark exemptions, settings,
-  palette, collections), each with actor and time.
+  create/bulk-create/extend/revoke/email/list-add/list-remove, video
+  rename/delete/bulk-delete/reorder/collection change/watermark, watermark
+  exemptions, settings, palette, collections), each with actor and time.
 - **Analytics** — total views, 30-day views, watch time, video count, a 30-day
   views chart, a most-watched list, and a collapsible **per-video share
   analytics** panel rolling up existing share-link tracking.
