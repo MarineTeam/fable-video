@@ -1,12 +1,21 @@
 // One video's "Private list" — the always-current set of people who have a
-// live share to this specific video, managed from a single persistent panel
-// instead of the general Videos-tab Share flow. Adding an email that's
-// already on the list is a no-op (no duplicate share, no re-sent email);
-// removing an email revokes every live share it has for this video
-// immediately (soft revoke, same as the Shares tab); re-inviting a removed
-// email later is a fresh share, same as everywhere else in the app. Rides
-// entirely on the existing shares hash (lib/shares.js) — this route adds no
-// new stored data of its own.
+// share created *through this panel* for this specific video, managed from
+// a single persistent panel instead of the general Videos-tab Share flow.
+// Adding an email that's already on the list is a no-op (no duplicate
+// share, no re-sent email); removing an email revokes every live
+// this-panel-created share it has for this video immediately (soft revoke,
+// same as the Shares tab); re-inviting a removed email later is a fresh
+// share, same as everywhere else in the app.
+//
+// Deliberately scoped to shares tagged privateList: true (see buildShare in
+// lib/shares.js): a share to the same video+email made via the ad hoc
+// Share/Bulk Share flows is a separate, independently-revocable record that
+// this panel never lists, never counts as "already on the list," and never
+// touches on Remove. Two different admin actions targeting the same person
+// and video stay two different shares — this panel only ever manages the
+// ones it made itself. Rides entirely on the existing shares hash
+// (lib/shares.js) — this route adds no new stored data of its own, just one
+// extra field on the records it creates.
 import { requireAdmin } from "../../../lib/guard";
 import { allowRequest } from "../../../lib/ratelimit";
 import { getVideo } from "../../../lib/bunny";
@@ -14,7 +23,7 @@ import { isValidEmail, normalizeEmail } from "../../../lib/auth";
 import {
   createShares,
   groupSharesByEmail,
-  listLiveSharesForVideo,
+  listPrivateListSharesForVideo,
   revokeShares,
   shareUrl,
   stampShares,
@@ -37,7 +46,7 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
-      const live = await listLiveSharesForVideo(videoId);
+      const live = await listPrivateListSharesForVideo(videoId);
       return res.json({ entries: groupSharesByEmail(live) });
     } catch (err) {
       console.error("Could not load the private list:", err);
@@ -76,7 +85,7 @@ export default async function handler(req, res) {
 
     let already;
     try {
-      already = new Set((await listLiveSharesForVideo(videoId)).map((s) => s.email));
+      already = new Set((await listPrivateListSharesForVideo(videoId)).map((s) => s.email));
     } catch (err) {
       console.error("Could not load the private list:", err);
       return res.status(502).json({ error: "Could not load the private list" });
@@ -93,7 +102,7 @@ export default async function handler(req, res) {
             videoTitle: video.title || "Untitled",
             email,
           })),
-          { hours, createdBy: admin, watermark }
+          { hours, createdBy: admin, watermark, privateList: true }
         );
       } catch (err) {
         console.error("Could not create share link(s):", err);
@@ -192,7 +201,7 @@ export default async function handler(req, res) {
 
     let existing;
     try {
-      existing = await listLiveSharesForVideo(videoId);
+      existing = await listPrivateListSharesForVideo(videoId);
     } catch (err) {
       console.error("Could not load the private list:", err);
       return res.status(502).json({ error: "Could not load the private list" });

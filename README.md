@@ -285,9 +285,9 @@ pages/
       share.js            Create a private share link (rate-limited, auto-emails recipient;
                            attaches to/creates the recipient's bundle)
       share-bulk.js        Bulk-create one link per video x recipient pair (rate-limited)
-      video-shares.js      Per-video "Private list" — list/add/remove people with access
-                           to one video (add skips existing recipients; remove revokes
-                           immediately; rate-limited on add)
+      video-shares.js      Per-video "Private list" — list/add/remove people, scoped to
+                           shares the list itself created (add skips existing list
+                           members; remove revokes immediately; rate-limited on add)
       share-extend.js      Extend one or more links' expiry in place (single or bulk)
       share-email.js      Send/resend the email (single or bulk; bundle-consolidated if bundled)
       shares.js           List / revoke (soft) / restore / permanently delete share links, single
@@ -360,12 +360,15 @@ Viewers/Shares:
   several recipients in one request) as well as **bulk delete** and **bulk
   move to a collection**. Includes a Collections manager (create/delete).
   A per-video **"Private list"** button opens a persistent, editable panel
-  of everyone with private access to that one video — add several emails at
-  once (only the ones not already on the list get a new share and a
-  notification; existing recipients are untouched), and remove someone to
+  of everyone added to that one video's list — add several emails at once
+  (only the ones not already on the list get a new share and a
+  notification; existing list members are untouched), and remove someone to
   revoke their access immediately. A "Notify new people by email" checkbox
   (on by default) controls only the notification, not whether the share is
-  created.
+  created. The list is scoped strictly to shares it created itself — a link
+  to the same video and person made from the regular Share/Bulk share
+  button is separate, isn't shown on the list, and isn't touched by
+  Remove.
 - **Viewers** — add/remove approved emails, **bulk add** (paste a list), and each
   viewer's **last-seen** time.
 - **Shares** — every share link with recipient, expiry, **view count/last

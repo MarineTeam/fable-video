@@ -583,13 +583,18 @@ function PrivateListManager({ video, emailConfigured, onClose, onChanged }) {
           </button>
         </div>
         <p className="muted small">{video.title}</p>
+        <p className="muted small">
+          Only people added here — a link made from the Share or Bulk share
+          button for the same person and video is separate and isn&apos;t
+          shown or affected by Remove below.
+        </p>
 
         <div className="stack">
           {loadError ? <div className="notice notice-error">{loadError}</div> : null}
           {entries === null ? (
             <p className="muted small">Loading…</p>
           ) : entries.length === 0 ? (
-            <p className="muted small">Nobody has private access to this video yet.</p>
+            <p className="muted small">Nobody has been added to this video&apos;s list yet.</p>
           ) : (
             <div className="row-list">
               {entries.map((entry) => (

@@ -8,18 +8,24 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - **Per-video "Private list"** — a persistent, editable panel (Videos tab →
-  "Private list") showing everyone who currently has private access to one
-  video, YouTube/Google-Drive style. Adding emails only creates a share and
-  sends the notification for the ones not already on that video's list —
-  someone already on it is left untouched, no duplicate share and no
-  re-sent email. Removing an email revokes its share immediately; a later
-  re-invite of that same email is a fresh share, same as everywhere else in
-  the app. A "Notify new people by email" checkbox (checked by default,
-  matching Google Drive/YouTube's own sharing dialogs) lets an admin add
-  someone without emailing them — the share is still fully live either way,
-  only the notification is skipped. Built entirely on the existing shares
-  hash, bundle grouping, and `share` rate-limit budget
-  (`GET`/`POST`/`DELETE /api/admin/video-shares`) — no new stored data.
+  "Private list") showing everyone added to one video's list,
+  YouTube/Google-Drive style. Adding emails only creates a share and sends
+  the notification for the ones not already on that video's list — someone
+  already on it is left untouched, no duplicate share and no re-sent email.
+  Removing an email revokes its share immediately; a later re-invite of
+  that same email is a fresh share, same as everywhere else in the app. A
+  "Notify new people by email" checkbox (checked by default, matching
+  Google Drive/YouTube's own sharing dialogs) lets an admin add someone
+  without emailing them — the share is still fully live either way, only
+  the notification is skipped. **Strictly scoped to shares the list itself
+  created** — every share it makes is tagged (`privateList: true` in
+  `lib/shares.js`), and the panel's listing, its add-dedup, and its Remove
+  action all filter on that tag, so a link to the same video and person
+  made from the ordinary Share or Bulk share button is a separate,
+  independently-revocable record the list never sees and Remove never
+  touches. Built on the existing shares hash, bundle grouping, and `share`
+  rate-limit budget (`GET`/`POST`/`DELETE /api/admin/video-shares`) — no
+  new Redis key, just one extra field on the shares this panel creates.
 - **Admin "Clean up stale items" action on the Shares tab.** Expired and
   revoked share links, and bundle pages left with zero live items, already
   linger in Redis for up to 30 days (a grace window that exists solely so

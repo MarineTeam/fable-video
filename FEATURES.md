@@ -163,18 +163,24 @@ setup and architecture, see [README.md](./README.md).
   global watermark setting for that link. See "Email watermark" under
   People & oversight for the full layered resolution order.
 - **Private list, per video** — a persistent, editable panel (Videos tab →
-  "Private list") showing everyone who currently has private access to that
-  one video, YouTube/Google-Drive style. Adding an email only creates a
-  share and sends the notification for people not already on the list —
-  someone already on it is left completely untouched (no duplicate link, no
+  "Private list") showing everyone added to that one video's list,
+  YouTube/Google-Drive style. Adding an email only creates a share and
+  sends the notification for people not already **on that list** — someone
+  already on it is left completely untouched (no duplicate link, no
   re-sent email). Removing an email revokes its share immediately; inviting
   that same email again later is a brand-new share, like anywhere else in
   the app. A **"Notify new people by email"** checkbox (on by default) lets
   an admin add someone without emailing them — the share is still fully
-  live either way, it's only the notification that's skipped. Uses the same
-  underlying share records, bundle grouping, and rate limit as the
-  single/bulk share flows — it's a different lens on the same data, not a
-  new kind of access.
+  live either way, it's only the notification that's skipped.
+  **Strictly scoped to what the list itself created** — a link to the same
+  video and person made from the ordinary Share or Bulk share button is a
+  separate, independently-revocable share the list never lists, never
+  treats as "already added," and never touches when you hit Remove; the two
+  paths can't step on each other, at the cost of an admin being able to
+  double-grant the same person the same video through both. Every share the
+  list does create still participates fully in bundle grouping and
+  consolidated email like any other share — if it pushes a recipient over
+  2 active shares, it's swept into their one bundle exactly the same way.
 
 ---
 
