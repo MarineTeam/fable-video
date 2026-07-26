@@ -592,6 +592,18 @@ code {
   border-color: transparent;
 }
 
+.tag-chip {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 550;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  margin: 0.2rem 0.3rem 0 0;
+}
+
 .video-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));

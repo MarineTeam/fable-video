@@ -1,9 +1,17 @@
 // Approved viewer management: list (with last-seen), add (single or bulk
-// paste — validated and deduped), and remove.
+// paste — validated and deduped), tag (group membership), and remove.
 import { requireAdmin } from "../../../lib/guard";
 import { normalizeEmail, parseEmailList } from "../../../lib/auth";
-import { addViewers, listViewers, removeViewer } from "../../../lib/store";
+import {
+  addViewers,
+  listViewers,
+  removeViewer,
+  setViewerTags,
+} from "../../../lib/store";
 import { logAction } from "../../../lib/audit";
+
+const MAX_TAGS = 20;
+const MAX_TAG_LENGTH = 30;
 
 export default async function handler(req, res) {
   const admin = await requireAdmin(req, res);
@@ -49,6 +57,30 @@ export default async function handler(req, res) {
     });
   }
 
+  if (req.method === "PATCH") {
+    const email = normalizeEmail(req.body?.email);
+    if (!email) return res.status(400).json({ error: "Email is required" });
+    const rawTags = Array.isArray(req.body?.tags) ? req.body.tags : [];
+    if (rawTags.length > MAX_TAGS) {
+      return res.status(400).json({ error: `At most ${MAX_TAGS} tags per viewer` });
+    }
+    if (rawTags.some((t) => String(t).trim().length > MAX_TAG_LENGTH)) {
+      return res
+        .status(400)
+        .json({ error: `Tags must be ${MAX_TAG_LENGTH} characters or fewer` });
+    }
+    let ok;
+    try {
+      ok = await setViewerTags(email, rawTags);
+    } catch (err) {
+      console.error("Could not save viewer tags:", err);
+      return res.status(502).json({ error: "Could not save viewer tags" });
+    }
+    if (!ok) return res.status(404).json({ error: "Viewer not found" });
+    await logAction(admin, "viewer.tag", email);
+    return res.json({ ok: true });
+  }
+
   if (req.method === "DELETE") {
     const email = normalizeEmail(req.query.email);
     if (!email) return res.status(400).json({ error: "Email is required" });
@@ -62,6 +94,6 @@ export default async function handler(req, res) {
     return res.json({ ok: true });
   }
 
-  res.setHeader("Allow", "GET, POST, DELETE");
+  res.setHeader("Allow", "GET, POST, PATCH, DELETE");
   return res.status(405).json({ error: "Method not allowed" });
 }

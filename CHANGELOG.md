@@ -5,6 +5,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Viewer groups/tags — tag approved viewers from the Viewers tab, filter the
+  viewer list by tag, and pull a tagged group's emails into the bulk-share
+  or Private list recipient box instead of pasting addresses one at a time.
+- Per-collection sharing — a "Share collection" button on each collection
+  selects every video in it and opens the existing bulk-share dialog,
+  reusing the same machinery as a manual multi-select.
+
 ## [1.13.0] - 2026-07-25
 
 Per-video "Private list" invites, one-click cleanup of the stale share/bundle
