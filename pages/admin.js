@@ -2050,11 +2050,14 @@ function SharesTab({ emailConfigured, onCount }) {
                   <div className="row-main">
                     <strong className="row-title">{share.videoTitle}</strong>
                     <span className="muted small">
-                      for {share.email} ·{" "}
+                      for {share.email} · created{" "}
+                      {new Date(share.createdAt).toLocaleString()} ·{" "}
                       {expired
                         ? "expired"
                         : `expires in ${expiresIn(share.expiresAt)}`}{" "}
                       ({new Date(share.expiresAt).toLocaleString()})
+                      {share.bundleId ? " · part of a bundle" : ""}
+                      {share.privateList ? " · via Private list" : ""}
                     </span>
                   </div>
                   {share.revoked ? (
