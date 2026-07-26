@@ -162,6 +162,10 @@ setup and architecture, see [README.md](./README.md).
   creating a share link (single or bulk) overrides the video's and the
   global watermark setting for that link. See "Email watermark" under
   People & oversight for the full layered resolution order.
+- **Share-row provenance** — each row in the Shares tab shows its created
+  timestamp inline, plus "part of a bundle" and/or "via Private list" when
+  applicable, so an admin can tell at a glance how a link came to exist
+  without opening the bundle or Private list panel.
 - **Private list, per video** — a persistent, editable panel (Videos tab →
   "Private list") showing everyone added to that one video's list,
   YouTube/Google-Drive style. Adding an email only creates a share and

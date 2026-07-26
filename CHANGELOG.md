@@ -12,6 +12,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Per-collection sharing — a "Share collection" button on each collection
   selects every video in it and opens the existing bulk-share dialog,
   reusing the same machinery as a manual multi-select.
+- Shares tab rows now show their created timestamp inline, plus "part of a
+  bundle" and/or "via Private list" when applicable — so an admin can tell
+  how a link came to exist without opening the bundle or Private list panel.
 
 ## [1.13.0] - 2026-07-25
 
