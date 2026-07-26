@@ -162,6 +162,10 @@ setup and architecture, see [README.md](./README.md).
   creating a share link (single or bulk) overrides the video's and the
   global watermark setting for that link. See "Email watermark" under
   People & oversight for the full layered resolution order.
+- **Share-row provenance** — each row in the Shares tab shows its created
+  timestamp inline, plus "part of a bundle" and/or "via Private list" when
+  applicable, so an admin can tell at a glance how a link came to exist
+  without opening the bundle or Private list panel.
 - **Private list, per video** — a persistent, editable panel (Videos tab →
   "Private list") showing everyone added to that one video's list,
   YouTube/Google-Drive style. Adding an email only creates a share and
@@ -196,6 +200,9 @@ setup and architecture, see [README.md](./README.md).
 - **Delete** videos (removes from bunny.net and prunes them from the saved order).
 - **Drag-to-reorder** and **search/filter** the library.
 - **Collections** — create/delete collections and assign each video to one.
+  A **"Share collection"** button on each collection selects every video in
+  it and opens the same bulk-share dialog used for a manual multi-select —
+  no need to check each video off one at a time.
 - **Bulk operations** — multi-select videos and **bulk delete** or **move to
   a collection** in one action, mirroring the bulk-share UX. Each video is
   processed independently (one failure never blocks the rest), with a
@@ -216,11 +223,17 @@ setup and architecture, see [README.md](./README.md).
 - **Approved viewer management** — add/remove emails, with **bulk add** (paste
   comma/space/newline-separated lists; validated + deduped, with invalid entries
   reported back).
+- **Viewer groups/tags** — tag approved viewers (e.g. "Team A") from the
+  Viewers tab, filter the viewer list by tag, and pull a whole tag's emails
+  into the bulk-share or Private list recipient box with one click instead
+  of pasting each address by hand. Purely an organizational label — it
+  doesn't itself grant access to anything.
 - **Viewer last-seen** — each viewer's most recent activity time.
-- **Activity / audit log** — the most recent admin actions (viewer add/remove,
-  share create/revoke/**email**, video rename/delete/reorder, collection
-  create/delete, settings, palette), each with actor and time. Logging is
-  best-effort so it never breaks the underlying action.
+- **Activity / audit log** — the most recent admin actions (viewer
+  add/remove/**tag**, share create/revoke/**email**, video
+  rename/delete/reorder, collection create/delete, settings, palette), each
+  with actor and time. Logging is best-effort so it never breaks the
+  underlying action.
 - **Analytics dashboard** — total views, 30-day views, watch time, video count, a
   30-day views chart, and a most-watched list (from bunny.net video stats + the
   statistics API).

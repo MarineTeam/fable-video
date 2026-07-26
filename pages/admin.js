@@ -265,7 +265,7 @@ function ShareCreator({ video, emailConfigured, onClose, onCreated }) {
 /* Bulk share creation                                                 */
 /* ------------------------------------------------------------------ */
 
-function BulkShareCreator({ videos, emailConfigured, onClose, onCreated }) {
+function BulkShareCreator({ videos, viewers, emailConfigured, onClose, onCreated }) {
   const [emailsText, setEmailsText] = useState("");
   const [hours, setHours] = useState(72);
   const [sendMail, setSendMail] = useState(emailConfigured);
@@ -274,6 +274,27 @@ function BulkShareCreator({ videos, emailConfigured, onClose, onCreated }) {
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const [copiedBundle, setCopiedBundle] = useState(null);
+  const [groupTag, setGroupTag] = useState("");
+
+  const availableTags = useMemo(
+    () => Array.from(new Set((viewers || []).flatMap((v) => v.tags || []))).sort(),
+    [viewers]
+  );
+
+  const addGroup = () => {
+    if (!groupTag) return;
+    const emails = (viewers || [])
+      .filter((v) => (v.tags || []).includes(groupTag))
+      .map((v) => v.email);
+    if (!emails.length) return;
+    setEmailsText((prev) =>
+      Array.from(
+        new Set(
+          [...prev.split(/[\s,;\n]+/).map((e) => e.trim()).filter(Boolean), ...emails]
+        )
+      ).join(", ")
+    );
+  };
 
   const copyBundleUrl = async (recipient, url) => {
     try {
@@ -398,6 +419,34 @@ function BulkShareCreator({ videos, emailConfigured, onClose, onCreated }) {
           </div>
         ) : (
           <form onSubmit={create} className="stack">
+            {availableTags.length > 0 ? (
+              <label className="field">
+                <span className="field-label">Add a viewer group</span>
+                <div className="row-actions">
+                  <select
+                    className="input input-sm"
+                    value={groupTag}
+                    onChange={(e) => setGroupTag(e.target.value)}
+                    aria-label="Viewer group"
+                  >
+                    <option value="">Choose a tag…</option>
+                    {availableTags.map((tag) => (
+                      <option key={tag} value={tag}>
+                        {tag}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    disabled={!groupTag}
+                    onClick={addGroup}
+                  >
+                    Add group&apos;s emails
+                  </button>
+                </div>
+              </label>
+            ) : null}
             <label className="field">
               <span className="field-label">
                 Recipient emails (comma, space, or newline separated)
@@ -483,7 +532,7 @@ function BulkShareCreator({ videos, emailConfigured, onClose, onCreated }) {
 /* Private list — persistent per-video invite management               */
 /* ------------------------------------------------------------------ */
 
-function PrivateListManager({ video, emailConfigured, onClose, onChanged }) {
+function PrivateListManager({ video, viewers, emailConfigured, onClose, onChanged }) {
   const [entries, setEntries] = useState(null);
   const [loadError, setLoadError] = useState("");
   const [emailsText, setEmailsText] = useState("");
@@ -494,6 +543,27 @@ function PrivateListManager({ video, emailConfigured, onClose, onChanged }) {
   const [error, setError] = useState("");
   const [addResult, setAddResult] = useState(null);
   const [removingEmail, setRemovingEmail] = useState(null);
+  const [groupTag, setGroupTag] = useState("");
+
+  const availableTags = useMemo(
+    () => Array.from(new Set((viewers || []).flatMap((v) => v.tags || []))).sort(),
+    [viewers]
+  );
+
+  const addGroup = () => {
+    if (!groupTag) return;
+    const emails = (viewers || [])
+      .filter((v) => (v.tags || []).includes(groupTag))
+      .map((v) => v.email);
+    if (!emails.length) return;
+    setEmailsText((prev) =>
+      Array.from(
+        new Set(
+          [...prev.split(/[\s,;\n]+/).map((e) => e.trim()).filter(Boolean), ...emails]
+        )
+      ).join(", ")
+    );
+  };
 
   const load = useCallback(async () => {
     try {
@@ -622,6 +692,34 @@ function PrivateListManager({ video, emailConfigured, onClose, onChanged }) {
           )}
 
           <form onSubmit={add} className="stack">
+            {availableTags.length > 0 ? (
+              <label className="field">
+                <span className="field-label">Add a viewer group</span>
+                <div className="row-actions">
+                  <select
+                    className="input input-sm"
+                    value={groupTag}
+                    onChange={(e) => setGroupTag(e.target.value)}
+                    aria-label="Viewer group"
+                  >
+                    <option value="">Choose a tag…</option>
+                    {availableTags.map((tag) => (
+                      <option key={tag} value={tag}>
+                        {tag}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    disabled={!groupTag}
+                    onClick={addGroup}
+                  >
+                    Add group&apos;s emails
+                  </button>
+                </div>
+              </label>
+            ) : null}
             <label className="field">
               <span className="field-label">
                 Add people (comma, space, or newline separated)
@@ -711,6 +809,7 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
   const [videos, setVideos] = useState(null);
   const [thumbs, setThumbs] = useState(false);
   const [collections, setCollections] = useState([]);
+  const [viewers, setViewers] = useState([]);
   const [search, setSearch] = useState("");
   const [uploads, setUploads] = useState([]);
   const [dragOver, setDragOver] = useState(false);
@@ -737,13 +836,15 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
 
   const load = useCallback(async () => {
     try {
-      const [v, c] = await Promise.all([
+      const [v, c, viewersData] = await Promise.all([
         api("/api/admin/videos"),
         api("/api/admin/collections"),
+        api("/api/admin/viewers"),
       ]);
       setVideos(v.videos);
       setThumbs(v.thumbnails);
       setCollections(c.collections);
+      setViewers(viewersData.viewers);
     } catch (err) {
       setError(err.message);
     }
@@ -988,6 +1089,17 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
       setError(err.message);
     }
     setBulkBusy(false);
+  };
+
+  const shareCollection = (collection) => {
+    const ids = new Set(
+      (videos || [])
+        .filter((v) => v.collectionId === collection.id)
+        .map((v) => v.id)
+    );
+    if (!ids.size) return;
+    setSelected(ids);
+    setBulkShareOpen(true);
   };
 
   const bulkSetCollection = async () => {
@@ -1416,6 +1528,15 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
                 </div>
                 <button
                   type="button"
+                  className="btn btn-ghost btn-sm"
+                  disabled={!c.videoCount}
+                  onClick={() => shareCollection(c)}
+                  title={`Share all ${c.videoCount} video(s) in this collection`}
+                >
+                  <LinkIcon size={13} /> Share collection
+                </button>
+                <button
+                  type="button"
                   className="icon-btn icon-btn-danger"
                   aria-label={`Delete collection ${c.name}`}
                   onClick={() => removeCollection(c)}
@@ -1439,6 +1560,7 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
       {bulkShareOpen ? (
         <BulkShareCreator
           videos={selectedVideos}
+          viewers={viewers}
           emailConfigured={emailConfigured}
           onClose={() => setBulkShareOpen(false)}
           onCreated={() => {
@@ -1450,6 +1572,7 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
       {privateListFor ? (
         <PrivateListManager
           video={privateListFor}
+          viewers={viewers}
           emailConfigured={emailConfigured}
           onClose={() => setPrivateListFor(null)}
           onChanged={onSharesChanged}
@@ -1468,6 +1591,10 @@ function ViewersTab({ onCount }) {
   const [input, setInput] = useState("");
   const [note, setNote] = useState(null);
   const [error, setError] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [editingTags, setEditingTags] = useState(null);
+  const [tagInput, setTagInput] = useState("");
+  const [tagBusy, setTagBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -1482,6 +1609,46 @@ function ViewersTab({ onCount }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  const allTags = useMemo(
+    () =>
+      Array.from(new Set((viewers || []).flatMap((v) => v.tags || []))).sort(),
+    [viewers]
+  );
+
+  const visibleViewers = useMemo(() => {
+    if (!tagFilter) return viewers || [];
+    return (viewers || []).filter((v) => (v.tags || []).includes(tagFilter));
+  }, [viewers, tagFilter]);
+
+  const startEditTags = (viewer) => {
+    setEditingTags(viewer.email);
+    setTagInput((viewer.tags || []).join(", "));
+  };
+
+  const saveTags = async (email) => {
+    setTagBusy(true);
+    setError("");
+    try {
+      const tags = Array.from(
+        new Set(
+          tagInput
+            .split(",")
+            .map((t) => t.trim())
+            .filter(Boolean)
+        )
+      );
+      await api("/api/admin/viewers", {
+        method: "PATCH",
+        body: { email, tags },
+      });
+      setEditingTags(null);
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+    setTagBusy(false);
+  };
 
   const add = async (e) => {
     e.preventDefault();
@@ -1544,6 +1711,21 @@ function ViewersTab({ onCount }) {
       <section className="card">
         <div className="card-head">
           <h3>Approved viewers ({viewers ? viewers.length : "…"})</h3>
+          {allTags.length > 0 ? (
+            <select
+              className="input input-sm"
+              value={tagFilter}
+              onChange={(e) => setTagFilter(e.target.value)}
+              aria-label="Filter by tag"
+            >
+              <option value="">All tags</option>
+              {allTags.map((tag) => (
+                <option key={tag} value={tag}>
+                  {tag}
+                </option>
+              ))}
+            </select>
+          ) : null}
         </div>
         {viewers === null ? (
           <p className="muted">Loading…</p>
@@ -1551,9 +1733,11 @@ function ViewersTab({ onCount }) {
           <p className="muted">
             No approved viewers yet — only admins can see the library.
           </p>
+        ) : visibleViewers.length === 0 ? (
+          <p className="muted">No viewers tagged &quot;{tagFilter}&quot;.</p>
         ) : (
           <div className="row-list">
-            {viewers.map((viewer) => (
+            {visibleViewers.map((viewer) => (
               <div key={viewer.email} className="row">
                 <div className="row-main">
                   <strong className="row-title">{viewer.email}</strong>
@@ -1561,7 +1745,50 @@ function ViewersTab({ onCount }) {
                     Last seen {timeAgo(viewer.lastSeen)}
                     {viewer.addedAt ? ` · added ${timeAgo(viewer.addedAt)}` : ""}
                   </span>
+                  {editingTags === viewer.email ? (
+                    <div className="row-actions" style={{ marginTop: "0.4rem" }}>
+                      <input
+                        className="input input-sm"
+                        value={tagInput}
+                        placeholder="Team A, Team B"
+                        onChange={(e) => setTagInput(e.target.value)}
+                        aria-label={`Tags for ${viewer.email}`}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        disabled={tagBusy}
+                        onClick={() => saveTags(viewer.email)}
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => setEditingTags(null)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (viewer.tags || []).length > 0 ? (
+                    <span className="muted small">
+                      {(viewer.tags || []).map((tag) => (
+                        <span key={tag} className="tag-chip">
+                          {tag}
+                        </span>
+                      ))}
+                    </span>
+                  ) : null}
                 </div>
+                {editingTags === viewer.email ? null : (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => startEditTags(viewer)}
+                  >
+                    Edit tags
+                  </button>
+                )}
                 <button
                   type="button"
                   className="icon-btn icon-btn-danger"
@@ -2658,6 +2885,7 @@ function SettingsTab({ config, onConfig }) {
 const ACTION_LABELS = {
   "viewer.add": "Viewer added",
   "viewer.remove": "Viewer removed",
+  "viewer.tag": "Viewer tags updated",
   "share.create": "Share link created",
   "share.bulk_create": "Bulk share links created",
   "share.extend": "Share link(s) extended",
