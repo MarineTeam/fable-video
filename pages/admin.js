@@ -100,26 +100,60 @@ function StatusBadge({ video }) {
 /* Share creation                                                      */
 /* ------------------------------------------------------------------ */
 
-function ShareCreator({ video, emailConfigured, onClose, onCreated }) {
-  const [email, setEmail] = useState("");
+function ShareCreator({ video, viewers, emailConfigured, onClose, onCreated }) {
+  const [emailsText, setEmailsText] = useState("");
   const [hours, setHours] = useState(72);
   const [sendMail, setSendMail] = useState(emailConfigured);
   const [watermark, setWatermark] = useState("default");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [copiedBundle, setCopiedBundle] = useState(null);
+  const [groupTag, setGroupTag] = useState("");
+
+  const availableTags = useMemo(
+    () => Array.from(new Set((viewers || []).flatMap((v) => v.tags || []))).sort(),
+    [viewers]
+  );
+
+  const addGroup = () => {
+    if (!groupTag) return;
+    const emails = (viewers || [])
+      .filter((v) => (v.tags || []).includes(groupTag))
+      .map((v) => v.email);
+    if (!emails.length) return;
+    setEmailsText((prev) =>
+      Array.from(
+        new Set(
+          [...prev.split(/[\s,;\n]+/).map((e) => e.trim()).filter(Boolean), ...emails]
+        )
+      ).join(", ")
+    );
+  };
+
+  const parsedEmails = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          emailsText
+            .split(/[\s,;\n]+/)
+            .map((e) => e.trim().toLowerCase())
+            .filter(Boolean)
+        )
+      ),
+    [emailsText]
+  );
 
   const create = async (e) => {
     e.preventDefault();
     setBusy(true);
     setError("");
     try {
-      const data = await api("/api/admin/share", {
+      const data = await api("/api/admin/share-bulk", {
         method: "POST",
         body: {
-          videoId: video.id,
-          email,
+          videoIds: [video.id],
+          emails: parsedEmails,
           hours: Number(hours),
           sendEmail: sendMail,
           watermark,
@@ -133,13 +167,13 @@ function ShareCreator({ video, emailConfigured, onClose, onCreated }) {
     setBusy(false);
   };
 
-  const copy = async () => {
+  const copyBundleUrl = async (recipient, url) => {
     try {
-      await navigator.clipboard.writeText(result.url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(url);
+      setCopiedBundle(recipient);
+      setTimeout(() => setCopiedBundle(null), 2000);
     } catch {
-      setError("Could not copy — select the link text manually");
+      setError("Could not copy the bundle link");
     }
   };
 
@@ -155,39 +189,59 @@ function ShareCreator({ video, emailConfigured, onClose, onCreated }) {
         <p className="muted small">{video.title}</p>
 
         {result ? (
-          <div className="share-result">
-            <div className="share-link-box">
-              <code className="share-link">{result.url}</code>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={copy}>
-                {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
-                {copied ? " Copied" : " Copy"}
-              </button>
-            </div>
-            {result.emailed ? (
-              <p className="notice notice-ok">
-                <MailIcon size={14} /> Emailed to {email.trim().toLowerCase()}.
-              </p>
-            ) : result.emailError ? (
-              <p className="notice notice-error">
-                The link was created but the email failed: {result.emailError}.
-                Copy the link and send it manually, or retry from the Shares
-                tab.
-              </p>
+          <div className="share-result stack">
+            <p className="notice notice-ok">
+              <LinkIcon size={14} /> Created {result.created} link
+              {result.created === 1 ? "" : "s"} for {result.recipients} recipient
+              {result.recipients === 1 ? "" : "s"}.
+            </p>
+            {sendMail && result.emailConfigured ? (
+              <ul className="stack-sm">
+                {Object.entries(result.emailResults).map(([recipient, r]) => (
+                  <li key={recipient} className="muted small">
+                    {r.emailed ? (
+                      <>
+                        <MailIcon size={12} /> Emailed {recipient}
+                      </>
+                    ) : (
+                      <>
+                        Could not email {recipient}: {r.error}
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
             ) : (
               <p className="muted small">
-                Copy the link and send it to {email.trim().toLowerCase()}.
+                Links were created but not emailed. Copy them from the Shares
+                tab.
               </p>
             )}
-            <p className="muted small">
-              Expires {new Date(result.expiresAt).toLocaleString()}. Manage it
-              from the Shares tab.
-            </p>
-            {result.bundle ? (
-              <p className="muted small">
-                This recipient now has multiple active links, grouped into
-                one bundle page — the email links there instead of just this
-                video.
-              </p>
+            {Object.values(result.bundleResults || {}).some(Boolean) ? (
+              <ul className="stack-sm">
+                {Object.entries(result.bundleResults)
+                  .filter(([, bundle]) => bundle)
+                  .map(([recipient, bundle]) => (
+                    <li key={recipient} className="muted small share-link-box">
+                      <span>
+                        {recipient} now has a bundle page grouping their active
+                        links.
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => copyBundleUrl(recipient, bundle.url)}
+                      >
+                        {copiedBundle === recipient ? (
+                          <CheckIcon size={13} />
+                        ) : (
+                          <CopyIcon size={13} />
+                        )}
+                        {copiedBundle === recipient ? " Copied" : " Copy bundle link"}
+                      </button>
+                    </li>
+                  ))}
+              </ul>
             ) : null}
             <button type="button" className="btn btn-ghost" onClick={onClose}>
               Done
@@ -195,16 +249,49 @@ function ShareCreator({ video, emailConfigured, onClose, onCreated }) {
           </div>
         ) : (
           <form onSubmit={create} className="stack">
+            {availableTags.length > 0 ? (
+              <label className="field">
+                <span className="field-label">Add a viewer group</span>
+                <div className="row-actions">
+                  <select
+                    className="input input-sm"
+                    value={groupTag}
+                    onChange={(e) => setGroupTag(e.target.value)}
+                    aria-label="Viewer group"
+                  >
+                    <option value="">Choose a tag…</option>
+                    {availableTags.map((tag) => (
+                      <option key={tag} value={tag}>
+                        {tag}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    disabled={!groupTag}
+                    onClick={addGroup}
+                  >
+                    Add group&apos;s emails
+                  </button>
+                </div>
+              </label>
+            ) : null}
             <label className="field">
-              <span className="field-label">Recipient email</span>
-              <input
-                type="email"
+              <span className="field-label">
+                Recipient emails (comma, space, or newline separated)
+              </span>
+              <textarea
                 className="input"
+                rows={3}
                 required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="person@example.com"
+                value={emailsText}
+                onChange={(e) => setEmailsText(e.target.value)}
+                placeholder="alice@example.com, bob@example.com"
               />
+              <span className="muted small">
+                {parsedEmails.length} recipient{parsedEmails.length === 1 ? "" : "s"}
+              </span>
             </label>
             <label className="field">
               <span className="field-label">Expires after (hours, max 720)</span>
@@ -237,7 +324,7 @@ function ShareCreator({ video, emailConfigured, onClose, onCreated }) {
                 onChange={(e) => setSendMail(e.target.checked)}
               />
               <span>
-                Email the link to the recipient
+                Email each recipient their link
                 {!emailConfigured ? (
                   <span className="muted small block">
                     (email delivery isn&apos;t configured — see Settings)
@@ -247,8 +334,15 @@ function ShareCreator({ video, emailConfigured, onClose, onCreated }) {
             </label>
             {error ? <div className="notice notice-error">{error}</div> : null}
             <div className="row-actions">
-              <button type="submit" className="btn btn-primary" disabled={busy}>
-                <LinkIcon size={14} /> {busy ? "Creating…" : "Create link"}
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={busy || !parsedEmails.length}
+              >
+                <LinkIcon size={14} />{" "}
+                {busy
+                  ? "Creating…"
+                  : `Create ${parsedEmails.length || ""} link${parsedEmails.length === 1 ? "" : "s"}`}
               </button>
               <button type="button" className="btn btn-ghost" onClick={onClose}>
                 Cancel
@@ -1552,6 +1646,7 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
       {shareFor ? (
         <ShareCreator
           video={shareFor}
+          viewers={viewers}
           emailConfigured={emailConfigured}
           onClose={() => setShareFor(null)}
           onCreated={onSharesChanged}
