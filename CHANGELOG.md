@@ -5,6 +5,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-07-26
+
+Viewer tagging for faster recipient selection, one-click per-collection
+sharing, and clearer share-row provenance in the admin Shares tab.
+
 ### Added
 - Viewer groups/tags — tag approved viewers from the Viewers tab, filter the
   viewer list by tag, and pull a tagged group's emails into the bulk-share
