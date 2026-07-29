@@ -5,6 +5,18 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-07-29
+
+The per-video Share button now matches the bulk-share flow's recipient input
+instead of taking only one email at a time.
+
+### Changed
+- **Multi-recipient single-video sharing** — the per-video "Share" button
+  accepts comma/space/newline-separated emails or a tagged viewer group, the
+  same recipient UI as bulk share, and posts through the bulk-share endpoint
+  (scoped to that one video) so tagged groups and multiple ad-hoc emails work
+  from either share entry point.
+
 ## [1.14.0] - 2026-07-26
 
 Viewer tagging for faster recipient selection, one-click per-collection

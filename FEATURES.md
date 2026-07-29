@@ -99,8 +99,10 @@ setup and architecture, see [README.md](./README.md).
 
 ## Private share links (per-recipient sharing) _(admin)_
 
-- Generate a one-off private link for any video, tied to a specific recipient
-  email.
+- Generate one-off private links for any video, tied to specific recipient
+  emails — the same video's Share button accepts multiple comma/space/
+  newline-separated addresses or a tagged viewer group, not just one, and
+  creates one independently-revocable link per recipient in a single action.
 - **Automatic email delivery** — when email is configured (Resend), the recipient
   gets a branded email with the video title, a watch button, the exact expiry,
   and a note that the link only works for their address. Optional per-link
