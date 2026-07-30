@@ -903,11 +903,21 @@ function PrivateListManager({ video, viewers, emailConfigured, onClose, onChange
 /* Videos tab                                                          */
 /* ------------------------------------------------------------------ */
 
-function VideosTab({ emailConfigured, onSharesChanged }) {
-  const [videos, setVideos] = useState(null);
-  const [thumbs, setThumbs] = useState(false);
-  const [collections, setCollections] = useState([]);
-  const [viewers, setViewers] = useState([]);
+// Presentational: every slice of data below is loaded once by the Admin
+// parent and passed in, so opening this tab (or coming back to it) costs no
+// requests. `load` is the parent's library refresh — the same set this tab
+// used to fetch itself — so the post-mutation refresh sites are unchanged.
+function VideosTab({
+  videos,
+  setVideos,
+  thumbs,
+  collections,
+  viewers,
+  shareStats,
+  emailConfigured,
+  load,
+  onSharesChanged,
+}) {
   const [search, setSearch] = useState("");
   const [uploads, setUploads] = useState([]);
   const [dragOver, setDragOver] = useState(false);
@@ -921,7 +931,6 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkReport, setBulkReport] = useState(null);
   const [bulkCollection, setBulkCollection] = useState("");
-  const [shareStats, setShareStats] = useState(null);
   const [statsFor, setStatsFor] = useState(null);
   const dragIndex = useRef(null);
   const fileInput = useRef(null);
@@ -931,49 +940,6 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
   useEffect(() => {
     videosRef.current = videos || [];
   }, [videos]);
-
-  const load = useCallback(async () => {
-    try {
-      const [v, c, viewersData] = await Promise.all([
-        api("/api/admin/videos"),
-        api("/api/admin/collections"),
-        api("/api/admin/viewers"),
-      ]);
-      setVideos(v.videos);
-      setThumbs(v.thumbnails);
-      setCollections(c.collections);
-      setViewers(viewersData.viewers);
-    } catch (err) {
-      setError(err.message);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  // Fetched once, separately from `load`'s auto-refresh cycle (which can
-  // fire every 5s while a video is processing) — share stats don't change
-  // that often and this avoids hammering Redis on every encoding poll.
-  useEffect(() => {
-    api("/api/admin/shares")
-      .then((data) => {
-        const map = {};
-        (data.rollup || []).forEach((row) => {
-          map[row.videoId] = row;
-        });
-        setShareStats(map);
-      })
-      .catch(() => {});
-  }, []);
-
-  // Auto-refresh encoding badges while anything is processing.
-  const anyProcessing = (videos || []).some((v) => v.status === "processing");
-  useEffect(() => {
-    if (!anyProcessing) return undefined;
-    const timer = setInterval(load, 5000);
-    return () => clearInterval(timer);
-  }, [anyProcessing, load]);
 
   const patchUpload = (key, patch) =>
     setUploads((list) =>
@@ -1685,8 +1651,10 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
 /* Viewers tab                                                         */
 /* ------------------------------------------------------------------ */
 
-function ViewersTab({ onCount }) {
-  const [viewers, setViewers] = useState(null);
+// Presentational — `viewers` is loaded once by the Admin parent, and `load`
+// is the parent's refresh, so the post-mutation refresh sites are unchanged
+// and the tab count badge updates from the same state.
+function ViewersTab({ viewers, load }) {
   const [input, setInput] = useState("");
   const [note, setNote] = useState(null);
   const [error, setError] = useState("");
@@ -1694,20 +1662,6 @@ function ViewersTab({ onCount }) {
   const [editingTags, setEditingTags] = useState(null);
   const [tagInput, setTagInput] = useState("");
   const [tagBusy, setTagBusy] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const data = await api("/api/admin/viewers");
-      setViewers(data.viewers);
-      onCount(data.viewers.length);
-    } catch (err) {
-      setError(err.message);
-    }
-  }, [onCount]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
 
   const allTags = useMemo(
     () =>
@@ -1913,28 +1867,16 @@ function isShareExpired(share) {
   return new Date(share.expiresAt).getTime() <= Date.now();
 }
 
-function SharesTab({ emailConfigured, onCount }) {
-  const [shares, setShares] = useState(null);
+// Presentational — `shares` is loaded once by the Admin parent (from the same
+// request that feeds the count badge and the Videos tab's share stats), and
+// `load` is the parent's refresh, so the mutation sites below are unchanged.
+function SharesTab({ shares, emailConfigured, load }) {
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
   const [selected, setSelected] = useState(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkReport, setBulkReport] = useState(null);
-
-  const load = useCallback(async () => {
-    try {
-      const data = await api("/api/admin/shares");
-      setShares(data.shares);
-      onCount(data.shares.length);
-    } catch (err) {
-      setError(err.message);
-    }
-  }, [onCount]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
 
   const copy = async (share) => {
     try {
@@ -3189,15 +3131,15 @@ const TABS = [
 
 export default function Admin({ user }) {
   const [tab, setTab] = useState("videos");
-  // The tabs below are pure React state, not routes — switching tabs fires
-  // no navigation event, so the Query Monitor's per-view call log wouldn't
-  // otherwise reset here. Without this, a tab that lazily fetches its own
-  // data would show the previous tab's calls too, and a tab whose data
-  // loaded once upfront would look frozen forever.
+  // The tabs below are pure React state, not routes — switching tabs fires no
+  // navigation event, so the Query Monitor's per-view call log wouldn't
+  // otherwise reset here. With the panel's data loaded once upfront (below),
+  // most tab switches now genuinely cost nothing, which is what "this view"
+  // should report; the panel's headline shows the since-page-load total so an
+  // honest zero here never reads as a dead widget.
   useEffect(() => {
     resetMonitorCalls();
   }, [tab]);
-  const [counts, setCounts] = useState({ viewers: null, shares: null });
   const [config, setConfig] = useState({
     videoCount: 30,
     emailConfigured: false,
@@ -3210,6 +3152,72 @@ export default function Admin({ user }) {
     adminGeoWhitelist: [],
     adminGeoBypassEmails: [],
   });
+
+  // The whole panel's data is loaded once, here, and handed down as props.
+  // The tabs are presentational, so moving between Videos / Viewers / Shares
+  // costs no requests at all. Previously each of those tabs fetched on mount
+  // and refetched on every revisit, and both `viewers` and `shares` were
+  // fetched twice on the initial load — once here for the count badges and
+  // again by the tab itself.
+  const [videos, setVideos] = useState(null);
+  const [thumbs, setThumbs] = useState(false);
+  const [collections, setCollections] = useState([]);
+  const [viewers, setViewers] = useState(null);
+  const [shares, setShares] = useState(null);
+  const [shareStats, setShareStats] = useState(null);
+  const [loadError, setLoadError] = useState("");
+
+  const reloadVideos = useCallback(async () => {
+    try {
+      const data = await api("/api/admin/videos");
+      setVideos(data.videos);
+      setThumbs(data.thumbnails);
+    } catch (err) {
+      setLoadError(err.message);
+    }
+  }, []);
+
+  const reloadCollections = useCallback(async () => {
+    try {
+      const data = await api("/api/admin/collections");
+      setCollections(data.collections);
+    } catch (err) {
+      setLoadError(err.message);
+    }
+  }, []);
+
+  const reloadViewers = useCallback(async () => {
+    try {
+      const data = await api("/api/admin/viewers");
+      setViewers(data.viewers);
+    } catch (err) {
+      setLoadError(err.message);
+    }
+  }, []);
+
+  // One request feeds three consumers: the Shares tab's list, the tab count
+  // badge, and the Videos tab's per-video share stats — the endpoint returns
+  // both `shares` and a per-video `rollup` of the same tracking data.
+  const reloadShares = useCallback(async () => {
+    try {
+      const data = await api("/api/admin/shares");
+      setShares(data.shares);
+      const map = {};
+      (data.rollup || []).forEach((row) => {
+        map[row.videoId] = row;
+      });
+      setShareStats(map);
+    } catch (err) {
+      setLoadError(err.message);
+    }
+  }, []);
+
+  // Exactly what VideosTab's own loader used to refresh, kept as a single
+  // call so its existing post-mutation refresh sites don't each have to know
+  // which slices to refetch.
+  const reloadLibrary = useCallback(async () => {
+    await Promise.all([reloadVideos(), reloadCollections(), reloadViewers()]);
+  }, [reloadVideos, reloadCollections, reloadViewers]);
 
   useEffect(() => {
     api("/api/admin/settings")
@@ -3228,27 +3236,22 @@ export default function Admin({ user }) {
         })
       )
       .catch(() => {});
-    api("/api/admin/viewers")
-      .then((data) => setCounts((c) => ({ ...c, viewers: data.viewers.length })))
-      .catch(() => {});
-    api("/api/admin/shares")
-      .then((data) => setCounts((c) => ({ ...c, shares: data.shares.length })))
-      .catch(() => {});
-  }, []);
+    reloadVideos();
+    reloadCollections();
+    reloadViewers();
+    reloadShares();
+  }, [reloadVideos, reloadCollections, reloadViewers, reloadShares]);
 
-  const setViewerCount = useCallback(
-    (n) => setCounts((c) => ({ ...c, viewers: n })),
-    []
-  );
-  const setShareCount = useCallback(
-    (n) => setCounts((c) => ({ ...c, shares: n })),
-    []
-  );
-  const refreshShareCount = useCallback(() => {
-    api("/api/admin/shares")
-      .then((data) => setCounts((c) => ({ ...c, shares: data.shares.length })))
-      .catch(() => {});
-  }, []);
+  // Auto-refresh the encoding badges while something is still processing.
+  // Deliberately gated on the Videos tab being open, as it was when this
+  // lived inside VideosTab: hoisting it without that guard would leave an
+  // idle panel polling in the background from any other tab.
+  const anyProcessing = (videos || []).some((v) => v.status === "processing");
+  useEffect(() => {
+    if (tab !== "videos" || !anyProcessing) return undefined;
+    const timer = setInterval(reloadVideos, 5000);
+    return () => clearInterval(timer);
+  }, [tab, anyProcessing, reloadVideos]);
 
   return (
     <AppShell user={user} admin canNotify>
@@ -3256,6 +3259,7 @@ export default function Admin({ user }) {
         <title>Admin — Marine Video Portal</title>
       </Head>
       <h1 className="page-title">Admin</h1>
+      {loadError ? <div className="notice notice-error">{loadError}</div> : null}
       <div className="tabs" role="tablist">
         {TABS.map(([key, label]) => (
           <button
@@ -3267,11 +3271,11 @@ export default function Admin({ user }) {
             onClick={() => setTab(key)}
           >
             {label}
-            {key === "viewers" && counts.viewers !== null ? (
-              <span className="tab-badge">{counts.viewers}</span>
+            {key === "viewers" && viewers ? (
+              <span className="tab-badge">{viewers.length}</span>
             ) : null}
-            {key === "shares" && counts.shares !== null ? (
-              <span className="tab-badge">{counts.shares}</span>
+            {key === "shares" && shares ? (
+              <span className="tab-badge">{shares.length}</span>
             ) : null}
           </button>
         ))}
@@ -3279,13 +3283,24 @@ export default function Admin({ user }) {
 
       {tab === "videos" ? (
         <VideosTab
+          videos={videos}
+          setVideos={setVideos}
+          thumbs={thumbs}
+          collections={collections}
+          viewers={viewers || []}
+          shareStats={shareStats}
           emailConfigured={config.emailConfigured}
-          onSharesChanged={refreshShareCount}
+          load={reloadLibrary}
+          onSharesChanged={reloadShares}
         />
       ) : null}
-      {tab === "viewers" ? <ViewersTab onCount={setViewerCount} /> : null}
+      {tab === "viewers" ? <ViewersTab viewers={viewers} load={reloadViewers} /> : null}
       {tab === "shares" ? (
-        <SharesTab emailConfigured={config.emailConfigured} onCount={setShareCount} />
+        <SharesTab
+          shares={shares}
+          emailConfigured={config.emailConfigured}
+          load={reloadShares}
+        />
       ) : null}
       {tab === "settings" ? (
         <SettingsTab

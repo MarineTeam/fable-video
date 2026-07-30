@@ -139,14 +139,22 @@ export default function QueryMonitor({ ssrStats }) {
 
   return (
     <div className="query-monitor" role="complementary" aria-label="Performance monitor">
+      {/* The headline reports the SINCE-PAGE-LOAD total, not the current
+          view's. Most screens load their data once and then re-render from
+          state, so a per-view headline sits at a truthful but useless zero
+          and reads as a broken widget. Per-view detail is still the first
+          thing in the expanded panel below. */}
       <button
         type="button"
         className="query-monitor-toggle"
         onClick={() => setOpen((o) => !o)}
+        title="Since page load — click for this view's breakdown"
       >
         <span className="badge badge-info">QM</span>
-        {viewQueries} q · {formatMs(viewQueryMs)}
-        {viewExt > 0 ? ` · ${viewExt} api · ${formatMs(viewExtMs)}` : ""}
+        {sinceLoad.queryCount} q · {formatMs(sinceLoad.queryMs)}
+        {sinceLoad.externalCount > 0
+          ? ` · ${sinceLoad.externalCount} api · ${formatMs(sinceLoad.externalMs)}`
+          : ""}
       </button>
       {open && (
         <div className="query-monitor-panel">
@@ -170,7 +178,9 @@ export default function QueryMonitor({ ssrStats }) {
           </div>
           {calls.length === 0 && (
             <div className="query-monitor-row">
-              <span>No requests in this view</span>
+              {/* A genuine zero, not a stalled panel: this screen's data was
+                  already fetched during the page's initial load. */}
+              <span>No requests — data loaded on page load</span>
               <span>—</span>
             </div>
           )}
