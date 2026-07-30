@@ -13,10 +13,11 @@ import { auth0 } from "../lib/auth0";
 import { isAdmin, normalizeEmail } from "../lib/auth";
 import { isApprovedViewer } from "../lib/store";
 import { fetchVideoLibrary } from "../lib/videoList";
+import { withMonitorPage } from "../lib/monitor";
 
 const PER_PAGE = 10;
 
-export async function getServerSideProps({ req, resolvedUrl }) {
+async function gssp({ req, resolvedUrl }) {
   const session = await auth0.getSession(req);
   const email = session?.user?.email ? normalizeEmail(session.user.email) : null;
   if (!email) {
@@ -62,6 +63,8 @@ export async function getServerSideProps({ req, resolvedUrl }) {
     },
   };
 }
+
+export const getServerSideProps = withMonitorPage(gssp);
 
 function formatDuration(seconds) {
   const s = Math.max(0, Math.floor(seconds || 0));

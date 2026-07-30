@@ -7,8 +7,9 @@ import {
   removePushSubscription,
   savePushSubscription,
 } from "../../../lib/push";
+import { withMonitorApi } from "../../../lib/monitor";
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   const email = await requireApproved(req, res);
   if (!email) return;
 
@@ -47,3 +48,5 @@ export default async function handler(req, res) {
   res.setHeader("Allow", "POST, DELETE");
   return res.status(405).json({ error: "Method not allowed" });
 }
+
+export default withMonitorApi(handler);

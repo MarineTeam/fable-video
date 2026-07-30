@@ -4,6 +4,7 @@
 import { requireAdmin } from "../../../lib/guard";
 import { getStatistics, listAllVideos } from "../../../lib/bunny";
 import { listShares, rollupShareAnalyticsByVideo } from "../../../lib/shares";
+import { withMonitorApi } from "../../../lib/monitor";
 
 // bunny.net has returned chart data both as { "date": value } maps and as
 // arrays of points; normalize defensively.
@@ -24,7 +25,7 @@ function chartPoints(chart) {
   return [];
 }
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ error: "Method not allowed" });
@@ -74,3 +75,5 @@ export default async function handler(req, res) {
     return res.status(502).json({ error: "Could not load analytics" });
   }
 }
+
+export default withMonitorApi(handler);

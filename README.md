@@ -184,6 +184,28 @@ has no toggle — it always applies once set.
 | `ADMIN_GEO_WHITELIST` | Same format. When its own enforcement toggle is on, a visitor from one of these countries always gets through, regardless of `GEO_WHITELIST` — a safety valve for an admin traveling somewhere the main whitelist doesn't cover. |
 | `ADMIN_GEO_BYPASS_EMAILS` | Comma-separated admin emails, e.g. `admin@example.com,second@example.com`. A signed-in visitor whose email is on this list always gets through, regardless of country and regardless of either toggle above. Arm this before traveling — it's a standing safety net, not an in-the-moment fix, since env var changes only take effect on redeploy. |
 
+### Optional — Query Monitor (performance panel)
+
+A single env var turns on an in-app performance panel (in the spirit of the
+WordPress `query-monitor`/`wp-memory-usage` plugins): a small floating widget,
+visible to signed-in users, reporting Redis query count/time, outbound
+third-party API calls (bunny.net, Resend, web-push) count/time, the page's
+server-render cost, client render time, and process memory/uptime for the
+current view — click it to expand a per-request breakdown.
+
+| Key | Description |
+| --- | --- |
+| `QUERY_MONITOR_ENABLED` | Set to `true`/`1`/`on`/`yes` (case/whitespace-insensitive) to turn the panel on. Unset or any other value keeps it off. |
+
+Deliberately **one** server-side var, not a server + `NEXT_PUBLIC_` pair: the
+browser learns whether the monitor is on at runtime from `/api/monitor`
+(which 404s outright when the flag is off, and requires a signed-in session
+otherwise — process stats are never exposed to a logged-out visitor). That
+also means flipping it doesn't require a rebuild — only a redeploy on Vercel,
+same as any other env var change. When it's off, instrumentation is a single
+cheap env-var check per Redis/API call and nothing else; call sites are
+otherwise untouched.
+
 ### Optional — branding & monitoring
 
 | Key | Description |
@@ -463,6 +485,11 @@ surfaces in the admin UI).
   variable names with the store's name (e.g. `fablevideo_KV_REST_API_URL`). The
   app resolves any variable ending in the expected name, so redeploy after
   connecting the store; check Settings → Environment Variables to confirm.
+- **Query Monitor panel doesn't show up** — `QUERY_MONITOR_ENABLED` only takes
+  effect after a redeploy (it's a server-side env var), and the panel only
+  renders for a *signed-in* user, on a page whose props include `user` — check
+  `/api/monitor` directly: `404` means the flag isn't on for that deployment,
+  `401` means you're not logged in.
 
 ---
 

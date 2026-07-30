@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import Head from "next/head";
 import { Inter } from "next/font/google";
 import IdleTimeout from "../components/IdleTimeout";
+import QueryMonitor from "../components/QueryMonitor";
 import { applyResolvedTheme } from "../lib/theme-client";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -42,6 +43,7 @@ export default function App({ Component, pageProps }) {
       </Head>
       {pageProps.user ? <IdleTimeout /> : null}
       <Component {...pageProps} />
+      {pageProps.user ? <QueryMonitor ssrStats={pageProps._monitor} /> : null}
     </div>
   );
 }

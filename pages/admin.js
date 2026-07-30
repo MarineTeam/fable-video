@@ -19,8 +19,10 @@ import { auth0 } from "../lib/auth0";
 import { isAdmin, normalizeEmail } from "../lib/auth";
 import { PRESETS } from "../lib/theme";
 import { applyResolvedTheme } from "../lib/theme-client";
+import { withMonitorPage } from "../lib/monitor";
+import { resetMonitorCalls } from "../lib/monitorClient";
 
-export async function getServerSideProps({ req, resolvedUrl }) {
+async function gssp({ req, resolvedUrl }) {
   const session = await auth0.getSession(req);
   const email = session?.user?.email ? normalizeEmail(session.user.email) : null;
   if (!email) {
@@ -38,6 +40,8 @@ export async function getServerSideProps({ req, resolvedUrl }) {
     props: { user: { email, name: session.user.name || email }, admin: true },
   };
 }
+
+export const getServerSideProps = withMonitorPage(gssp);
 
 async function api(path, { method = "GET", body } = {}) {
   const res = await fetch(path, {
@@ -3185,6 +3189,14 @@ const TABS = [
 
 export default function Admin({ user }) {
   const [tab, setTab] = useState("videos");
+  // The tabs below are pure React state, not routes — switching tabs fires
+  // no navigation event, so the Query Monitor's per-view call log wouldn't
+  // otherwise reset here. Without this, a tab that lazily fetches its own
+  // data would show the previous tab's calls too, and a tab whose data
+  // loaded once upfront would look frozen forever.
+  useEffect(() => {
+    resetMonitorCalls();
+  }, [tab]);
   const [counts, setCounts] = useState({ viewers: null, shares: null });
   const [config, setConfig] = useState({
     videoCount: 30,

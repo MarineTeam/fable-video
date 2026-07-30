@@ -23,6 +23,7 @@ import { getShares, isShareLive, shareUrl, stampShares } from "../../../lib/shar
 import { bundleUrl, getBundle, liveBundleItems } from "../../../lib/bundles";
 import { emailEnabled, sendBulkShareEmail, sendShareEmail } from "../../../lib/email";
 import { logAction } from "../../../lib/audit";
+import { withMonitorApi } from "../../../lib/monitor";
 
 const MAX_IDS = 100;
 
@@ -49,7 +50,7 @@ async function resendForRecipient(req, { email, primaryId, share, bundle }) {
   }
 }
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
@@ -171,3 +172,5 @@ export default async function handler(req, res) {
 
   return res.json({ results });
 }
+
+export default withMonitorApi(handler);

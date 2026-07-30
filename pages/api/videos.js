@@ -6,8 +6,9 @@
 import { requireApproved } from "../../lib/guard";
 import { allowRequest } from "../../lib/ratelimit";
 import { fetchVideoLibrary } from "../../lib/videoList";
+import { withMonitorApi } from "../../lib/monitor";
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ error: "Method not allowed" });
@@ -27,3 +28,5 @@ export default async function handler(req, res) {
     return res.status(502).json({ error: "Could not load the video library" });
   }
 }
+
+export default withMonitorApi(handler);

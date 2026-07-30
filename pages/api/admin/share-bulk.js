@@ -13,12 +13,13 @@ import { bundleUrl, ensureBundleForRecipient, liveBundleItems } from "../../../l
 import { emailEnabled, sendBulkShareEmail, sendShareEmail } from "../../../lib/email";
 import { logAction } from "../../../lib/audit";
 import { clampWatermarkMode } from "../../../lib/watermark";
+import { withMonitorApi } from "../../../lib/monitor";
 
 const MAX_VIDEOS = 25;
 const MAX_RECIPIENTS = 25;
 const MAX_PAIRS = 200;
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
@@ -200,3 +201,5 @@ export default async function handler(req, res) {
     bundleResults,
   });
 }
+
+export default withMonitorApi(handler);
