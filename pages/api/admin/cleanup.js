@@ -19,6 +19,7 @@ import { requireAdmin } from "../../../lib/guard";
 import { getShares, isShareLive, listShares, permanentlyDeleteShares } from "../../../lib/shares";
 import { deleteBundlesById, getBundle, scanAllBundleIds } from "../../../lib/bundles";
 import { logAction } from "../../../lib/audit";
+import { withMonitorApi } from "../../../lib/monitor";
 
 async function findStaleBundles() {
   const bundleIds = await scanAllBundleIds();
@@ -35,7 +36,7 @@ async function findStaleBundles() {
   return checked.filter(Boolean);
 }
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
 
@@ -69,3 +70,5 @@ export default async function handler(req, res) {
     return res.status(502).json({ error: "Could not clean up stale items" });
   }
 }
+
+export default withMonitorApi(handler);

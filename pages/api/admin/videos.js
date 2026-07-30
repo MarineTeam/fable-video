@@ -19,10 +19,11 @@ import {
 import { logAction } from "../../../lib/audit";
 import { maybeAnnounceReadyVideos } from "../../../lib/push";
 import { clampWatermarkMode } from "../../../lib/watermark";
+import { withMonitorApi } from "../../../lib/monitor";
 
 const MAX_BULK_IDS = 100;
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
 
@@ -194,3 +195,5 @@ export default async function handler(req, res) {
   res.setHeader("Allow", "GET, POST, DELETE");
   return res.status(405).json({ error: "Method not allowed" });
 }
+
+export default withMonitorApi(handler);

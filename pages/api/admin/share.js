@@ -10,8 +10,9 @@ import { bundleUrl, ensureBundleForRecipient, liveBundleItems } from "../../../l
 import { emailEnabled, sendBulkShareEmail, sendShareEmail } from "../../../lib/email";
 import { logAction } from "../../../lib/audit";
 import { clampWatermarkMode } from "../../../lib/watermark";
+import { withMonitorApi } from "../../../lib/monitor";
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
@@ -129,3 +130,5 @@ export default async function handler(req, res) {
     bundle: bundle?.bundle ? { id: bundle.id, url: bundleUrl(req, bundle.id) } : null,
   });
 }
+
+export default withMonitorApi(handler);

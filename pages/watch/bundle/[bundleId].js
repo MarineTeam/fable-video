@@ -15,8 +15,9 @@ import { normalizeEmail } from "../../../lib/auth";
 import { getBundle, liveBundleItems } from "../../../lib/bundles";
 import { shareUrl } from "../../../lib/shares";
 import ShareGateMessage from "../../../components/ShareGateMessage";
+import { withMonitorPage } from "../../../lib/monitor";
 
-export async function getServerSideProps({ req, params, resolvedUrl }) {
+async function gssp({ req, params, resolvedUrl }) {
   const session = await auth0.getSession(req);
   const email = session?.user?.email ? normalizeEmail(session.user.email) : null;
   if (!email) {
@@ -60,6 +61,8 @@ export async function getServerSideProps({ req, params, resolvedUrl }) {
     },
   };
 }
+
+export const getServerSideProps = withMonitorPage(gssp);
 
 function formatExpiry(iso) {
   const d = new Date(iso);

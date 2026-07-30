@@ -2,8 +2,9 @@
 import { requireAdmin } from "../../../lib/guard";
 import { getOrder, saveOrder } from "../../../lib/store";
 import { logAction } from "../../../lib/audit";
+import { withMonitorApi } from "../../../lib/monitor";
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
 
@@ -38,3 +39,5 @@ export default async function handler(req, res) {
   res.setHeader("Allow", "GET, POST");
   return res.status(405).json({ error: "Method not allowed" });
 }
+
+export default withMonitorApi(handler);

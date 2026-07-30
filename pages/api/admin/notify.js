@@ -4,8 +4,9 @@ import { requireAdmin } from "../../../lib/guard";
 import { allowRequest } from "../../../lib/ratelimit";
 import { pushEnabled, sendPushToApproved } from "../../../lib/push";
 import { logAction } from "../../../lib/audit";
+import { withMonitorApi } from "../../../lib/monitor";
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
@@ -46,3 +47,5 @@ export default async function handler(req, res) {
   await logAction(admin, "push.broadcast", `${title} → ${result.sent} recipient(s)`);
   return res.json({ ok: true, sent: result.sent, pruned: result.pruned });
 }
+
+export default withMonitorApi(handler);

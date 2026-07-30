@@ -12,10 +12,11 @@ import { requireApproved } from "../../lib/guard";
 import { isAdmin, normalizeEmail } from "../../lib/auth";
 import { getProgress, isApprovedViewer, saveProgress } from "../../lib/store";
 import { listAllVideos, thumbnailUrl } from "../../lib/bunny";
+import { withMonitorApi } from "../../lib/monitor";
 
 const MAX_CONTINUE_ITEMS = 8;
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   const email = await requireApproved(req, res);
   if (!email) return;
 
@@ -120,3 +121,5 @@ export default async function handler(req, res) {
   res.setHeader("Allow", "GET, POST");
   return res.status(405).json({ error: "Method not allowed" });
 }
+
+export default withMonitorApi(handler);
