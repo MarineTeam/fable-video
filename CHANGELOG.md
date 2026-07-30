@@ -5,6 +5,19 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-07-30
+
+An opt-in performance panel for diagnosing slow requests, off by default in
+every environment until explicitly enabled.
+
+### Added
+- **Query Monitor performance panel** — a floating widget for signed-in users
+  showing Redis query count/time, outbound bunny.net/Resend/web-push call
+  count/time, SSR cost, client render time, and process memory/uptime, with a
+  per-request breakdown. Gated entirely behind the new `QUERY_MONITOR_ENABLED`
+  server-side env var; leave it unset to keep the panel fully inert (no
+  instrumentation overhead, `/api/monitor` 404s).
+
 ## [1.15.0] - 2026-07-29
 
 The per-video Share button now matches the bulk-share flow's recipient input
