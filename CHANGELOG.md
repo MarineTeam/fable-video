@@ -5,6 +5,51 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+Role-based access control and content-scoped viewer groups — the first change
+to the portal's identity model since it shipped.
+
+### Added
+
+- **User roles** — three roles, each a strict superset of the one below:
+  **Viewer** (watch only), **Manager** (the video library, sharing, analytics
+  and the activity log), and **Admin** (everything, including people and
+  settings). Roles live in Redis and are assigned from the Viewers tab with no
+  redeploy. Authorization is capability-based (`videos.manage`,
+  `shares.manage`, `people.manage`, `settings.manage`, `insights.view`): every
+  `/api/admin/*` route declares the capability it needs and re-checks it
+  independently, so which tabs the panel renders is a convenience, never the
+  boundary.
+- **Group content restrictions** — the viewer tags introduced in v1.14.0 are
+  now first-class groups (new **Groups** tab) that can optionally be
+  restricted to an explicit list of videos. Members of a restricted group see
+  only those videos in the library, search, collection chips,
+  continue-watching, and on the watch page, which returns 404 for an
+  out-of-scope video before any embed token is minted. Membership is still the
+  tag itself, so no migration is needed and every existing tag keeps behaving
+  as a plain label until a restriction is attached to it.
+
+### Changed
+
+- `ADMIN_EMAILS` is now a **bootstrap seed** rather than the only source of
+  admin. Its addresses remain admins unconditionally, resolve without any
+  Redis call, and cannot be demoted from the UI — deliberately, so a bad or
+  lost Redis write can never lock every admin out of a live portal. This
+  closes the "admins are env-var-only" gap noted in the architecture contract,
+  without giving up the recovery path.
+- Removing someone from the viewer list now also clears any role they held. A
+  role grants access on its own, so leaving it behind would have silently kept
+  a removed person in.
+- `lib/auth.js`'s `isAdmin()` is now `isEnvAdmin()`, and is explicitly the
+  ENV-only check. Effective role resolution moved to `lib/roles.js`
+  (`resolveRole` / `resolveAccess`), which fails closed on any Redis error —
+  an infra failure grants neither access nor privileges, and a viewer whose
+  group scope can't be resolved sees nothing rather than everything.
+- Deleting a video now also prunes it from every group's allowlist, so a
+  recycled id can't inherit an old grant.
+- Push broadcasts now resolve staff roles as well as `ADMIN_EMAILS`, so a
+  Redis-promoted manager or admin who isn't on the viewer list still receives
+  them — and a demoted one stops.
+
 ## [1.16.0] - 2026-07-30
 
 An opt-in performance panel for diagnosing slow requests, off by default in

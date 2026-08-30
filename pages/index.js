@@ -10,8 +10,8 @@ import Link from "next/link";
 import AppShell from "../components/AppShell";
 import { PlayIcon, SearchIcon } from "../components/icons";
 import { auth0 } from "../lib/auth0";
-import { isAdmin, normalizeEmail } from "../lib/auth";
-import { isApprovedViewer } from "../lib/store";
+import { normalizeEmail } from "../lib/auth";
+import { isStaffRole, resolveAccess } from "../lib/roles";
 import { fetchVideoLibrary } from "../lib/videoList";
 import { withMonitorPage } from "../lib/monitor";
 
@@ -28,15 +28,11 @@ async function gssp({ req, resolvedUrl }) {
       },
     };
   }
-  const admin = isAdmin(email);
-  let approved = admin;
-  if (!approved) {
-    try {
-      approved = await isApprovedViewer(email);
-    } catch {
-      approved = false;
-    }
-  }
+  // resolveAccess fails closed internally — a Redis error yields an
+  // unapproved, unprivileged result rather than leaking the library.
+  const access = await resolveAccess(email);
+  const admin = isStaffRole(access.role);
+  const approved = access.approved;
 
   // Fetch the library server-side so it's already in the HTML — otherwise
   // the client waits for hydration, then a whole extra fetch/bunny.net
@@ -45,7 +41,7 @@ async function gssp({ req, resolvedUrl }) {
   let initialThumbnails = false;
   if (approved) {
     try {
-      const data = await fetchVideoLibrary();
+      const data = await fetchVideoLibrary(access.videoScope);
       initialVideos = data.videos;
       initialThumbnails = data.thumbnails;
     } catch {

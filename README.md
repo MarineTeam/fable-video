@@ -21,21 +21,69 @@ directly. See [CHANGELOG.md](CHANGELOG.md) for release notes and
 
 ## How access works
 
-Every request resolves to one of four states, compared by normalized
+Every request resolves to one of these states, compared by normalized
 (lowercased, trimmed) email:
 
 | State | Who | What they see |
 | --- | --- | --- |
 | **Anonymous** | Not signed in | Redirected to Auth0 login |
-| **Signed in, not approved** | Authenticated but not on the viewer list | A clear "not approved yet" message — no video data |
-| **Approved viewer** | On the viewer list in Redis | The full library, watch pages, resume, notifications |
-| **Admin** | Email listed in `ADMIN_EMAILS` | Everything a viewer sees, plus the `/admin` panel |
+| **Signed in, not approved** | Authenticated, no viewer record and no role | A clear "not approved yet" message — no video data |
+| **Viewer** | On the viewer list in Redis | Watch pages, resume, notifications, and the library — the whole library, or just their groups' videos if any of their groups is restricted |
+| **Manager** | Role `manager` in Redis | Everything a viewer sees (unscoped), plus the Videos, Shares, Activity and Analytics tabs of `/admin` |
+| **Admin** | Role `admin` in Redis, or listed in `ADMIN_EMAILS` | Everything, including the Viewers, Groups and Settings tabs |
 
-Admins are always treated as approved. Approval checks **fail closed** — if Redis
-is unreachable, a viewer is treated as not approved rather than accidentally
-granted access. `/admin` is gated server-side (non-admins are redirected before
-any UI is sent), and every `/api/admin/*` route re-checks admin status on its
-own, independently of the page-level gate.
+### Roles
+
+Three roles, each a strict superset of the one below it, resolved in
+`lib/roles.js` against a capability table (`lib/capabilities.js`):
+
+| Capability | Viewer | Manager | Admin |
+| --- | :---: | :---: | :---: |
+| Watch the library | ✅ | ✅ | ✅ |
+| `videos.manage` — upload, rename, delete, reorder, collections | | ✅ | ✅ |
+| `shares.manage` — create, extend, revoke, email share links | | ✅ | ✅ |
+| `insights.view` — analytics and the activity log | | ✅ | ✅ |
+| `people.manage` — viewers, roles, groups, watermark exemptions | | | ✅ |
+| `settings.manage` — settings, palette, cleanup, broadcasts | | | ✅ |
+
+Roles are stored in Redis and changed from **`/admin` → Viewers** with no
+redeploy. `ADMIN_EMAILS` still works and is deliberately **not** replaceable
+from the UI: its addresses are admins unconditionally, resolve without any
+Redis call, and cannot be demoted through the panel. That is the recovery
+path — if the role data is ever emptied or corrupted, an `ADMIN_EMAILS`
+address can still sign in and repair it.
+
+An admin cannot change their own role, and removing someone from the viewer
+list also clears any role they held (a role grants access on its own, so
+leaving it behind would silently keep them in).
+
+### Groups
+
+A group is a viewer tag with rules attached (**`/admin` → Groups**). Membership
+is still the tag itself, edited from the Viewers tab, so every tag that existed
+before groups shipped keeps working unchanged. A group may optionally be
+**restricted** to an explicit list of videos:
+
+- A tag with no group record, or a group left unrestricted, is a plain label —
+  it grants and restricts nothing.
+- A member of a **restricted** group sees only that group's videos.
+- Belonging to several groups means the **union of the restricted ones**. An
+  unrestricted group never widens a restricted one back to the full library,
+  so a stray extra tag can't defeat a restriction.
+- Managers and admins are never group-scoped — they need the whole library.
+
+Scoping is enforced **server-side** on the library fetch, `/api/videos`,
+`/api/collections`, continue-watching, and the watch page itself, which returns
+404 for an out-of-scope video before any embed token is minted. Hiding a video
+from a list is not access control. Share links are unaffected: they are an
+explicit per-recipient grant that stands on its own.
+
+Approval and role resolution **fail closed** — if Redis is unreachable, the
+caller is treated as unapproved and unprivileged rather than accidentally
+granted access, and a viewer whose group scope can't be resolved sees nothing
+rather than everything. `/admin` is gated server-side (anyone without a staff
+role is redirected before any UI is sent), and every `/api/admin/*` route
+re-checks its own required capability independently of the page-level gate.
 
 > Because access is by email identity, keep Auth0 **sign-ups disabled** (or
 > require verified email) so nobody can self-register as an approved or admin
@@ -45,8 +93,8 @@ own, independently of the page-level gate.
 - Only **approved viewers** (managed live by an admin) see the video library. Everyone else sees a clear "not approved" message after logging in.
 - The homepage shows the library — as a **thumbnail grid** when thumbnails are configured, otherwise a title list — with **search**, **collection filters**, and a **Continue watching** strip that resumes videos where the viewer left off. It's paginated and capped at an admin-controlled count.
 - Clicking a video opens a watch page that plays it in a tokenized bunny.net embed and remembers playback position.
-- Admins manage everything from a tabbed **`/admin`** panel: upload videos, organize the library, manage viewers and share links (with one-click **email delivery**), adjust the site's color palette, and view analytics and an activity log.
-- `/admin` is gated **server-side** (redirects non-admins before any UI is sent) and every `/api/admin/*` route independently returns `403` for non-admins.
+- Admins manage everything from a tabbed **`/admin`** panel: upload videos, organize the library, manage viewers, roles, groups and share links (with one-click **email delivery**), adjust the site's color palette, and view analytics and an activity log. **Managers** get the same panel minus the Viewers, Groups and Settings tabs.
+- `/admin` is gated **server-side** (redirects anyone without a staff role before any UI is sent) and every `/api/admin/*` route independently returns `403` unless the caller holds that route's capability.
 - The portal is an **installable PWA** — visitors can add it to a home screen and launch it standalone. A minimal service worker (`public/sw.js`) caches only the static app icons; it never caches Auth0, `/api/*` responses, or signed video/thumbnail URLs.
 - **Push notifications** (optional) — approved viewers can opt in with a "Notify me" button. They're notified automatically when a new video becomes ready, and admins can send a manual broadcast from the Settings tab. Requires VAPID keys (see env vars); inert without them.
 
@@ -255,10 +303,10 @@ worker, or icons.
   serverless instance so that search, filtering, and pagination don't re-fetch
   the whole library — any admin mutation invalidates that cache immediately.
 - **Redis** (prefix `fablevideo:`) holds all app-owned state: approved viewers,
-  last-seen timestamps, the custom homepage order, site settings, the theme,
-  per-viewer playback progress, share records, the audit log, rate-limit
-  counters, and push subscriptions. Everything is editable live from `/admin`
-  without redeploying.
+  roles, groups, last-seen timestamps, the custom homepage order, site
+  settings, the theme, per-viewer playback progress, share records, the audit
+  log, rate-limit counters, and push subscriptions. Everything is editable live
+  from `/admin` without redeploying.
 
 ### Playback security
 
@@ -332,8 +380,11 @@ components/
   icons.js                Inline SVG icons
 lib/
   auth0.js                Auth0 v4 client (session handling)
-  auth.js                 Shared isAdmin(email) + email helpers, used everywhere
-  guard.js                API guards: requireUser / requireApproved / requireAdmin
+  auth.js                 Email normalization + the ADMIN_EMAILS bootstrap seed (isEnvAdmin)
+  capabilities.js         Role/capability policy — pure, storage-free, client-safe
+  roles.js                Redis-backed roles + resolveAccess (role, approval, video scope)
+  groups.js               Viewer groups: per-video allowlists over the existing tags
+  guard.js                API guards: requireUser / requireAccess / requireCapability
   bunny.js                Bunny API: videos, collections, TUS signing, signed embed
                           URLs, thumbnail URLs (token-signed), statistics
   redis.js                Upstash Redis connection + key prefix helper k()
@@ -349,7 +400,8 @@ lib/
   theme-client.js         Apply + cache palette in the browser
   audit.js                Append-only admin action log (capped)
   ratelimit.js            Sliding-window limiter (fails open)
-  __tests__/              Vitest smoke tests (auth, order, theme, email, shares)
+  __tests__/              Vitest smoke tests (auth, roles, groups, access, order,
+                          theme, email, shares, watermark, geo, monitor)
 styles/globals.css        Design system (dark glassmorphism, gradient accents, Inter)
 public/
   manifest.webmanifest    PWA manifest (name, icons, standalone display)
@@ -370,8 +422,11 @@ next.config.js            Wrapped with withSentryConfig
 
 ## Admin panel (`/admin`)
 
-Tabbed layout, gated server-side to `ADMIN_EMAILS`, with live count badges on
-Viewers/Shares:
+Tabbed layout, gated server-side to staff roles, with live count badges on
+Viewers/Shares. Which tabs render depends on the caller's capabilities — a
+manager sees Videos, Shares, Activity and Analytics only. That is a
+convenience, not the authorization boundary: the routes behind each tab
+enforce it independently.
 
 - **Videos** — upload (drag-and-drop, progress, cancel/retry), rename, delete,
   drag-to-reorder, search, encoding-status badges, per-video collection
@@ -391,8 +446,16 @@ Viewers/Shares:
   to the same video and person made from the regular Share/Bulk share
   button is separate, isn't shown on the list, and isn't touched by
   Remove.
-- **Viewers** — add/remove approved emails, **bulk add** (paste a list), and each
-  viewer's **last-seen** time.
+- **Viewers** — add/remove approved emails, **bulk add** (paste a list), each
+  viewer's **last-seen** time, per-viewer **tags** (group membership), and a
+  per-viewer **role** select (Viewer/Manager/Admin). Addresses that are admins
+  via `ADMIN_EMAILS` show a read-only "Admin (env)" chip instead, and you
+  cannot change your own role.
+- **Groups** — create groups, see member counts, and optionally **restrict** a
+  group to an explicit list of videos so its members see only those. Tags
+  already in use that have no group record are listed so they can be promoted
+  to one. Deleting a group drops its restriction; members keep the tag as a
+  plain label.
 - **Shares** — every share link with recipient, expiry, **view count/last
   viewed**, **playback** (plays, furthest % watched, completed), **bundled**
   status, and **emailed** status; email/resend, extend expiry, and revoke —
@@ -406,7 +469,8 @@ Viewers/Shares:
   bypass — plus a toggle-free `ADMIN_GEO_BYPASS_EMAILS` identity bypass —
   with all three lists shown read-only, since they're set via env vars, not
   the admin panel), and the email/push status panels.
-- **Activity** — recent admin actions (viewer add/remove, share
+- **Activity** — recent admin actions (viewer add/remove, role change, group
+  save/delete, share
   create/bulk-create/extend/revoke/email/list-add/list-remove, video
   rename/delete/bulk-delete/reorder/collection change/watermark, watermark
   exemptions, settings, palette, collections), each with actor and time.
@@ -445,6 +509,15 @@ surfaces in the admin UI).
 - **Playback is always tokenized** — signed, time-limited embed URLs generated
   per request; no permanent public URL is used or exposed.
 - **Share-link mismatches don't reveal** the intended recipient's email.
+- **Authorization is capability-based and re-checked per route** — every
+  `/api/admin/*` route independently requires its own capability, so a UI that
+  renders a tab it shouldn't can never turn into an actual privilege.
+- **Group scoping is enforced on the server**, including on the watch page,
+  which 404s an out-of-scope video before minting an embed token — a video
+  omitted from a list is not the same as a video the viewer can't reach.
+- **Role resolution fails closed** and `ADMIN_EMAILS` resolves without touching
+  Redis, so an infra failure can neither grant privileges nor lock the
+  bootstrap admin out.
 - **Thumbnails** are CDN-token-signed (when a token key is present) so they keep
   working with "Block Direct URL File Access" enabled.
 - **Rate limiting** guards the video list, upload, share-creation, and broadcast

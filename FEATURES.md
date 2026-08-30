@@ -225,14 +225,33 @@ setup and architecture, see [README.md](./README.md).
 - **Approved viewer management** — add/remove emails, with **bulk add** (paste
   comma/space/newline-separated lists; validated + deduped, with invalid entries
   reported back).
+- **Roles** — every person is a **Viewer**, **Manager**, or **Admin**, each a
+  strict superset of the one below. A manager runs the library (upload,
+  organize, share) and reads analytics and the activity log, but cannot touch
+  viewers, roles, groups or site settings. Roles are stored in Redis and
+  changed from the Viewers tab with no redeploy. `ADMIN_EMAILS` addresses stay
+  admins unconditionally and are shown read-only — they are the recovery path
+  if role data is ever lost, and they resolve without any Redis call. An admin
+  cannot change their own role, and removing someone from the viewer list
+  clears any role they held.
 - **Viewer groups/tags** — tag approved viewers (e.g. "Team A") from the
   Viewers tab, filter the viewer list by tag, and pull a whole tag's emails
   into the bulk-share or Private list recipient box with one click instead
-  of pasting each address by hand. Purely an organizational label — it
-  doesn't itself grant access to anything.
+  of pasting each address by hand.
+- **Group content restrictions** — a group can optionally be **restricted** to
+  an explicit list of videos (Groups tab), so its members see only those in
+  the library, in search, in continue-watching, and on the watch page itself.
+  A tag with no group record, or an unrestricted group, stays a plain label
+  that grants and restricts nothing — so every tag that existed before this
+  shipped behaves exactly as it did. Belonging to several groups means the
+  union of the restricted ones; an unrestricted group never widens a
+  restricted one. Managers and admins are never group-scoped. Enforcement is
+  server-side throughout: an out-of-scope video 404s before any playback token
+  is minted, rather than merely being hidden from a list.
 - **Viewer last-seen** — each viewer's most recent activity time.
 - **Activity / audit log** — the most recent admin actions (viewer
-  add/remove/**tag**, share create/revoke/**email**, video
+  add/remove/**tag**, **role change**, **group save/delete**, share
+  create/revoke/**email**, video
   rename/delete/reorder, collection create/delete, settings, palette), each
   with actor and time. Logging is best-effort so it never breaks the
   underlying action.

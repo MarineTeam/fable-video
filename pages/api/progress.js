@@ -8,17 +8,19 @@
 //                        history instead of their own (admin-only; the
 //                        target must itself be an approved viewer or admin)
 //   POST              -> save progress { videoId, t, d }
-import { requireApproved } from "../../lib/guard";
-import { isAdmin, normalizeEmail } from "../../lib/auth";
-import { getProgress, isApprovedViewer, saveProgress } from "../../lib/store";
+import { requireAccess } from "../../lib/guard";
+import { normalizeEmail } from "../../lib/auth";
+import { CAP, hasCapability, resolveAccess, scopeAllows } from "../../lib/roles";
+import { getProgress, saveProgress } from "../../lib/store";
 import { listAllVideos, thumbnailUrl } from "../../lib/bunny";
 import { withMonitorApi } from "../../lib/monitor";
 
 const MAX_CONTINUE_ITEMS = 8;
 
 async function handler(req, res) {
-  const email = await requireApproved(req, res);
-  if (!email) return;
+  const access = await requireAccess(req, res);
+  if (!access) return;
+  const email = access.email;
 
   if (req.method === "GET") {
     const videoId = String(req.query.videoId || "").trim();
@@ -27,16 +29,15 @@ async function handler(req, res) {
 
     let target = email;
     if (requestedEmail && requestedEmail !== email) {
-      if (!isAdmin(email)) {
-        return res.status(403).json({ error: "Admins only" });
+      if (!hasCapability(access, CAP.INSIGHTS)) {
+        return res.status(403).json({ error: "You don't have permission to do that" });
       }
-      let targetApproved = isAdmin(requestedEmail);
-      if (!targetApproved) {
-        try {
-          targetApproved = await isApprovedViewer(requestedEmail);
-        } catch {
-          targetApproved = false;
-        }
+      let targetApproved = false;
+      try {
+        targetApproved = (await resolveAccess(requestedEmail)).approved;
+      } catch (err) {
+        console.error("Could not resolve the requested viewer:", err);
+        targetApproved = false;
       }
       if (!targetApproved) {
         return res.status(404).json({ error: "That address isn't an approved viewer" });
@@ -68,7 +69,11 @@ async function handler(req, res) {
       const videos = await listAllVideos();
       const byId = new Map(videos.map((v) => [v.guid, v]));
       const items = entries
-        .filter((e) => byId.has(e.videoId))
+        // Group scoping applies to the caller's own history: progress
+        // recorded before a restriction was applied must not keep surfacing
+        // a video they may no longer see. Staff have a null scope, so an
+        // admin looking up someone else's history still sees all of it.
+        .filter((e) => byId.has(e.videoId) && scopeAllows(access.videoScope, e.videoId))
         .map((e) => {
           const video = byId.get(e.videoId);
           const completed = e.t >= e.d * 0.95;

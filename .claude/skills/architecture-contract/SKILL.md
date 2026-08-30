@@ -56,8 +56,9 @@ mixed case or stray whitespace. Two different-looking strings for the same mailb
 silently split one person into two identities — locking out a real viewer or, worse,
 failing an admin check open by accident.
 
-**Enforced at:** `lib/auth.js:4-8` (`normalizeEmail`), used by `lib/auth.js:17-20`
-(`isAdmin`), `lib/guard.js:7-11` (`sessionEmail`), and directly in
+**Enforced at:** `lib/auth.js:4-8` (`normalizeEmail`), used by `lib/auth.js`
+(`isEnvAdmin`), `lib/roles.js` (`resolveRole`/`resolveAccess`, which normalize
+before every lookup), `lib/guard.js` (`sessionEmail`), and directly in
 `pages/index.js:21`, `pages/admin.js:25`, `pages/watch/[shareId].js:14`,
 `pages/watch/video/[id].js`, `pages/api/admin/viewers.js`, `pages/api/admin/share.js:27`.
 
@@ -66,25 +67,37 @@ failing an admin check open by accident.
 `pages/watch/video/[id].js`, `pages/api/admin/share.js`, `pages/api/admin/viewers.js`) —
 and `grep -rn "user.email ===" pages lib` should return **nothing** (raw comparison).
 
-### (b) Every `/api/admin/*` route independently calls `requireAdmin` — the SSR gate on `/admin` is not sufficient alone
+### (b) Every `/api/admin/*` route independently authorizes its own capability — the SSR gate on `/admin` is not sufficient alone
 
-**Statement:** `pages/admin.js`'s `getServerSideProps` redirects non-admins before any
-admin HTML ships, but that only protects the *page*. Every one of the 11 route files
-under `pages/api/admin/` starts its handler with `const admin = await requireAdmin(req,
-res); if (!admin) return;` — an independent, second check.
+**Statement:** `pages/admin.js`'s `getServerSideProps` redirects anyone without a staff
+role before any admin HTML ships, but that only protects the *page*. Every route file
+under `pages/api/admin/` starts its handler with an independent, second check —
+`const access = await requireCapability(req, res, CAP.X); if (!access) return;` (or
+`requireAdmin`, which is `requireCapability(..., CAP.PEOPLE)`).
+
+Since roles shipped, this is capability-based rather than a single admin bit: a route
+declares what it needs (`CAP.VIDEOS`, `CAP.SHARES`, `CAP.PEOPLE`, `CAP.SETTINGS`,
+`CAP.INSIGHTS`) and never tests for a role name. Which tabs `pages/admin.js` renders is
+driven by the same capability list, but that is a *convenience* — hiding a tab is not
+authorization, and a manager who hand-crafts a request to a `CAP.PEOPLE` route still
+gets a 403 from the route itself.
 
 **Why:** API routes are reachable directly (curl, browser devtools, a stale bookmark, a
 future UI bug that calls an admin endpoint from a non-admin page) regardless of what the
 `/admin` page itself renders. A single gate at the page level would mean any route bug or
 direct API call bypasses authorization entirely.
 
-**Enforced at:** `lib/guard.js:41-49` (`requireAdmin`); called at the top of all 11 files
-in `pages/api/admin/*.js` (`analytics.js:31`, `audit.js:10`, `collections.js:8`,
-`order.js:7`, `settings.js:9`, `share-email.js:14`, `share.js:17`, `shares.js:8`,
-`upload.js:11`, `videos.js:17`, `viewers.js:9`).
+**Enforced at:** `lib/guard.js` (`requireCapability`, `requireAdmin`, `requireAccess`);
+called at the top of every file in `pages/api/admin/*.js`. The capability↔route mapping
+lives in those route files' guard lines; `lib/capabilities.js` holds the role→capability
+table.
 
-**Verify with:** `grep -L requireAdmin pages/api/admin/*.js` (expect **no output** — every
-file matches).
+**Verify with:** `grep -L "requireCapability\|requireAdmin" pages/api/admin/*.js` (expect
+**no output** — every file matches). Note the one deliberate exception inside
+`viewers.js`: `GET ?scope=recipients` authorizes `CAP.SHARES` instead of `CAP.PEOPLE`,
+returning ONLY `{email, tags}` so a manager can resolve a group into share recipients
+without gaining people-management access. If you widen what that projection returns, it
+must move back behind `CAP.PEOPLE`.
 
 ### (c) Viewer approval fails CLOSED; rate limiting fails OPEN — the asymmetry is deliberate
 
@@ -103,7 +116,20 @@ Auth0 — a data leak. If rate limiting failed *closed*, a Redis outage would lo
 real user from every rate-limited endpoint (video list, upload, share creation) — a
 total, self-inflicted outage over an unrelated infra hiccup. Never flip either direction.
 
-**Enforced at:** `lib/guard.js:22-39`, `lib/ratelimit.js:23-30`.
+Role and group resolution follow the approval side of that asymmetry.
+`resolveAccess()` (`lib/roles.js`) returns the least-privileged result — not approved,
+no capabilities, empty video scope — on any Redis error, and a viewer whose *group*
+scope can't be resolved gets an empty scope (sees nothing) rather than a null one (sees
+everything). The distinction between `videoScope === null` (unrestricted) and
+`videoScope === []` (nothing permitted) is load-bearing: `scopeAllows` treats them
+oppositely, so never "normalize" an empty scope to null.
+
+`ADMIN_EMAILS` addresses short-circuit `resolveAccess` before any Redis call at all, so
+the bootstrap admin is never locked out by an infra failure — the same property
+`isAdmin()` had before roles existed.
+
+**Enforced at:** `lib/guard.js`, `lib/ratelimit.js:23-30`, `lib/roles.js`
+(`resolveAccess`), `lib/capabilities.js` (`scopeAllows`).
 
 **Verify with:** `sed -n '22,39p' lib/guard.js` and `sed -n '23,30p' lib/ratelimit.js` —
 confirm the `catch` blocks resolve to `false` and `true` respectively.
@@ -328,6 +354,41 @@ vars set) — `grep -n "pushEnabled" lib/push.js pages/api/push/subscribe.js pag
 
 ---
 
+### (m) Group video scoping is enforced on the SERVER at every read path — omission from a list is never the control
+
+**Statement:** A viewer restricted by a group must be stopped by the server on every
+path that can reach a video, not merely left out of the library listing:
+`fetchVideoLibrary(videoScope)` (`lib/videoList.js`) filters before the homepage count is
+applied, `/api/videos` and `/api/collections` pass the caller's scope, `/api/progress`
+filters continue-watching, and `pages/watch/video/[id].js` returns `notFound` for an
+out-of-scope id **before** `signEmbedUrl` is called. Share links are deliberately
+exempt — a share is an explicit per-recipient grant that stands on its own, and
+`pages/watch/[shareId].js` is unchanged.
+
+**Why:** Same class as (d). The video id is in the URL; a viewer who learns one another
+way (an old bookmark, a forwarded link, a previously-visible video that was later
+restricted) must not be able to play it. If scoping lived only in the list query, the
+watch page would happily mint a signed 3-hour embed token for any id an unrestricted-
+looking session asked for — a complete bypass of the restriction. The 404 (rather than
+403) also keeps a restricted viewer from probing which ids exist.
+
+**Enforced at:** `lib/groups.js` (`resolveScope`/`allowedVideoIds`), `lib/roles.js`
+(`resolveAccess` computes `videoScope`, and never scopes staff), `lib/videoList.js`,
+`pages/api/videos.js`, `pages/api/collections.js`, `pages/api/progress.js`,
+`pages/watch/video/[id].js`.
+
+**Verify with:** `grep -rn "videoScope\|scopeAllows" pages lib | grep -v __tests__` —
+every viewer-facing read path should appear. `grep -n "scopeAllows" "pages/watch/video/[id].js"`
+must show the check ABOVE the `signEmbedUrl` call in the same file.
+
+**Restriction semantics that must not drift** (tested in `lib/__tests__/groups.test.js`):
+a tag with no group record is a plain label; an unrestricted group is a plain label; a
+member of several groups gets the UNION of the restricted ones, and an unrestricted group
+never widens a restricted one back to the full library. That last one is the security
+property — if it inverts, any stray extra tag silently defeats every restriction.
+
+---
+
 ## 2. Load-bearing decisions (don't undo these without a deliberate call)
 
 | Decision | Why it's load-bearing |
@@ -347,7 +408,7 @@ vars set) — `grep -n "pushEnabled" lib/push.js pages/api/push/subscribe.js pag
 | **Orphaned `pvp:*` Redis keys.** | Commit `c37919e` (2026-07-09) renamed the key prefix from `pvp:` to `fablevideo:` in `lib/redis.js` with **no migration** — the commit message states this explicitly ("All data is stored fresh so there's no migration"). Any data written before that commit under the old prefix is invisible to the app today and will never be read or cleaned up by it. | If you ever need to account for "missing" historical data (viewers, shares, settings) from before 2026-07-09, check for a stray `pvp:*` keyspace in Redis directly — the app will never surface or clean it. Not an active problem, just a fact to know before debugging "where did old data go." |
 | **Email claim is trusted; no `email_verified` enforcement in app code.** | `lib/auth.js` and `lib/guard.js` trust `session.user.email` as-is (after normalization) with no check of an `email_verified` claim from Auth0. `grep -rn email_verified` across `lib/` and `pages/` returns no hits outside `node_modules`. | Mitigated operationally, not in code: README "Security notes" (line ~204) and the one-time setup checklist (line 150) both instruct disabling Auth0 self-sign-up ("Disable Sign Ups") and adding people manually, so nobody can register an unverified address themselves. If that operational control is ever relaxed, this becomes a real gap — route to `security-response` if you're asked to harden it. |
 | **Per-serverless-instance cache means instances can disagree for up to 4 seconds.** | `videoListCache` in `lib/bunny.js:48` is a module-level `let`, meaning each warm Vercel serverless instance has its own independent cache and its own independent 4-second clock. Two viewers hitting two different warm instances immediately after an admin mutation can see different library states for up to 4s, even though invariant (f) is fully respected. | This is accepted behavior for a 4-second window, not a bug to fix reflexively. If a future feature needs strict read-after-write consistency (e.g., a "confirm your video is live" admin flow), don't assume the cache is consistent — poll or bypass `listAllVideos()`. |
-| **Admins are env-var-only (`ADMIN_EMAILS`), unlike viewers/settings/order.** | Unlike approved viewers (Redis, live via `/admin`), the admin list is `process.env.ADMIN_EMAILS` (`lib/auth.js:10-15`), parsed fresh on every call but only changeable by editing the Vercel env var and **redeploying** (README: "changes only apply to new deployments"). There is no UI to promote/demote an admin. | Expect "add me as an admin" requests to require an env var change + redeploy, not an admin-panel action — this is a real operational asymmetry from the viewer-management flow, not an oversight to silently "fix" by adding a Redis-backed admin list without discussion (that would be a security-relevant design change — route through `security-response` if proposed). |
+| **RESOLVED (roles release): admins are no longer env-var-only, and `ADMIN_EMAILS` is now a bootstrap seed.** | Roles (`viewer`/`manager`/`admin`) live in Redis (`k("roles")`) and are assigned from `/admin` → Viewers with no redeploy. `ADMIN_EMAILS` was deliberately **kept** rather than replaced: its addresses are admins unconditionally, resolve without any Redis call, and cannot be demoted through the UI. That asymmetry IS the feature — it is the recovery path if the roles hash is emptied or corrupted. This was an explicit, owner-approved decision to override the previous "don't add a Redis-backed admin list without discussion" guidance, taken with the recovery path and fail-closed resolution as the conditions. | "Add me as an admin" is now an admin-panel action. Two guardrails must stay: an admin cannot change their own role (self-lockout), and an `ADMIN_EMAILS` address's role cannot be changed from the UI (the write would be ignored by `resolveRole` anyway). Removing a viewer also clears their stored role — without that, "remove" would leave a manager with implicit access, since staff are approved without being on the viewer list. Do NOT remove the env seed to "simplify" — that deletes the only way back into a portal with broken role data. |
 | **No lockfile means dependency drift can break a deploy or CI with zero code change.** | `.gitignore` blocks `package-lock.json`/`yarn.lock`/`pnpm-lock.yaml` by design (doctrine: keep dependencies on latest versions within `package.json`'s caret ranges). A new patch/minor release of any dependency can change behavior or break the build between two otherwise-identical commits. | Not this skill's territory — route to `dependency-currency` for the latest-versions doctrine and the ESLint 9.x pinning exception (commit `f2d3a30`). |
 | **API routes and pages have no automated test coverage.** | Vitest covers only `lib/__tests__/` (`auth.test.js`, `email.test.js`, `order.test.js`, `theme.test.js` — 4 files, 24 tests, pure logic). Nothing under `pages/api/**` or `pages/*.js` is exercised by an automated test; `npm run lint` and `npm run build` are the only automated checks on that code. | Don't assume a passing `npm test` says anything about route-level behavior (guard ordering, status codes, request/response shape). Route to `validation-and-qa` for what to add and how. |
 
@@ -388,11 +449,20 @@ playback, or the data layer:
     new-video announce must stay atomic-per-video (`SADD` guard), broadcast click targets
     must stay same-origin, and the whole feature must stay inert when `pushEnabled()` is
     false. (l)
-14. **Am I about to add an `app/` directory, narrow `proxy.js`'s matcher, reset TTL on
+14. **Does this add or change an `/api/admin/*` route's guard?** It must declare a
+    specific capability (`requireCapability(req, res, CAP.X)`), never test a role name,
+    and never rely on the panel hiding the tab. (b)
+15. **Does this add a path by which a viewer can reach a video?** It must consult
+    `access.videoScope` via `scopeAllows` server-side, and must not confuse an empty
+    scope (nothing permitted) with a null one (unrestricted). (m)
+16. **Does this touch role resolution?** `ADMIN_EMAILS` must keep short-circuiting
+    before any Redis call, resolution must keep failing closed, and self-role-change and
+    env-admin demotion must stay blocked. (c, section 3)
+17. **Am I about to add an `app/` directory, narrow `proxy.js`'s matcher, reset TTL on
     share updates, or move viewer/settings/order data out of Redis?** Any of these needs a
     deliberate, explicit decision — not an incidental side effect of an unrelated change.
     (Section 2)
-15. **Is this change touching one of the weak points in section 3?** If so, treat it as
+18. **Is this change touching one of the weak points in section 3?** If so, treat it as
     an explicit design decision worth calling out in the PR description, not a silent fix
     or a silently-inherited risk.
 
@@ -408,6 +478,15 @@ context alone) — `proxy.js`, `lib/auth.js`, `lib/guard.js`, `lib/redis.js`,
 `c37919e`'s diff. All file:line citations above were confirmed against the actual file
 contents on that date. Facts below are volatile — re-verify before relying on them.
 
+**Updated 2026-08-30 (roles + groups):** invariant (b) is now capability-based rather
+than a single admin bit; (c) gained the role/group fail-closed rules and the
+`videoScope` null-vs-empty distinction; (m) added for server-side group scoping;
+checklist items 14-16 added; the "admins are env-var-only" weak point is resolved and
+rewritten as the `ADMIN_EMAILS`-as-bootstrap-seed decision, including the guardrails
+that must not be removed. Verified by reading `lib/capabilities.js`, `lib/roles.js`,
+`lib/groups.js`, `lib/guard.js`, every `pages/api/admin/*.js` guard line, and
+`pages/watch/video/[id].js` on that date.
+
 **Updated 2026-07-15 (v1.8.0 Web Push + v1.7.0 PWA):** added invariants (k) (service-worker
 cache allowlist) and (l) (Web Push send-gating / atomic announce / same-origin click),
 checklist items 12–13, and their provenance rows — verified by reading `public/sw.js`,
@@ -416,7 +495,10 @@ that date. Line numbers in (k)/(l) are against those files as of v1.8.0 and will
 
 | Volatile claim | Re-verify with |
 |---|---|
-| All 11 `/api/admin/*` routes call `requireAdmin` | `grep -L requireAdmin pages/api/admin/*.js` (expect no output) |
+| Every `/api/admin/*` route authorizes a capability | `grep -L "requireCapability\|requireAdmin" pages/api/admin/*.js` (expect no output) |
+| Role→capability table and the three roles | `sed -n '1,60p' lib/capabilities.js` |
+| Role resolution fails closed; env admins skip Redis | `npm test -- roles access` and read `resolveAccess` in `lib/roles.js` |
+| Group scoping enforced on the watch page before token signing | `grep -n "scopeAllows" "pages/watch/video/[id].js"` (must precede `signEmbedUrl`) |
 | `requireApproved` fails closed, `allowRequest` fails open | `sed -n '22,39p' lib/guard.js; sed -n '23,30p' lib/ratelimit.js` |
 | No direct CDN file URLs anywhere | `grep -rn "b-cdn.net" pages lib` (expect only `cdnHostname()`-composed URLs, no raw `.mp4`/`.m3u8`) |
 | Every Redis key goes through `k()` | `grep -rn 'redis()\.' lib` then eyeball each key argument is `k(...)` |
@@ -431,8 +513,8 @@ that date. Line numbers in (k)/(l) are against those files as of v1.8.0 and will
 | Shares live in one hash (`k("shares")`), not one key per share; bulk admin actions batch through `getShares`/`writeShares` | `grep -n "sharesKey\|export async function.*Shares(" lib/shares.js` |
 | Video-list cache TTL and per-instance scope | `grep -n "VIDEO_LIST_CACHE_TTL_MS\|let videoListCache" lib/bunny.js` |
 | `pvp:*` keys were never migrated | `git show c37919e --stat` and read the commit message |
-| Admins are env-var-only, no Redis admin list | `grep -n "ADMIN_EMAILS" lib/auth.js`; confirm no `k("admin` anywhere: `grep -rn 'k("admin' lib` |
-| Test coverage still limited to `lib/__tests__/` | `ls lib/__tests__/`; `grep -rL "test(" pages/api/**/*.js 2>/dev/null \| wc -l` (all of them, since none have tests) |
+| `ADMIN_EMAILS` is still an un-demotable seed, not the only admin source | `grep -n "isEnvAdmin" lib/auth.js lib/roles.js`; `grep -n "ADMIN_EMAILS" pages/api/admin/roles.js` |
+| Test coverage still limited to `lib/__tests__/` (though `access.test.js` now covers the resolver with Redis stubbed) | `ls lib/__tests__/`; `grep -rL "test(" pages/api/**/*.js 2>/dev/null \| wc -l` (all of them, since none have tests) |
 | SW caches only the `PRECACHE` allowlist, one `respondWith` (k) | `sed -n '83,108p' public/sw.js`; `grep -n "event.respondWith" public/sw.js` (expect exactly one call) |
 | Push sends filter live viewers; announce is atomic; click is same-origin (l) | `sed -n '100,143p' lib/push.js`; `grep -n 'startsWith("/")' pages/api/admin/notify.js` |
 | Lint/test/build baselines | see `change-control`'s Provenance table — same repo, same date |

@@ -1,12 +1,14 @@
 // Custom homepage video order (drag-to-reorder in the admin panel).
-import { requireAdmin } from "../../../lib/guard";
+import { requireCapability } from "../../../lib/guard";
+import { CAP } from "../../../lib/roles";
 import { getOrder, saveOrder } from "../../../lib/store";
 import { logAction } from "../../../lib/audit";
 import { withMonitorApi } from "../../../lib/monitor";
 
 async function handler(req, res) {
-  const admin = await requireAdmin(req, res);
-  if (!admin) return;
+  const access = await requireCapability(req, res, CAP.VIDEOS);
+  if (!access) return;
+  const admin = access.email;
 
   if (req.method === "GET") {
     try {

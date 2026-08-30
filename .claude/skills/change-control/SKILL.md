@@ -49,7 +49,7 @@ skill BEFORE writing code, not after.
 | Pure lib logic | `lib/*.js` with no route/page changes | lint + test (add/update tests in `lib/__tests__/`) | `validation-and-qa` |
 | API route | anything under `pages/api/**` | lint + test + build | `architecture-contract` (guard/logging/rate-limit patterns) |
 | Page UI | `pages/*.js`, `pages/watch/**`, `components/`, `styles/` | lint + build (+ manual check via `run-and-operate`) | `feature-shipping-campaign` |
-| Security-touching | `lib/auth.js`, `lib/guard.js`, `lib/shares.js`, token signing in `lib/bunny.js` (lines ~145–195), `pages/watch/[shareId].js`, `proxy.js` | ALL gates + full self-review checklist (section 4) | `security-response` AND `architecture-contract` |
+| Security-touching | `lib/auth.js`, `lib/capabilities.js`, `lib/roles.js`, `lib/groups.js`, `lib/guard.js`, `lib/shares.js`, token signing in `lib/bunny.js` (lines ~145–195), `pages/watch/**`, `proxy.js` | ALL gates + full self-review checklist (section 4) | `security-response` AND `architecture-contract` |
 | Config-env | `next.config.js`, `vitest.config.js`, `eslint.config.mjs`, env-var additions | lint + test + build; env-var changes ALSO need a Vercel redeploy | `environment-and-config`; redeploy via `run-and-operate` |
 | Dependency bump | any edit to `package.json` deps | fresh `npm install`, then ALL gates | `dependency-currency` (latest-versions doctrine + the ESLint 9.x exception) |
 | CI workflow | `.github/workflows/ci.yml` | lint + test locally; workflow itself is verified by the PR run | `security-response` (keep `permissions: contents: read` — added in 7968919 for CodeQL alert #1) |
@@ -88,18 +88,22 @@ explaining why, and never disable one just to get a PR through.
 npm test
 ```
 
-Expected output ends with (as of 2026-07-23):
+Expected output ends with (as of 2026-08-30):
 
 ```
- Test Files  7 passed (7)
-      Tests  62 passed (62)
+ Test Files  11 passed (11)
+      Tests  115 passed (115)
 ```
 
-The counts `7` and `62` are the current baseline. **If your change adds tests, these
+The counts `11` and `115` are the current baseline. (The previously recorded
+`7`/`62` was stale — the tree measured 8/78 before the roles+groups change added
+`roles.test.js`, `groups.test.js`, and `access.test.js`.) **If your change adds tests, these
 numbers go UP — update this file's counts in the same PR.** If they go DOWN or anything
-reports `failed`, the gate failed. Tests live only in `lib/__tests__/` (auth, email,
-order, theme, geo, shares, watermark — pure logic; API routes and pages have no test
-coverage, so gates 1 and 3 are their only automated checks).
+reports `failed`, the gate failed. Tests live only in `lib/__tests__/` (auth, capabilities/roles, groups, access, email,
+order, theme, geo, shares, watermark, monitor). Mostly pure logic; `access.test.js` is
+the one exception, stubbing `lib/redis` via `vi.mock` to exercise `resolveAccess`'s
+fail-closed paths directly. API routes and pages still have no test coverage, so gates
+1 and 3 are their only automated checks.
 
 ### Gate 3 — build
 
@@ -140,7 +144,7 @@ Break none of these. Each row: the rule, why it exists, and where to verify it.
 
 | # | Rule | Rationale / incident | Evidence |
 |---|---|---|---|
-| 1 | Every `/api/admin/*` route's handler begins with `const admin = await requireAdmin(req, res); if (!admin) return;` and thus returns 403 to non-admins | Double-gating doctrine: the `/admin` page is gated server-side AND every API route is gated independently — a UI bug can never expose an admin API | `lib/guard.js:1-2` (stated contract); all 11 files in `pages/api/admin/` comply; README "Security notes" |
+| 1 | Every `/api/admin/*` route's handler begins with an independent capability check — `const access = await requireCapability(req, res, CAP.X); if (!access) return;` (or `requireAdmin`, = `CAP.PEOPLE`) — and thus returns 403 to anyone lacking it | Double-gating doctrine: the `/admin` page is gated server-side AND every API route is gated independently — a UI bug (including the capability-driven tab list) can never expose an admin API. Routes declare a capability, never a role name | `lib/guard.js:1-8` (stated contract); `lib/capabilities.js` (role→capability table); every file in `pages/api/admin/` complies; README "Security notes" |
 | 2 | Every `catch` block logs `console.error("label:", err)` BEFORE returning a generic 5xx | Incident: before 1e01860, every data-layer catch swallowed its error — a Redis misconfiguration produced invisible generic 502s across the entire admin panel, undiagnosable from Vercel logs | commit 1e01860; pattern in `pages/api/admin/viewers.js:16-17,35,57` |
 | 3 | No direct bunny CDN file URLs (`*.b-cdn.net/.../playlist.m3u8`, `play_720p.mp4`) anywhere — playback only via signed, time-limited embed tokens; thumbnails only via token-signed CDN URLs | Core security property: videos are never public. A direct file URL bypasses token auth permanently | `lib/bunny.js:1-4` (stated invariant), `signEmbedUrl` at `lib/bunny.js:147`; README "Security notes"; see `architecture-contract` |
 | 4 | Never commit a lockfile (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`) | Deliberate latest-versions policy: Vercel and CI install fresh every time. A stray lockfile out of sync with `package.json` is a documented deploy-failure mode | `.gitignore:1-6`; README "Common issues" ("`npm install` fails on deploy"); ci.yml:22-23 comment |
@@ -151,7 +155,9 @@ Break none of these. Each row: the rule, why it exists, and where to verify it.
 | 9 | ESLint stays `^9.x` — do NOT bump to 10 | Incident f2d3a30: ESLint 10 crashes eslint-config-next with `scopeManager.addGlobals is not a function`. This is a DATED exception (2026-07) to the owner's latest-versions doctrine; the re-check condition (eslint-config-next supporting ESLint 10) lives in `dependency-currency` | commit f2d3a30; `package.json` devDependencies (`"eslint": "^9.39.0"`) |
 | 10 | Rate-limit expensive or abusable endpoints with `allowRequest(name, id, tokens, window)` following the existing pattern | Uploads, share creation, and the video list all hit external paid APIs or send email; unlimited calls = cost/abuse. The limiter fails OPEN (infra hiccup never locks users out) — do not change that semantic | `pages/api/admin/share.js:20` (30/h), `pages/api/admin/upload.js:15` (30/h), `pages/api/videos.js:18` (60/m); `lib/ratelimit.js:1-2` |
 | 11 | Every admin mutation calls `logAction(admin, "noun.verb", detail)` after it succeeds | The Activity tab is the audit trail for a multi-admin portal. Logging is best-effort by design (never breaks the action) — but omitting the call breaks the trail | `lib/audit.js:1-2`; call sites in every mutating `pages/api/admin/*` route (e.g. `viewers.js:39,61`, `share.js:80`) |
-| 12 | Failure semantics are asymmetric on purpose: viewer approval fails CLOSED, rate limiting fails OPEN — never flip either | Approval failing open leaks video data on an infra error; rate limiting failing closed locks out all real users on an infra error | `lib/guard.js:29-32`; `lib/ratelimit.js:1-2,27-29`; see `architecture-contract` |
+| 12 | Failure semantics are asymmetric on purpose: viewer approval, role resolution, and group scoping fail CLOSED, rate limiting fails OPEN — never flip any of them | Approval failing open leaks video data on an infra error; rate limiting failing closed locks out all real users on an infra error. For group scope specifically, `videoScope === null` means unrestricted and `[]` means nothing permitted — never normalize the empty case to null | `lib/roles.js` (`resolveAccess`); `lib/ratelimit.js:1-2,27-29`; see `architecture-contract` (c) and (m) |
+| 13 | `ADMIN_EMAILS` stays an un-demotable bootstrap seed that resolves without a Redis call, and an admin can never change their own role | It is the only way back into a portal whose Redis role data is lost or corrupted, and the only admin path that survives a Redis outage. Self-demotion is the easiest way to lock out the last admin | `lib/roles.js` (`resolveAccess` short-circuit); `pages/api/admin/roles.js` (both guard clauses); `architecture-contract` section 3 |
+| 14 | A viewer-facing path that can reach a video consults `access.videoScope` server-side — omission from a list is not access control | `pages/watch/video/[id].js` must 404 an out-of-scope id BEFORE `signEmbedUrl` mints a 3-hour token, or group restrictions are bypassable by anyone who knows an id | `pages/watch/video/[id].js`; `lib/videoList.js`; `pages/api/{videos,collections,progress}.js`; `architecture-contract` (m) |
 
 ## 4. Self-review before opening a PR
 
@@ -169,7 +175,9 @@ Walk this checklist against your diff. Every "yes" required.
 - [ ] Dependency versions untouched, or bumped per `dependency-currency` (ESLint still ^9)? (rule 9)
 - [ ] New expensive/abusable endpoint rate-limited? (rule 10)
 - [ ] New admin mutation calls `logAction`? (rule 11)
-- [ ] Fail-open/fail-closed semantics unchanged? (rule 12)
+- [ ] Fail-open/fail-closed semantics unchanged, including role/scope resolution? (rule 12)
+- [ ] `ADMIN_EMAILS` still un-demotable and Redis-free; self-role-change still blocked? (rule 13)
+- [ ] Any new path to a video checks `videoScope` server-side? (rule 14)
 - [ ] Tests added for new pure-logic code in `lib/`, and the counts in Gate 2 of this file updated if totals changed?
 - [ ] README / CHANGELOG updated if behavior, env vars, or setup steps changed?
 
@@ -203,10 +211,10 @@ re-verify before relying on them; update this file when a check's expected outpu
 | Volatile claim | Re-verify with |
 |---|---|
 | Lint passes clean, banner-only output | `npm run lint; echo $?` (expect exit 0) |
-| Test baseline is 4 files / 24 tests | `npm test 2>&1 \| grep -E "Test Files\|Tests"` |
+| Test baseline is 11 files / 115 tests | `npm test 2>&1 \| grep -E "Test Files\|Tests"` |
 | Build env block matches CI | `sed -n '33,46p' .github/workflows/ci.yml` |
 | ESLint still pinned to ^9.x | `grep '"eslint"' package.json` |
-| All admin routes guarded | `grep -L requireAdmin pages/api/admin/*.js` (expect no output) |
+| All admin routes guarded by a capability | `grep -L "requireCapability\|requireAdmin" pages/api/admin/*.js` (expect no output) |
 | No lockfile tracked | `git ls-files \| grep -iE 'package-lock\|yarn.lock\|pnpm-lock'` (expect no output) |
 | Bunny mutations invalidate cache | `grep -n invalidateVideoListCache lib/bunny.js` (expect def + 3 call sites) |
 | All admin mutations audit-logged | `grep -c logAction pages/api/admin/*.js` |

@@ -1,6 +1,12 @@
-// Tabbed admin panel: Videos / Viewers / Shares / Settings / Activity /
-// Analytics. Gated server-side (non-admins are redirected before any admin
-// UI is sent); every /api/admin/* route independently returns 403 as well.
+// Tabbed admin panel: Videos / Viewers / Groups / Shares / Settings /
+// Activity / Analytics. Gated server-side (anyone without a staff role is
+// redirected before any admin UI is sent); every /api/admin/* route
+// independently re-checks its own capability and returns 403 as well.
+//
+// Which tabs render is driven by the caller's capabilities, so a manager
+// never sees the People or Settings tabs. That is a convenience, NOT the
+// authorization boundary — the routes behind those tabs are what actually
+// enforce it.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Head from "next/head";
 import AppShell from "../components/AppShell";
@@ -16,7 +22,11 @@ import {
   XIcon,
 } from "../components/icons";
 import { auth0 } from "../lib/auth0";
-import { isAdmin, normalizeEmail } from "../lib/auth";
+import { normalizeEmail } from "../lib/auth";
+// CAP comes from the storage-free policy module: pages/admin.js is a client
+// component, and lib/roles.js reaches into Redis.
+import { CAP } from "../lib/capabilities";
+import { isStaffRole, resolveAccess } from "../lib/roles";
 import { PRESETS } from "../lib/theme";
 import { applyResolvedTheme } from "../lib/theme-client";
 import { withMonitorPage } from "../lib/monitor";
@@ -33,11 +43,17 @@ async function gssp({ req, resolvedUrl }) {
       },
     };
   }
-  if (!isAdmin(email)) {
+  const access = await resolveAccess(email);
+  if (!isStaffRole(access.role)) {
     return { redirect: { destination: "/", permanent: false } };
   }
   return {
-    props: { user: { email, name: session.user.name || email }, admin: true },
+    props: {
+      user: { email, name: session.user.name || email },
+      admin: true,
+      role: access.role,
+      capabilities: access.capabilities,
+    },
   };
 }
 
@@ -937,7 +953,9 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
       const [v, c, viewersData] = await Promise.all([
         api("/api/admin/videos"),
         api("/api/admin/collections"),
-        api("/api/admin/viewers"),
+        // Minimal projection — enough to resolve a group into recipient
+        // addresses, and readable by a manager who has no people access.
+        api("/api/admin/viewers?scope=recipients"),
       ]);
       setVideos(v.videos);
       setThumbs(v.thumbnails);
@@ -1685,7 +1703,19 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
 /* Viewers tab                                                         */
 /* ------------------------------------------------------------------ */
 
-function ViewersTab({ onCount }) {
+const ROLE_LABELS = {
+  viewer: "Viewer",
+  manager: "Manager",
+  admin: "Admin",
+};
+
+const ROLE_HINTS = {
+  viewer: "Watches whatever their groups allow.",
+  manager: "Videos, sharing and analytics — but not people or settings.",
+  admin: "Everything, including roles, groups and settings.",
+};
+
+function ViewersTab({ onCount, me }) {
   const [viewers, setViewers] = useState(null);
   const [input, setInput] = useState("");
   const [note, setNote] = useState(null);
@@ -1694,6 +1724,7 @@ function ViewersTab({ onCount }) {
   const [editingTags, setEditingTags] = useState(null);
   const [tagInput, setTagInput] = useState("");
   const [tagBusy, setTagBusy] = useState(false);
+  const [roleBusy, setRoleBusy] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -1767,6 +1798,21 @@ function ViewersTab({ onCount }) {
     } catch (err) {
       setError(err.message);
     }
+  };
+
+  const changeRole = async (email, role) => {
+    setRoleBusy(email);
+    setError("");
+    try {
+      await api("/api/admin/roles", {
+        method: "PATCH",
+        body: { email, role },
+      });
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+    setRoleBusy(null);
   };
 
   const remove = async (email) => {
@@ -1843,6 +1889,9 @@ function ViewersTab({ onCount }) {
                   <span className="muted small">
                     Last seen {timeAgo(viewer.lastSeen)}
                     {viewer.addedAt ? ` · added ${timeAgo(viewer.addedAt)}` : ""}
+                    {viewer.onViewerList === false
+                      ? " · not on the viewer list (access comes from their role)"
+                      : ""}
                   </span>
                   {editingTags === viewer.email ? (
                     <div className="row-actions" style={{ marginTop: "0.4rem" }}>
@@ -1887,6 +1936,33 @@ function ViewersTab({ onCount }) {
                   >
                     Edit tags
                   </button>
+                )}
+                {viewer.envAdmin ? (
+                  <span
+                    className="tag-chip"
+                    title="Admin via the ADMIN_EMAILS environment variable — can't be changed here"
+                  >
+                    Admin (env)
+                  </span>
+                ) : (
+                  <select
+                    className="input input-sm"
+                    value={viewer.role || "viewer"}
+                    disabled={roleBusy === viewer.email || viewer.email === me}
+                    title={
+                      viewer.email === me
+                        ? "You can't change your own role"
+                        : ROLE_HINTS[viewer.role || "viewer"]
+                    }
+                    aria-label={`Role for ${viewer.email}`}
+                    onChange={(e) => changeRole(viewer.email, e.target.value)}
+                  >
+                    {Object.entries(ROLE_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
                 )}
                 <button
                   type="button"
@@ -2978,6 +3054,310 @@ function SettingsTab({ config, onConfig }) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Groups tab                                                          */
+/* ------------------------------------------------------------------ */
+
+// A group restricts its members to an explicit list of videos. Membership is
+// still the viewer's tag (edited in the Viewers tab) — this tab owns the
+// group record and its allowlist. A group left unrestricted is a plain
+// label, which is what every pre-existing tag is.
+function GroupsTab() {
+  const [groups, setGroups] = useState(null);
+  const [untracked, setUntracked] = useState([]);
+  const [videos, setVideos] = useState([]);
+  const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+  const [newName, setNewName] = useState("");
+  const [editing, setEditing] = useState(null);
+  const [draft, setDraft] = useState({ restricted: false, videoIds: [] });
+  const [busy, setBusy] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const data = await api("/api/admin/groups");
+      setGroups(data.groups);
+      setUntracked(data.untrackedTags || []);
+    } catch (err) {
+      setError(err.message);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    api("/api/admin/videos")
+      .then((data) => setVideos(data.videos || []))
+      .catch(() => {});
+  }, [load]);
+
+  const startEdit = (group) => {
+    setEditing(group.id);
+    setDraft({
+      restricted: group.restricted,
+      videoIds: [...(group.videoIds || [])],
+    });
+    setSearch("");
+    setError("");
+    setNote("");
+  };
+
+  const toggleVideo = (id) => {
+    setDraft((d) => ({
+      ...d,
+      videoIds: d.videoIds.includes(id)
+        ? d.videoIds.filter((v) => v !== id)
+        : [...d.videoIds, id],
+    }));
+  };
+
+  const save = async (name) => {
+    setBusy(true);
+    setError("");
+    try {
+      await api("/api/admin/groups", {
+        method: "PUT",
+        body: {
+          name,
+          restricted: draft.restricted,
+          videoIds: draft.videoIds,
+        },
+      });
+      setEditing(null);
+      setNote(`Saved "${name}".`);
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
+  };
+
+  const create = async (e) => {
+    e.preventDefault();
+    const name = newName.trim();
+    if (!name) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api("/api/admin/groups", {
+        method: "PUT",
+        body: { name, restricted: false, videoIds: [] },
+      });
+      setNewName("");
+      setNote(`Created "${name}". Tag viewers with it from the Viewers tab.`);
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
+  };
+
+  const remove = async (group) => {
+    if (
+      !window.confirm(
+        `Delete the group "${group.name}"? Its members keep the tag, but it stops restricting what they can watch.`
+      )
+    ) {
+      return;
+    }
+    try {
+      await api(`/api/admin/groups?name=${encodeURIComponent(group.id)}`, {
+        method: "DELETE",
+      });
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const matchingVideos = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return videos;
+    return videos.filter((v) => (v.title || "").toLowerCase().includes(q));
+  }, [videos, search]);
+
+  return (
+    <div className="stack-lg">
+      <section className="card">
+        <h3>Create a group</h3>
+        <p className="muted small">
+          A group is a viewer tag with rules attached. Create it here, then tag
+          viewers with the same name from the Viewers tab. A new group starts
+          unrestricted — it changes nothing until you turn on
+          &quot;Restrict to selected videos&quot;.
+        </p>
+        <form onSubmit={create} className="row-actions">
+          <input
+            className="input"
+            placeholder="Deck crew"
+            value={newName}
+            maxLength={30}
+            onChange={(e) => setNewName(e.target.value)}
+            aria-label="New group name"
+          />
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={busy || !newName.trim()}
+          >
+            Create group
+          </button>
+        </form>
+        {note ? <div className="notice notice-ok">{note}</div> : null}
+        {error ? <div className="notice notice-error">{error}</div> : null}
+      </section>
+
+      {untracked.length > 0 ? (
+        <section className="card">
+          <h3>Existing tags without a group</h3>
+          <p className="muted small">
+            These tags are already on viewers but have no group record, so they
+            are plain labels. Create a group with the same name to attach an
+            allowlist to one.
+          </p>
+          <div className="row-actions">
+            {untracked.map((tag) => (
+              <button
+                key={tag.id}
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setNewName(tag.id)}
+              >
+                {tag.id} ({tag.memberCount})
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="card">
+        <h3>Groups ({groups ? groups.length : "…"})</h3>
+        {groups === null ? (
+          <p className="muted">Loading…</p>
+        ) : groups.length === 0 ? (
+          <p className="muted">
+            No groups yet. Every viewer sees the whole library.
+          </p>
+        ) : (
+          <div className="row-list">
+            {groups.map((group) => (
+              <div key={group.id} className="row row-stack">
+                <div className="row-main">
+                  <strong className="row-title">{group.name}</strong>
+                  <span className="muted small">
+                    {group.memberCount} member
+                    {group.memberCount === 1 ? "" : "s"} ·{" "}
+                    {group.restricted
+                      ? `restricted to ${group.videoIds.length} video${
+                          group.videoIds.length === 1 ? "" : "s"
+                        }`
+                      : "unrestricted (label only)"}
+                  </span>
+                  {group.restricted && group.videoIds.length === 0 ? (
+                    <span className="notice notice-error">
+                      Restricted with an empty allowlist — members of this group
+                      currently see nothing.
+                    </span>
+                  ) : null}
+                </div>
+                {editing === group.id ? null : (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => startEdit(group)}
+                    >
+                      Edit access
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn icon-btn-danger"
+                      aria-label={`Delete ${group.name}`}
+                      onClick={() => remove(group)}
+                    >
+                      <TrashIcon size={14} />
+                    </button>
+                  </>
+                )}
+
+                {editing === group.id ? (
+                  <div className="stack" style={{ width: "100%" }}>
+                    <label className="check-row">
+                      <input
+                        type="checkbox"
+                        checked={draft.restricted}
+                        onChange={(e) =>
+                          setDraft((d) => ({ ...d, restricted: e.target.checked }))
+                        }
+                      />
+                      <span>
+                        Restrict to selected videos
+                        <span className="muted small">
+                          {" "}
+                          — members see only what is ticked below. Leave off to
+                          keep this group a plain label.
+                        </span>
+                      </span>
+                    </label>
+
+                    {draft.restricted ? (
+                      <>
+                        <input
+                          className="input input-sm"
+                          placeholder="Search videos…"
+                          value={search}
+                          onChange={(e) => setSearch(e.target.value)}
+                          aria-label="Search videos"
+                        />
+                        <div className="scroll-list">
+                          {matchingVideos.map((video) => (
+                            <label key={video.guid} className="check-row">
+                              <input
+                                type="checkbox"
+                                checked={draft.videoIds.includes(video.guid)}
+                                onChange={() => toggleVideo(video.guid)}
+                              />
+                              <span>{video.title || "Untitled"}</span>
+                            </label>
+                          ))}
+                          {matchingVideos.length === 0 ? (
+                            <p className="muted small">No videos match.</p>
+                          ) : null}
+                        </div>
+                        <span className="muted small">
+                          {draft.videoIds.length} selected
+                        </span>
+                      </>
+                    ) : null}
+
+                    <div className="row-actions">
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        disabled={busy}
+                        onClick={() => save(group.name)}
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => setEditing(null)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Activity tab                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -2985,6 +3365,9 @@ const ACTION_LABELS = {
   "viewer.add": "Viewer added",
   "viewer.remove": "Viewer removed",
   "viewer.tag": "Viewer tags updated",
+  "role.set": "Role changed",
+  "group.save": "Group saved",
+  "group.delete": "Group deleted",
   "share.create": "Share link created",
   "share.bulk_create": "Bulk share links created",
   "share.extend": "Share link(s) extended",
@@ -3178,17 +3561,29 @@ function AnalyticsTab() {
 /* Admin page                                                          */
 /* ------------------------------------------------------------------ */
 
+// Each tab declares the capability it needs. Hiding a tab is a convenience
+// so a manager isn't shown doors they can't open — the authorization itself
+// lives in the /api/admin/* routes behind them.
 const TABS = [
-  ["videos", "Videos"],
-  ["viewers", "Viewers"],
-  ["shares", "Shares"],
-  ["settings", "Settings"],
-  ["activity", "Activity"],
-  ["analytics", "Analytics"],
+  ["videos", "Videos", CAP.VIDEOS],
+  ["viewers", "Viewers", CAP.PEOPLE],
+  ["groups", "Groups", CAP.PEOPLE],
+  ["shares", "Shares", CAP.SHARES],
+  ["settings", "Settings", CAP.SETTINGS],
+  ["activity", "Activity", CAP.INSIGHTS],
+  ["analytics", "Analytics", CAP.INSIGHTS],
 ];
 
-export default function Admin({ user }) {
-  const [tab, setTab] = useState("videos");
+export default function Admin({ user, role, capabilities }) {
+  const can = useCallback(
+    (capability) => (capabilities || []).includes(capability),
+    [capabilities]
+  );
+  const visibleTabs = useMemo(
+    () => TABS.filter(([, , capability]) => (capabilities || []).includes(capability)),
+    [capabilities]
+  );
+  const [tab, setTab] = useState(() => visibleTabs[0]?.[0] || "videos");
   // The tabs below are pure React state, not routes — switching tabs fires
   // no navigation event, so the Query Monitor's per-view call log wouldn't
   // otherwise reset here. Without this, a tab that lazily fetches its own
@@ -3212,29 +3607,35 @@ export default function Admin({ user }) {
   });
 
   useEffect(() => {
-    api("/api/admin/settings")
-      .then((data) =>
-        setConfig({
-          videoCount: data.videoCount,
-          emailConfigured: data.emailConfigured,
-          emailFrom: data.emailFrom,
-          pushConfigured: data.pushConfigured,
-          watermarkEnabled: data.watermarkEnabled,
-          geoEnabled: data.geoEnabled,
-          adminGeoEnabled: data.adminGeoEnabled,
-          geoWhitelist: data.geoWhitelist,
-          adminGeoWhitelist: data.adminGeoWhitelist,
-          adminGeoBypassEmails: data.adminGeoBypassEmails,
-        })
-      )
-      .catch(() => {});
-    api("/api/admin/viewers")
-      .then((data) => setCounts((c) => ({ ...c, viewers: data.viewers.length })))
-      .catch(() => {});
-    api("/api/admin/shares")
-      .then((data) => setCounts((c) => ({ ...c, shares: data.shares.length })))
-      .catch(() => {});
-  }, []);
+    if (can(CAP.SETTINGS)) {
+      api("/api/admin/settings")
+        .then((data) =>
+          setConfig({
+            videoCount: data.videoCount,
+            emailConfigured: data.emailConfigured,
+            emailFrom: data.emailFrom,
+            pushConfigured: data.pushConfigured,
+            watermarkEnabled: data.watermarkEnabled,
+            geoEnabled: data.geoEnabled,
+            adminGeoEnabled: data.adminGeoEnabled,
+            geoWhitelist: data.geoWhitelist,
+            adminGeoWhitelist: data.adminGeoWhitelist,
+            adminGeoBypassEmails: data.adminGeoBypassEmails,
+          })
+        )
+        .catch(() => {});
+    }
+    if (can(CAP.PEOPLE)) {
+      api("/api/admin/viewers")
+        .then((data) => setCounts((c) => ({ ...c, viewers: data.viewers.length })))
+        .catch(() => {});
+    }
+    if (can(CAP.SHARES)) {
+      api("/api/admin/shares")
+        .then((data) => setCounts((c) => ({ ...c, shares: data.shares.length })))
+        .catch(() => {});
+    }
+  }, [can]);
 
   const setViewerCount = useCallback(
     (n) => setCounts((c) => ({ ...c, viewers: n })),
@@ -3255,9 +3656,16 @@ export default function Admin({ user }) {
       <Head>
         <title>Admin — Marine Video Portal</title>
       </Head>
-      <h1 className="page-title">Admin</h1>
+      <h1 className="page-title">
+        Admin
+        {role && role !== "admin" ? (
+          <span className="tag-chip" style={{ marginLeft: "0.6rem" }}>
+            {role}
+          </span>
+        ) : null}
+      </h1>
       <div className="tabs" role="tablist">
-        {TABS.map(([key, label]) => (
+        {visibleTabs.map(([key, label]) => (
           <button
             key={key}
             type="button"
@@ -3283,7 +3691,10 @@ export default function Admin({ user }) {
           onSharesChanged={refreshShareCount}
         />
       ) : null}
-      {tab === "viewers" ? <ViewersTab onCount={setViewerCount} /> : null}
+      {tab === "viewers" ? (
+        <ViewersTab onCount={setViewerCount} me={user.email} />
+      ) : null}
+      {tab === "groups" ? <GroupsTab /> : null}
       {tab === "shares" ? (
         <SharesTab emailConfigured={config.emailConfigured} onCount={setShareCount} />
       ) : null}

@@ -1,5 +1,6 @@
 // Recent admin actions (activity log).
-import { requireAdmin } from "../../../lib/guard";
+import { requireCapability } from "../../../lib/guard";
+import { CAP } from "../../../lib/roles";
 import { recentActions } from "../../../lib/audit";
 import { withMonitorApi } from "../../../lib/monitor";
 
@@ -8,8 +9,9 @@ async function handler(req, res) {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ error: "Method not allowed" });
   }
-  const admin = await requireAdmin(req, res);
-  if (!admin) return;
+  const access = await requireCapability(req, res, CAP.INSIGHTS);
+  if (!access) return;
+  const admin = access.email;
 
   try {
     return res.json({ actions: await recentActions(100) });

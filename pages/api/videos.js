@@ -3,7 +3,7 @@
 // filtering, and pagination happen client-side against this list, so this
 // endpoint is only hit once per page load (not per keystroke). Rate-limited;
 // the underlying bunny.net call is itself cached briefly (lib/bunny.js).
-import { requireApproved } from "../../lib/guard";
+import { requireAccess } from "../../lib/guard";
 import { allowRequest } from "../../lib/ratelimit";
 import { fetchVideoLibrary } from "../../lib/videoList";
 import { withMonitorApi } from "../../lib/monitor";
@@ -13,15 +13,16 @@ async function handler(req, res) {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ error: "Method not allowed" });
   }
-  const email = await requireApproved(req, res);
-  if (!email) return;
+  const access = await requireAccess(req, res);
+  if (!access) return;
+  const email = access.email;
 
   if (!(await allowRequest("videos", email, 60, "1 m"))) {
     return res.status(429).json({ error: "Too many requests — slow down a little" });
   }
 
   try {
-    const data = await fetchVideoLibrary();
+    const data = await fetchVideoLibrary(access.videoScope);
     return res.json(data);
   } catch (err) {
     console.error("Could not load the video library:", err);

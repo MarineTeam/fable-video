@@ -1,6 +1,7 @@
 // Admin video library: ordered list with encoding status, rename,
 // collection assignment, and delete (which also prunes the saved order).
-import { requireAdmin } from "../../../lib/guard";
+import { requireCapability } from "../../../lib/guard";
+import { CAP } from "../../../lib/roles";
 import {
   deleteVideo,
   listAllVideos,
@@ -16,6 +17,7 @@ import {
   pruneFromOrder,
   setVideoWatermarkOverride,
 } from "../../../lib/store";
+import { pruneVideoFromGroups } from "../../../lib/groups";
 import { logAction } from "../../../lib/audit";
 import { maybeAnnounceReadyVideos } from "../../../lib/push";
 import { clampWatermarkMode } from "../../../lib/watermark";
@@ -24,8 +26,9 @@ import { withMonitorApi } from "../../../lib/monitor";
 const MAX_BULK_IDS = 100;
 
 async function handler(req, res) {
-  const admin = await requireAdmin(req, res);
-  if (!admin) return;
+  const access = await requireCapability(req, res, CAP.VIDEOS);
+  if (!access) return;
+  const admin = access.email;
 
   if (req.method === "GET") {
     try {
@@ -79,6 +82,7 @@ async function handler(req, res) {
           try {
             await deleteVideo(videoId);
             await pruneFromOrder(videoId).catch(() => {});
+            await pruneVideoFromGroups(videoId).catch(() => {});
             results[videoId] = { ok: true };
           } catch (err) {
             console.error("Bulk delete failed on bunny.net:", err);
@@ -188,6 +192,9 @@ async function handler(req, res) {
       return res.status(502).json({ error: "Delete failed on bunny.net" });
     }
     await pruneFromOrder(id).catch(() => {});
+    // Best-effort, like the order prune: a deleted video must not linger on
+    // a group's allowlist where a recycled id could inherit its grant.
+    await pruneVideoFromGroups(id).catch(() => {});
     await logAction(admin, "video.delete", id);
     return res.json({ ok: true });
   }

@@ -15,7 +15,8 @@
 // staleness from the shares list alone would make that bundle permanently
 // invisible to cleanup. Scanning bundles directly is this route's one
 // exception to "look up by pointer, not by scanning" (see lib/bundles.js).
-import { requireAdmin } from "../../../lib/guard";
+import { requireCapability } from "../../../lib/guard";
+import { CAP } from "../../../lib/roles";
 import { getShares, isShareLive, listShares, permanentlyDeleteShares } from "../../../lib/shares";
 import { deleteBundlesById, getBundle, scanAllBundleIds } from "../../../lib/bundles";
 import { logAction } from "../../../lib/audit";
@@ -37,8 +38,9 @@ async function findStaleBundles() {
 }
 
 async function handler(req, res) {
-  const admin = await requireAdmin(req, res);
-  if (!admin) return;
+  const access = await requireCapability(req, res, CAP.SETTINGS);
+  if (!access) return;
+  const admin = access.email;
 
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");

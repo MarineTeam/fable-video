@@ -1,7 +1,8 @@
 // Browser -> bunny.net uploads: creates the video record and returns signed
 // TUS credentials so the file goes straight from the admin's browser to
 // bunny.net. DELETE cleans up a cancelled upload's half-created video.
-import { requireAdmin } from "../../../lib/guard";
+import { requireCapability } from "../../../lib/guard";
+import { CAP } from "../../../lib/roles";
 import { allowRequest } from "../../../lib/ratelimit";
 import { createVideo, deleteVideo, signTusUpload } from "../../../lib/bunny";
 import { pruneFromOrder } from "../../../lib/store";
@@ -9,8 +10,9 @@ import { logAction } from "../../../lib/audit";
 import { withMonitorApi } from "../../../lib/monitor";
 
 async function handler(req, res) {
-  const admin = await requireAdmin(req, res);
-  if (!admin) return;
+  const access = await requireCapability(req, res, CAP.VIDEOS);
+  if (!access) return;
+  const admin = access.email;
 
   if (req.method === "POST") {
     if (!(await allowRequest("upload", admin, 30, "1 h"))) {

@@ -1,6 +1,7 @@
 // Manual admin broadcast: send a Web Push notification to every currently
 // approved viewer (and admins). Rate-limited and audit-logged.
-import { requireAdmin } from "../../../lib/guard";
+import { requireCapability } from "../../../lib/guard";
+import { CAP } from "../../../lib/roles";
 import { allowRequest } from "../../../lib/ratelimit";
 import { pushEnabled, sendPushToApproved } from "../../../lib/push";
 import { logAction } from "../../../lib/audit";
@@ -12,8 +13,9 @@ async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const admin = await requireAdmin(req, res);
-  if (!admin) return;
+  const access = await requireCapability(req, res, CAP.SETTINGS);
+  if (!access) return;
+  const admin = access.email;
 
   if (!pushEnabled()) {
     return res.status(503).json({ error: "Push notifications are not configured" });
