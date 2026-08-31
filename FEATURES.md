@@ -327,7 +327,15 @@ setup and architecture, see [README.md](./README.md).
   access; admins must know who to add.
 - **`email_verified` enforcement** — access checks trust the email claim; pair
   with Auth0 sign-up controls (see Security notes in the README).
-- **In-app admin management** — admins are configured via `ADMIN_EMAILS`, not the
-  UI.
+- **Group-scoped staff** — managers and admins always see the whole library;
+  a group restriction applies to viewers only. There is no "manager for these
+  videos only" role.
+- **Group membership is edited per person** — you tag viewers one at a time
+  from the Viewers tab; there is no bulk add-to-group or membership editor on
+  the Groups tab itself.
+- **Group allowlists are per-video and manual** — a new upload is not added to
+  any restricted group automatically, so a restricted viewer won't see it
+  until an admin ticks it. (A collection-based rule would auto-follow, but
+  per-video was the deliberate choice.)
 - **Captions/transcripts, comments/ratings, scheduled publish/expiry** — not
   implemented.
