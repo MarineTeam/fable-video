@@ -28,6 +28,30 @@ to the portal's identity model since it shipped.
   tag itself, so no migration is needed and every existing tag keeps behaving
   as a plain label until a restriction is attached to it.
 
+- **Self-serve access requests** — a signed-in but unapproved visitor can ask
+  for access with an optional note instead of hitting a dead end. Requests
+  queue at the top of the admin Viewers tab for approve / deny / dismiss. The
+  request grants nothing: the address is taken from the session rather than
+  the body (so nobody can queue someone else's address), it's rate-limited to
+  5 a day, and approving is what adds the viewer.
+- **Optional `email_verified` enforcement** — set `REQUIRE_VERIFIED_EMAIL` to
+  refuse sessions whose Auth0 email claim isn't verified, before any approval
+  or role lookup runs. Off by default (existing viewers predate the check, and
+  not every Auth0 connection populates the claim), a **missing** claim counts
+  as unverified, and `ADMIN_EMAILS` addresses are exempt so the flag can
+  always be undone by whoever set it.
+- **Scheduled publish / expiry per video** — an optional publish-at and/or
+  expires-at window per video. Outside it, viewers lose the video from the
+  library, search, continue-watching and collection chips, and its watch page
+  404s before an embed token is minted. Staff always see it, badged Scheduled
+  or Expired. No schedule means no constraint, as before.
+- **First API route test coverage** — `lib/__tests__/helpers/route.js` drives a
+  real handler through a fake req/res with Auth0 and Redis stubbed, and
+  `routes.test.js` asserts the authorization boundary: anonymous 401s,
+  under-privileged 403s, the verified-email gate, the role-assignment
+  guardrails, and the access-request rules. Previously lint and build were the
+  only automated checks on any `/api/**` handler.
+
 ### Changed
 
 - `ADMIN_EMAILS` is now a **bootstrap seed** rather than the only source of
@@ -49,6 +73,14 @@ to the portal's identity model since it shipped.
 - Push broadcasts now resolve staff roles as well as `ADMIN_EMAILS`, so a
   Redis-promoted manager or admin who isn't on the viewer list still receives
   them — and a demoted one stops.
+- Deleting a video now also clears its schedule, alongside pruning it from the
+  saved order and from every group's allowlist.
+
+### Fixed
+
+- The Groups tab's video picker read `video.guid`, but `/api/admin/videos`
+  returns `id` — so no checkbox ever matched and an allowlist couldn't be
+  edited. Introduced and fixed within this unreleased set of changes.
 
 ## [1.16.0] - 2026-07-30
 

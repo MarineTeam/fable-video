@@ -7,7 +7,7 @@ import Link from "next/link";
 import AppShell from "../components/AppShell";
 import { PlayIcon } from "../components/icons";
 import { auth0 } from "../lib/auth0";
-import { normalizeEmail } from "../lib/auth";
+import { blockedByEmailVerification, normalizeEmail } from "../lib/auth";
 import { isStaffRole, resolveAccess } from "../lib/roles";
 import { withMonitorPage } from "../lib/monitor";
 
@@ -22,9 +22,10 @@ async function gssp({ req, resolvedUrl }) {
       },
     };
   }
-  const access = await resolveAccess(email);
-  const admin = isStaffRole(access.role);
-  const approved = access.approved;
+  const unverified = blockedByEmailVerification(session.user);
+  const access = unverified ? null : await resolveAccess(email);
+  const admin = unverified ? false : isStaffRole(access.role);
+  const approved = unverified ? false : access.approved;
 
   return {
     props: {

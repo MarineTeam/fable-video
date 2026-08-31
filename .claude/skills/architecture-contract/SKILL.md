@@ -372,10 +372,21 @@ watch page would happily mint a signed 3-hour embed token for any id an unrestri
 looking session asked for — a complete bypass of the restriction. The 404 (rather than
 403) also keeps a restricted viewer from probing which ids exist.
 
+**Extended to schedules:** `lib/schedule.js`'s publish/expiry window is enforced at
+exactly the same points and for the same reason — `lib/videoList.js`,
+`pages/api/progress.js`, and a `notFound` in `pages/watch/video/[id].js` before
+`signEmbedUrl`. Two differences, both deliberate: staff are exempt (an admin must be
+able to find and preview an unpublished video, which the Scheduled/Expired badges
+support), and a schedule READ failure fails **open** (no constraint) rather than closed.
+That asymmetry against group scope is intentional: a group decides what someone is
+entitled to, so an unreadable answer must deny; a schedule only decides *when* already
+entitled content appears, so an unreadable answer must not take the whole library off
+the air.
+
 **Enforced at:** `lib/groups.js` (`resolveScope`/`allowedVideoIds`), `lib/roles.js`
-(`resolveAccess` computes `videoScope`, and never scopes staff), `lib/videoList.js`,
-`pages/api/videos.js`, `pages/api/collections.js`, `pages/api/progress.js`,
-`pages/watch/video/[id].js`.
+(`resolveAccess` computes `videoScope`, and never scopes staff), `lib/schedule.js`
+(`isLive`), `lib/videoList.js`, `pages/api/videos.js`, `pages/api/collections.js`,
+`pages/api/progress.js`, `pages/watch/video/[id].js`.
 
 **Verify with:** `grep -rn "videoScope\|scopeAllows" pages lib | grep -v __tests__` —
 every viewer-facing read path should appear. `grep -n "scopeAllows" "pages/watch/video/[id].js"`
@@ -386,6 +397,35 @@ a tag with no group record is a plain label; an unrestricted group is a plain la
 member of several groups gets the UNION of the restricted ones, and an unrestricted group
 never widens a restricted one back to the full library. That last one is the security
 property — if it inverts, any stray extra tag silently defeats every restriction.
+
+---
+
+### (n) An unapproved session may reach exactly one endpoint, and it grants nothing
+
+**Statement:** `/api/access-request` is the only authenticated route that deliberately
+uses `requireUser` (logged in) rather than `requireAccess` (approved) — an unapproved
+person has to be able to call it, or the feature can't work. It compensates in three
+ways that must all stay: the email comes from the **session**, never `req.body`; it is
+rate-limited (5/day); and it only writes a queue record. Granting happens solely in
+`/api/admin/access-requests` behind `CAP.PEOPLE`.
+
+**Why:** This is the one place the "everything behind approval" rule is relaxed, so it
+is the one place a mistake widens the attack surface. Taking the address from the body
+would let any signed-in person flood the admin queue with other people's addresses
+(and make the queue's provenance meaningless). Skipping the rate limit would make it a
+free write amplifier against Redis.
+
+**Related — `REQUIRE_VERIFIED_EMAIL` (`blockedByEmailVerification`, `lib/auth.js`):**
+when on, an unverified session is refused before any approval or role lookup. A
+**missing** claim counts as unverified (a connection that doesn't send the field must
+not silently disable the check), and `ADMIN_EMAILS` addresses are exempt — the same
+recovery-path logic as their un-demotable role. The check is pure and Redis-free so the
+API guard and every page gate share one implementation.
+
+**Verify with:** `grep -n "requireUser\|requireAccess" pages/api/access-request.js`
+(must be `requireUser`), `grep -n "req.body?.email" pages/api/access-request.js`
+(expect **no output** — the address must not come from the body), and
+`grep -rn "blockedByEmailVerification" lib pages` (the guard plus every page gate).
 
 ---
 
@@ -410,7 +450,7 @@ property — if it inverts, any stray extra tag silently defeats every restricti
 | **Per-serverless-instance cache means instances can disagree for up to 4 seconds.** | `videoListCache` in `lib/bunny.js:48` is a module-level `let`, meaning each warm Vercel serverless instance has its own independent cache and its own independent 4-second clock. Two viewers hitting two different warm instances immediately after an admin mutation can see different library states for up to 4s, even though invariant (f) is fully respected. | This is accepted behavior for a 4-second window, not a bug to fix reflexively. If a future feature needs strict read-after-write consistency (e.g., a "confirm your video is live" admin flow), don't assume the cache is consistent — poll or bypass `listAllVideos()`. |
 | **RESOLVED (roles release): admins are no longer env-var-only, and `ADMIN_EMAILS` is now a bootstrap seed.** | Roles (`viewer`/`manager`/`admin`) live in Redis (`k("roles")`) and are assigned from `/admin` → Viewers with no redeploy. `ADMIN_EMAILS` was deliberately **kept** rather than replaced: its addresses are admins unconditionally, resolve without any Redis call, and cannot be demoted through the UI. That asymmetry IS the feature — it is the recovery path if the roles hash is emptied or corrupted. This was an explicit, owner-approved decision to override the previous "don't add a Redis-backed admin list without discussion" guidance, taken with the recovery path and fail-closed resolution as the conditions. | "Add me as an admin" is now an admin-panel action. Two guardrails must stay: an admin cannot change their own role (self-lockout), and an `ADMIN_EMAILS` address's role cannot be changed from the UI (the write would be ignored by `resolveRole` anyway). Removing a viewer also clears their stored role — without that, "remove" would leave a manager with implicit access, since staff are approved without being on the viewer list. Do NOT remove the env seed to "simplify" — that deletes the only way back into a portal with broken role data. |
 | **No lockfile means dependency drift can break a deploy or CI with zero code change.** | `.gitignore` blocks `package-lock.json`/`yarn.lock`/`pnpm-lock.yaml` by design (doctrine: keep dependencies on latest versions within `package.json`'s caret ranges). A new patch/minor release of any dependency can change behavior or break the build between two otherwise-identical commits. | Not this skill's territory — route to `dependency-currency` for the latest-versions doctrine and the ESLint 9.x pinning exception (commit `f2d3a30`). |
-| **API routes and pages have no automated test coverage.** | Vitest covers only `lib/__tests__/` (`auth.test.js`, `email.test.js`, `order.test.js`, `theme.test.js` — 4 files, 24 tests, pure logic). Nothing under `pages/api/**` or `pages/*.js` is exercised by an automated test; `npm run lint` and `npm run build` are the only automated checks on that code. | Don't assume a passing `npm test` says anything about route-level behavior (guard ordering, status codes, request/response shape). Route to `validation-and-qa` for what to add and how. |
+| **Route coverage is limited to the authorization layer; pages have none.** | `routes.test.js` now drives real handlers (roles, groups, access requests) through `lib/__tests__/helpers/route.js` with Auth0 and Redis stubbed, asserting 401/403 boundaries, the verified-email gate, and the role/request guardrails. Everything else under `pages/api/**` — and all of `pages/*.js` — is still unexercised; `npm run lint` and `npm run build` are the only automated checks on it. | A passing `npm test` now says something about guard ordering and status codes on the covered routes, and still says nothing about the rest (bunny.net mutations, share flows, upload, page rendering). Extend `routes.test.js` when you touch a route's authorization; route to `validation-and-qa` for what else to add. |
 
 ---
 
@@ -458,11 +498,14 @@ playback, or the data layer:
 16. **Does this touch role resolution?** `ADMIN_EMAILS` must keep short-circuiting
     before any Redis call, resolution must keep failing closed, and self-role-change and
     env-admin demotion must stay blocked. (c, section 3)
-17. **Am I about to add an `app/` directory, narrow `proxy.js`'s matcher, reset TTL on
+17. **Am I about to let an unapproved session reach a new endpoint, or take an
+    identity from a request body instead of the session?** Both need an explicit
+    decision — see (n); today `/api/access-request` is the only such route.
+18. **Am I about to add an `app/` directory, narrow `proxy.js`'s matcher, reset TTL on
     share updates, or move viewer/settings/order data out of Redis?** Any of these needs a
     deliberate, explicit decision — not an incidental side effect of an unrelated change.
     (Section 2)
-18. **Is this change touching one of the weak points in section 3?** If so, treat it as
+19. **Is this change touching one of the weak points in section 3?** If so, treat it as
     an explicit design decision worth calling out in the PR description, not a silent fix
     or a silently-inherited risk.
 
@@ -477,6 +520,14 @@ context alone) — `proxy.js`, `lib/auth.js`, `lib/guard.js`, `lib/redis.js`,
 `pages/watch/[shareId].js`, `pages/api/admin/share.js`, `README.md`, and commit
 `c37919e`'s diff. All file:line citations above were confirmed against the actual file
 contents on that date. Facts below are volatile — re-verify before relying on them.
+
+**Updated 2026-08-31 (access requests, verified email, schedules, route tests):**
+invariant (m) extended to cover `lib/schedule.js` and to record why schedule reads fail
+OPEN while group scope fails CLOSED; invariant (n) added for the one unapproved-reachable
+endpoint and for `REQUIRE_VERIFIED_EMAIL`. Route-level coverage now exists for the
+authorization layer (`lib/__tests__/routes.test.js`), so the "no route tests at all"
+weak point in section 3 is narrower than it was — pages and business logic are still
+uncovered.
 
 **Updated 2026-08-30 (roles + groups):** invariant (b) is now capability-based rather
 than a single admin bit; (c) gained the role/group fail-closed rules and the

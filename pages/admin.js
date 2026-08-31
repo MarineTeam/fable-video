@@ -22,7 +22,7 @@ import {
   XIcon,
 } from "../components/icons";
 import { auth0 } from "../lib/auth0";
-import { normalizeEmail } from "../lib/auth";
+import { blockedByEmailVerification, normalizeEmail } from "../lib/auth";
 // CAP comes from the storage-free policy module: pages/admin.js is a client
 // component, and lib/roles.js reaches into Redis.
 import { CAP } from "../lib/capabilities";
@@ -42,6 +42,9 @@ async function gssp({ req, resolvedUrl }) {
         permanent: false,
       },
     };
+  }
+  if (blockedByEmailVerification(session.user)) {
+    return { redirect: { destination: "/", permanent: false } };
   }
   const access = await resolveAccess(email);
   if (!isStaffRole(access.role)) {
@@ -100,6 +103,133 @@ function expiresIn(iso) {
   if (hours < 1) return `${Math.max(1, Math.floor(ms / 60000))} min`;
   if (hours < 48) return `${Math.floor(hours)} h`;
   return `${Math.floor(hours / 24)} d`;
+}
+
+// Viewers can't see a video outside its window; staff always can. The badge
+// is what tells an admin why a video they can see isn't in the library.
+function ScheduleBadge({ video }) {
+  if (video.scheduleState === "scheduled") {
+    return (
+      <span className="badge" title={`Publishes ${video.schedule?.publishAt}`}>
+        Scheduled
+      </span>
+    );
+  }
+  if (video.scheduleState === "expired") {
+    return (
+      <span className="badge badge-danger" title={`Expired ${video.schedule?.expiresAt}`}>
+        Expired
+      </span>
+    );
+  }
+  return null;
+}
+
+// datetime-local wants "YYYY-MM-DDTHH:mm" in LOCAL time; the API stores UTC
+// ISO strings. These two convert between them without dragging in a date
+// library.
+function toLocalInput(iso) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate()
+  )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function fromLocalInput(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
+function ScheduleEditor({ video, onClose, onSaved }) {
+  const [publishAt, setPublishAt] = useState(toLocalInput(video.schedule?.publishAt));
+  const [expiresAt, setExpiresAt] = useState(toLocalInput(video.schedule?.expiresAt));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const save = async (clear) => {
+    setBusy(true);
+    setError("");
+    try {
+      await api("/api/admin/videos", {
+        method: "POST",
+        body: {
+          action: "set-schedule",
+          id: video.id,
+          publishAt: clear ? null : fromLocalInput(publishAt),
+          expiresAt: clear ? null : fromLocalInput(expiresAt),
+        },
+      });
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose} role="presentation">
+      <div
+        className="modal card"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label="Schedule"
+      >
+        <div className="modal-head">
+          <h3 className="modal-title">Schedule</h3>
+          <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
+            <XIcon size={14} />
+          </button>
+        </div>
+        <p className="muted small">
+          Controls when <strong>{video.title}</strong> is visible to viewers.
+          Leave a field empty for no limit. Admins and managers always see it,
+          so you can still find and preview it here.
+        </p>
+        <label className="stack-sm">
+          <span className="muted small">Publish at</span>
+          <input
+            type="datetime-local"
+            className="input"
+            value={publishAt}
+            onChange={(e) => setPublishAt(e.target.value)}
+          />
+        </label>
+        <label className="stack-sm">
+          <span className="muted small">Expires at</span>
+          <input
+            type="datetime-local"
+            className="input"
+            value={expiresAt}
+            onChange={(e) => setExpiresAt(e.target.value)}
+          />
+        </label>
+        {error ? <div className="notice notice-error">{error}</div> : null}
+        <div className="row-actions">
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy}
+            onClick={() => save(false)}
+          >
+            Save schedule
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={busy || (!publishAt && !expiresAt)}
+            onClick={() => save(true)}
+          >
+            Always available
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function StatusBadge({ video }) {
@@ -929,6 +1059,7 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
   const [dragOver, setDragOver] = useState(false);
   const [shareFor, setShareFor] = useState(null);
   const [privateListFor, setPrivateListFor] = useState(null);
+  const [scheduleFor, setScheduleFor] = useState(null);
   const [selected, setSelected] = useState(() => new Set());
   const [bulkShareOpen, setBulkShareOpen] = useState(false);
   const [renaming, setRenaming] = useState(null);
@@ -1518,6 +1649,7 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
                   )}
                 </div>
                 <StatusBadge video={video} />
+                <ScheduleBadge video={video} />
                 <select
                   className="input input-sm collection-select"
                   value={video.collectionId}
@@ -1568,6 +1700,14 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
                     title="Per-video share analytics"
                   >
                     {statsFor === video.id ? "Hide stats" : "Stats"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setScheduleFor(video)}
+                    title="Schedule when viewers can see this video"
+                  >
+                    Schedule
                   </button>
                   <button
                     type="button"
@@ -1695,6 +1835,13 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
           onChanged={onSharesChanged}
         />
       ) : null}
+      {scheduleFor ? (
+        <ScheduleEditor
+          video={scheduleFor}
+          onClose={() => setScheduleFor(null)}
+          onSaved={load}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1714,6 +1861,127 @@ const ROLE_HINTS = {
   manager: "Videos, sharing and analytics — but not people or settings.",
   admin: "Everything, including roles, groups and settings.",
 };
+
+// The self-serve access-request queue. Lives in the Viewers tab because
+// approving one is just "add this viewer" with provenance attached.
+function AccessRequests({ onChanged }) {
+  const [requests, setRequests] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(null);
+
+  const load = useCallback(async () => {
+    try {
+      setRequests((await api("/api/admin/access-requests")).requests);
+    } catch (err) {
+      setError(err.message);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const decide = async (email, decision) => {
+    setBusy(email);
+    setError("");
+    try {
+      await api("/api/admin/access-requests", {
+        method: "POST",
+        body: { email, decision },
+      });
+      await load();
+      if (decision === "approve") onChanged();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(null);
+  };
+
+  const dismiss = async (email) => {
+    setBusy(email);
+    setError("");
+    try {
+      await api(
+        `/api/admin/access-requests?email=${encodeURIComponent(email)}`,
+        { method: "DELETE" }
+      );
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(null);
+  };
+
+  const pending = (requests || []).filter((r) => r.status === "pending");
+  const decided = (requests || []).filter((r) => r.status !== "pending");
+
+  if (requests !== null && requests.length === 0) return null;
+
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h3>Access requests{pending.length ? ` (${pending.length})` : ""}</h3>
+      </div>
+      {error ? <div className="notice notice-error">{error}</div> : null}
+      {requests === null ? (
+        <p className="muted">Loading…</p>
+      ) : (
+        <div className="row-list">
+          {[...pending, ...decided].map((request) => (
+            <div key={request.email} className="row">
+              <div className="row-main">
+                <strong className="row-title">{request.email}</strong>
+                <span className="muted small">
+                  Asked {timeAgo(request.requestedAt)}
+                  {request.status === "denied"
+                    ? ` · denied ${timeAgo(request.decidedAt)}${
+                        request.decidedBy ? ` by ${request.decidedBy}` : ""
+                      }`
+                    : ""}
+                </span>
+                {request.message ? (
+                  <span className="muted small">
+                    &ldquo;{request.message}&rdquo;
+                  </span>
+                ) : null}
+              </div>
+              {request.status === "pending" ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    disabled={busy === request.email}
+                    onClick={() => decide(request.email, "approve")}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    disabled={busy === request.email}
+                    onClick={() => decide(request.email, "deny")}
+                  >
+                    Deny
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  disabled={busy === request.email}
+                  title="Remove this record so they can ask again"
+                  onClick={() => dismiss(request.email)}
+                >
+                  Dismiss
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
 
 function ViewersTab({ onCount, me }) {
   const [viewers, setViewers] = useState(null);
@@ -1829,6 +2097,8 @@ function ViewersTab({ onCount, me }) {
 
   return (
     <div className="stack-lg">
+      <AccessRequests onChanged={load} />
+
       <section className="card">
         <h3>Add approved viewers</h3>
         <p className="muted small">
@@ -3310,11 +3580,11 @@ function GroupsTab() {
                         />
                         <div className="scroll-list">
                           {matchingVideos.map((video) => (
-                            <label key={video.guid} className="check-row">
+                            <label key={video.id} className="check-row">
                               <input
                                 type="checkbox"
-                                checked={draft.videoIds.includes(video.guid)}
-                                onChange={() => toggleVideo(video.guid)}
+                                checked={draft.videoIds.includes(video.id)}
+                                onChange={() => toggleVideo(video.id)}
                               />
                               <span>{video.title || "Untitled"}</span>
                             </label>
@@ -3366,6 +3636,10 @@ const ACTION_LABELS = {
   "viewer.remove": "Viewer removed",
   "viewer.tag": "Viewer tags updated",
   "role.set": "Role changed",
+  "access.request": "Access requested",
+  "access.approve": "Access request approved",
+  "access.deny": "Access request denied",
+  "access.dismiss": "Access request dismissed",
   "group.save": "Group saved",
   "group.delete": "Group deleted",
   "share.create": "Share link created",
@@ -3383,6 +3657,7 @@ const ACTION_LABELS = {
   "video.upload.cancel": "Upload cancelled",
   "video.collection": "Video collection changed",
   "video.watermark": "Video watermark setting changed",
+  "video.schedule": "Video schedule changed",
   "video.bulk_delete": "Videos bulk-deleted",
   "video.bulk_collection": "Videos bulk-moved to a collection",
   "order.update": "Library reordered",

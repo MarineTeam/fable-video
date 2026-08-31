@@ -18,6 +18,13 @@ import {
   setVideoWatermarkOverride,
 } from "../../../lib/store";
 import { pruneVideoFromGroups } from "../../../lib/groups";
+import {
+  clearSchedule,
+  getScheduleMap,
+  scheduleState,
+  setSchedule,
+  validateWindow,
+} from "../../../lib/schedule";
 import { logAction } from "../../../lib/audit";
 import { maybeAnnounceReadyVideos } from "../../../lib/push";
 import { clampWatermarkMode } from "../../../lib/watermark";
@@ -32,11 +39,13 @@ async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
-      const [all, order, watermarkOverrides] = await Promise.all([
+      const [all, order, watermarkOverrides, schedules] = await Promise.all([
         listAllVideos(),
         getOrder().catch(() => []),
         getVideoWatermarkOverrides().catch(() => ({})),
+        getScheduleMap().catch(() => ({})),
       ]);
+      const now = Date.now();
       const videos = applyOrder(all, order).map((video) => ({
         id: video.guid,
         title: video.title || "Untitled",
@@ -48,6 +57,10 @@ async function handler(req, res) {
         dateUploaded: video.dateUploaded || null,
         views: video.views ?? 0,
         watermark: watermarkOverrides[video.guid] || "default",
+        // Staff always see every video; the schedule is surfaced as state so
+        // the admin list can badge what viewers can't currently see.
+        schedule: schedules[video.guid] || null,
+        scheduleState: scheduleState(schedules[video.guid], now),
       }));
       // Best-effort: announce any newly-ready video to subscribers. Never let
       // a push failure break the admin video list.
@@ -83,6 +96,7 @@ async function handler(req, res) {
             await deleteVideo(videoId);
             await pruneFromOrder(videoId).catch(() => {});
             await pruneVideoFromGroups(videoId).catch(() => {});
+            await clearSchedule(videoId).catch(() => {});
             results[videoId] = { ok: true };
           } catch (err) {
             console.error("Bulk delete failed on bunny.net:", err);
@@ -134,6 +148,28 @@ async function handler(req, res) {
     const { id } = req.body || {};
     if (!id || typeof id !== "string") {
       return res.status(400).json({ error: "Video id is required" });
+    }
+
+    if (action === "set-schedule") {
+      const publishAt = req.body?.publishAt || null;
+      const expiresAt = req.body?.expiresAt || null;
+      const problem = validateWindow({ publishAt, expiresAt });
+      if (problem) return res.status(400).json({ error: problem });
+      let saved;
+      try {
+        saved = await setSchedule(id, { publishAt, expiresAt });
+      } catch (err) {
+        console.error("Could not save the video schedule:", err);
+        return res.status(502).json({ error: "Could not save the video schedule" });
+      }
+      await logAction(
+        admin,
+        "video.schedule",
+        saved
+          ? `${id} → ${saved.publishAt || "now"} to ${saved.expiresAt || "forever"}`
+          : `${id} → always available`
+      );
+      return res.json({ ok: true, schedule: saved });
     }
 
     if (action === "set-watermark") {
@@ -195,6 +231,7 @@ async function handler(req, res) {
     // Best-effort, like the order prune: a deleted video must not linger on
     // a group's allowlist where a recycled id could inherit its grant.
     await pruneVideoFromGroups(id).catch(() => {});
+    await clearSchedule(id).catch(() => {});
     await logAction(admin, "video.delete", id);
     return res.json({ ok: true });
   }

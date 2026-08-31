@@ -27,7 +27,8 @@ Every request resolves to one of these states, compared by normalized
 | State | Who | What they see |
 | --- | --- | --- |
 | **Anonymous** | Not signed in | Redirected to Auth0 login |
-| **Signed in, not approved** | Authenticated, no viewer record and no role | A clear "not approved yet" message — no video data |
+| **Signed in, not verified** | `REQUIRE_VERIFIED_EMAIL` is on and the claim isn't true | A "verify your email" message — no video data, no role lookup |
+| **Signed in, not approved** | Authenticated, no viewer record and no role | A "not approved yet" message with a **Request access** button — no video data |
 | **Viewer** | On the viewer list in Redis | Watch pages, resume, notifications, and the library — the whole library, or just their groups' videos if any of their groups is restricted |
 | **Manager** | Role `manager` in Redis | Everything a viewer sees (unscoped), plus the Videos, Shares, Activity and Analytics tabs of `/admin` |
 | **Admin** | Role `admin` in Redis, or listed in `ADMIN_EMAILS` | Everything, including the Viewers, Groups and Settings tabs |
@@ -232,6 +233,30 @@ has no toggle — it always applies once set.
 | `ADMIN_GEO_WHITELIST` | Same format. When its own enforcement toggle is on, a visitor from one of these countries always gets through, regardless of `GEO_WHITELIST` — a safety valve for an admin traveling somewhere the main whitelist doesn't cover. |
 | `ADMIN_GEO_BYPASS_EMAILS` | Comma-separated admin emails, e.g. `admin@example.com,second@example.com`. A signed-in visitor whose email is on this list always gets through, regardless of country and regardless of either toggle above. Arm this before traveling — it's a standing safety net, not an in-the-moment fix, since env var changes only take effect on redeploy. |
 
+### Optional — require a verified email
+
+| Key | Description |
+| --- | --- |
+| `REQUIRE_VERIFIED_EMAIL` | Set to `true`/`1`/`on`/`yes` (case/whitespace-insensitive) to refuse any session whose Auth0 `email_verified` claim isn't true. Unset or any other value keeps the check off. |
+
+Access is by email identity, so an unverified address is an unproven claim to
+one. With this on, an unverified session is refused everywhere — the homepage
+shows a "verify your email" panel and every API route returns `403` — before
+any approval or role lookup runs.
+
+Two deliberate choices. It is **off by default**, because an existing portal's
+viewers predate the check and Auth0 connections differ in whether they populate
+the claim at all; turning it on unannounced would lock real people out. And a
+**missing** claim counts as unverified, so a connection that simply doesn't send
+the field can't silently disable the check.
+
+`ADMIN_EMAILS` addresses are exempt, for the same reason they can't be demoted
+from the UI: they're the recovery path. If you switch this on and your own claim
+turns out to be missing, you can still sign in and switch it back off.
+
+> This is a complement to, not a replacement for, keeping Auth0 **sign-ups
+> disabled** — see the Security notes below.
+
 ### Optional — Query Monitor (performance panel)
 
 A single env var turns on an in-app performance panel (in the spirit of the
@@ -303,7 +328,7 @@ worker, or icons.
   serverless instance so that search, filtering, and pagination don't re-fetch
   the whole library — any admin mutation invalidates that cache immediately.
 - **Redis** (prefix `fablevideo:`) holds all app-owned state: approved viewers,
-  roles, groups, last-seen timestamps, the custom homepage order, site
+  roles, groups, access requests, video schedules, last-seen timestamps, the custom homepage order, site
   settings, the theme, per-viewer playback progress, share records, the audit
   log, rate-limit counters, and push subscriptions. Everything is editable live
   from `/admin` without redeploying.
@@ -384,6 +409,8 @@ lib/
   capabilities.js         Role/capability policy — pure, storage-free, client-safe
   roles.js                Redis-backed roles + resolveAccess (role, approval, video scope)
   groups.js               Viewer groups: per-video allowlists over the existing tags
+  accessRequests.js       Self-serve access requests (queue only — never grants)
+  schedule.js             Per-video publish/expiry windows
   guard.js                API guards: requireUser / requireAccess / requireCapability
   bunny.js                Bunny API: videos, collections, TUS signing, signed embed
                           URLs, thumbnail URLs (token-signed), statistics
@@ -400,8 +427,8 @@ lib/
   theme-client.js         Apply + cache palette in the browser
   audit.js                Append-only admin action log (capped)
   ratelimit.js            Sliding-window limiter (fails open)
-  __tests__/              Vitest smoke tests (auth, roles, groups, access, order,
-                          theme, email, shares, watermark, geo, monitor)
+  __tests__/              Vitest tests — pure logic plus resolveAccess and the
+                          first API route coverage (helpers/route.js harness)
 styles/globals.css        Design system (dark glassmorphism, gradient accents, Inter)
 public/
   manifest.webmanifest    PWA manifest (name, icons, standalone display)
@@ -431,7 +458,9 @@ enforce it independently.
 - **Videos** — upload (drag-and-drop, progress, cancel/retry), rename, delete,
   drag-to-reorder, search, encoding-status badges, per-video collection
   assignment, a per-video **watermark override** (Default/Always/Never), a
-  per-row **Stats** toggle showing that video's share-link analytics inline,
+  a per-video **Schedule** (publish-at / expires-at window, with Scheduled and
+  Expired badges), a per-row **Stats** toggle showing that video's share-link
+  analytics inline,
   per-video private share-link creation (with an "email the link" option),
   and **multi-select bulk sharing** (select several videos, share them with
   several recipients in one request) as well as **bulk delete** and **bulk
@@ -446,7 +475,8 @@ enforce it independently.
   to the same video and person made from the regular Share/Bulk share
   button is separate, isn't shown on the list, and isn't touched by
   Remove.
-- **Viewers** — add/remove approved emails, **bulk add** (paste a list), each
+- **Viewers** — a queue of pending **access requests** to approve or deny,
+  plus add/remove approved emails, **bulk add** (paste a list), each
   viewer's **last-seen** time, per-viewer **tags** (group membership), and a
   per-viewer **role** select (Viewer/Manager/Admin). Addresses that are admins
   via `ADMIN_EMAILS` show a read-only "Admin (env)" chip instead, and you
@@ -518,6 +548,14 @@ surfaces in the admin UI).
 - **Role resolution fails closed** and `ADMIN_EMAILS` resolves without touching
   Redis, so an infra failure can neither grant privileges nor lock the
   bootstrap admin out.
+- **Optional `email_verified` enforcement** (`REQUIRE_VERIFIED_EMAIL`) refuses
+  unverified sessions before any approval or role lookup. A missing claim counts
+  as unverified.
+- **Access requests grant nothing.** The request endpoint takes the address from
+  the session (never the body), is rate-limited to 5/day, and only queues a
+  record for an admin to act on.
+- **Scheduled videos are unreachable by URL** outside their window, not merely
+  hidden from the list — the watch page 404s before minting an embed token.
 - **Thumbnails** are CDN-token-signed (when a token key is present) so they keep
   working with "Block Direct URL File Access" enabled.
 - **Rate limiting** guards the video list, upload, share-creation, and broadcast

@@ -49,7 +49,7 @@ skill BEFORE writing code, not after.
 | Pure lib logic | `lib/*.js` with no route/page changes | lint + test (add/update tests in `lib/__tests__/`) | `validation-and-qa` |
 | API route | anything under `pages/api/**` | lint + test + build | `architecture-contract` (guard/logging/rate-limit patterns) |
 | Page UI | `pages/*.js`, `pages/watch/**`, `components/`, `styles/` | lint + build (+ manual check via `run-and-operate`) | `feature-shipping-campaign` |
-| Security-touching | `lib/auth.js`, `lib/capabilities.js`, `lib/roles.js`, `lib/groups.js`, `lib/guard.js`, `lib/shares.js`, token signing in `lib/bunny.js` (lines ~145–195), `pages/watch/**`, `proxy.js` | ALL gates + full self-review checklist (section 4) | `security-response` AND `architecture-contract` |
+| Security-touching | `lib/auth.js`, `lib/capabilities.js`, `lib/roles.js`, `lib/groups.js`, `lib/schedule.js`, `lib/accessRequests.js`, `lib/guard.js`, `lib/shares.js`, token signing in `lib/bunny.js` (lines ~145–195), `pages/watch/**`, `proxy.js` | ALL gates + full self-review checklist (section 4) | `security-response` AND `architecture-contract` |
 | Config-env | `next.config.js`, `vitest.config.js`, `eslint.config.mjs`, env-var additions | lint + test + build; env-var changes ALSO need a Vercel redeploy | `environment-and-config`; redeploy via `run-and-operate` |
 | Dependency bump | any edit to `package.json` deps | fresh `npm install`, then ALL gates | `dependency-currency` (latest-versions doctrine + the ESLint 9.x exception) |
 | CI workflow | `.github/workflows/ci.yml` | lint + test locally; workflow itself is verified by the PR run | `security-response` (keep `permissions: contents: read` — added in 7968919 for CodeQL alert #1) |
@@ -91,19 +91,27 @@ npm test
 Expected output ends with (as of 2026-08-30):
 
 ```
- Test Files  11 passed (11)
-      Tests  115 passed (115)
+ Test Files  14 passed (14)
+      Tests  157 passed (157)
 ```
 
-The counts `11` and `115` are the current baseline. (The previously recorded
+The counts `14` and `157` are the current baseline. (The previously recorded
 `7`/`62` was stale — the tree measured 8/78 before the roles+groups change added
 `roles.test.js`, `groups.test.js`, and `access.test.js`.) **If your change adds tests, these
 numbers go UP — update this file's counts in the same PR.** If they go DOWN or anything
-reports `failed`, the gate failed. Tests live only in `lib/__tests__/` (auth, capabilities/roles, groups, access, email,
-order, theme, geo, shares, watermark, monitor). Mostly pure logic; `access.test.js` is
-the one exception, stubbing `lib/redis` via `vi.mock` to exercise `resolveAccess`'s
-fail-closed paths directly. API routes and pages still have no test coverage, so gates
-1 and 3 are their only automated checks.
+reports `failed`, the gate failed. Tests live only in `lib/__tests__/`. Mostly pure logic, plus two kinds of integration
+test: `access.test.js` stubs `lib/redis` to exercise `resolveAccess`'s fail-closed
+paths, and `routes.test.js` drives real API handlers through the fake req/res in
+`lib/__tests__/helpers/route.js` (Auth0 + Redis stubbed) to assert the authorization
+boundary. Pages still have no coverage, and route coverage is limited to the
+guard/authorization layer — gates 1 and 3 remain the only automated checks on
+everything else.
+
+**Adding a route test:** import the handler's default export, call it via
+`callRoute(handler, { method, body, query })`, and assert on `res.statusCode` /
+`res.body`. Note that the guards also write via `hset` (last-seen), so "did this route
+write?" must be asked about the specific hash key, not about `hset` in general — see
+`writesTo()` in `routes.test.js`.
 
 ### Gate 3 — build
 
@@ -211,7 +219,7 @@ re-verify before relying on them; update this file when a check's expected outpu
 | Volatile claim | Re-verify with |
 |---|---|
 | Lint passes clean, banner-only output | `npm run lint; echo $?` (expect exit 0) |
-| Test baseline is 11 files / 115 tests | `npm test 2>&1 \| grep -E "Test Files\|Tests"` |
+| Test baseline is 14 files / 157 tests | `npm test 2>&1 \| grep -E "Test Files\|Tests"` |
 | Build env block matches CI | `sed -n '33,46p' .github/workflows/ci.yml` |
 | ESLint still pinned to ^9.x | `grep '"eslint"' package.json` |
 | All admin routes guarded by a capability | `grep -L "requireCapability\|requireAdmin" pages/api/admin/*.js` (expect no output) |

@@ -209,6 +209,14 @@ setup and architecture, see [README.md](./README.md).
   a collection** in one action, mirroring the bulk-share UX. Each video is
   processed independently (one failure never blocks the rest), with a
   per-item success/failure report.
+- **Scheduled publish / expiry** — a per-video window (publish-at and/or
+  expires-at, either optional) controlling when **viewers** can see it.
+  Outside its window a video disappears from the library, search,
+  continue-watching and collection chips, and its watch page returns 404
+  before any playback token is minted — a bookmark from before it expired
+  won't play. Admins and managers always see it, badged **Scheduled** or
+  **Expired**, so it can still be found and previewed. A video with no
+  schedule is unconstrained, exactly as before.
 - **Per-video watermark override** — a Default / Always / Never select per
   video overrides the global watermark setting for every share of that
   video (unless a per-share or exemption override applies — see "Email
@@ -225,6 +233,19 @@ setup and architecture, see [README.md](./README.md).
 - **Approved viewer management** — add/remove emails, with **bulk add** (paste
   comma/space/newline-separated lists; validated + deduped, with invalid entries
   reported back).
+- **Self-serve access requests** — someone who signs in but isn't approved
+  sees a **Request access** button with an optional short note, instead of a
+  dead end. Requests land in a queue at the top of the Viewers tab where an
+  admin can **Approve** (adds them as a viewer and clears the request),
+  **Deny** (keeps the record so they don't reappear in the queue), or
+  **Dismiss** a denial to let them ask again. The request records who asked
+  and what they said, and grants nothing on its own: the address comes from
+  the session rather than the request body, and it's rate-limited to 5 a day.
+- **Optional verified-email enforcement** — with `REQUIRE_VERIFIED_EMAIL` set,
+  a session whose Auth0 `email_verified` claim isn't true is refused
+  everywhere, before any approval or role lookup. A missing claim counts as
+  unverified. Off by default, and `ADMIN_EMAILS` addresses are exempt so the
+  setting can always be undone by the person who turned it on.
 - **Roles** — every person is a **Viewer**, **Manager**, or **Admin**, each a
   strict superset of the one below. A manager runs the library (upload,
   organize, share) and reads analytics and the activity log, but cannot touch
@@ -250,7 +271,8 @@ setup and architecture, see [README.md](./README.md).
   is minted, rather than merely being hidden from a list.
 - **Viewer last-seen** — each viewer's most recent activity time.
 - **Activity / audit log** — the most recent admin actions (viewer
-  add/remove/**tag**, **role change**, **group save/delete**, share
+  add/remove/**tag**, **role change**, **group save/delete**, **access
+  request/approve/deny**, **video schedule**, share
   create/revoke/**email**, video
   rename/delete/reorder, collection create/delete, settings, palette), each
   with actor and time. Logging is best-effort so it never breaks the
@@ -323,10 +345,8 @@ setup and architecture, see [README.md](./README.md).
 
 ## Known gaps / not yet implemented
 
-- **Access-request flow** — no self-serve way for unapproved users to request
-  access; admins must know who to add.
-- **`email_verified` enforcement** — access checks trust the email claim; pair
-  with Auth0 sign-up controls (see Security notes in the README).
+- **Access-request notifications** — requests appear in the admin panel, but
+  nothing emails or pushes an admin when one arrives; they have to look.
 - **Group-scoped staff** — managers and admins always see the whole library;
   a group restriction applies to viewers only. There is no "manager for these
   videos only" role.
@@ -337,5 +357,7 @@ setup and architecture, see [README.md](./README.md).
   any restricted group automatically, so a restricted viewer won't see it
   until an admin ticks it. (A collection-based rule would auto-follow, but
   per-video was the deliberate choice.)
-- **Captions/transcripts, comments/ratings, scheduled publish/expiry** — not
-  implemented.
+- **Captions/transcripts, comments/ratings** — not implemented.
+- **Recurring or per-group schedules** — a video's publish/expiry window is a
+  single window that applies to every viewer; it can't differ per group or
+  repeat.

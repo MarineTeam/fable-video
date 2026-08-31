@@ -13,6 +13,7 @@ import { normalizeEmail } from "../../lib/auth";
 import { CAP, hasCapability, resolveAccess, scopeAllows } from "../../lib/roles";
 import { getProgress, saveProgress } from "../../lib/store";
 import { listAllVideos, thumbnailUrl } from "../../lib/bunny";
+import { getScheduleMap, isLive } from "../../lib/schedule";
 import { withMonitorApi } from "../../lib/monitor";
 
 const MAX_CONTINUE_ITEMS = 8;
@@ -66,14 +67,24 @@ async function handler(req, res) {
 
       if (!entries.length) return res.json({ items: [] });
 
-      const videos = await listAllVideos();
+      const [videos, schedules] = await Promise.all([
+        listAllVideos(),
+        getScheduleMap().catch(() => ({})),
+      ]);
       const byId = new Map(videos.map((v) => [v.guid, v]));
+      const staff = hasCapability(access, CAP.VIDEOS);
+      const now = Date.now();
       const items = entries
         // Group scoping applies to the caller's own history: progress
         // recorded before a restriction was applied must not keep surfacing
         // a video they may no longer see. Staff have a null scope, so an
         // admin looking up someone else's history still sees all of it.
-        .filter((e) => byId.has(e.videoId) && scopeAllows(access.videoScope, e.videoId))
+        .filter(
+          (e) =>
+            byId.has(e.videoId) &&
+            scopeAllows(access.videoScope, e.videoId) &&
+            (staff || isLive(schedules[e.videoId], now))
+        )
         .map((e) => {
           const video = byId.get(e.videoId);
           const completed = e.t >= e.d * 0.95;
