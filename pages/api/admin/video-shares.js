@@ -16,7 +16,8 @@
 // ones it made itself. Rides entirely on the existing shares hash
 // (lib/shares.js) — this route adds no new stored data of its own, just one
 // extra field on the records it creates.
-import { requireAdmin } from "../../../lib/guard";
+import { requireCapability } from "../../../lib/guard";
+import { CAP } from "../../../lib/roles";
 import { allowRequest } from "../../../lib/ratelimit";
 import { getVideo } from "../../../lib/bunny";
 import { isValidEmail, normalizeEmail } from "../../../lib/auth";
@@ -37,8 +38,9 @@ import { withMonitorApi } from "../../../lib/monitor";
 const MAX_EMAILS = 25;
 
 async function handler(req, res) {
-  const admin = await requireAdmin(req, res);
-  if (!admin) return;
+  const access = await requireCapability(req, res, CAP.SHARES);
+  if (!access) return;
+  const admin = access.email;
 
   const videoId = String(req.query.videoId || req.body?.videoId || "");
   if (!videoId) {

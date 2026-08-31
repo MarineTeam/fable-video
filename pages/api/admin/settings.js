@@ -1,6 +1,7 @@
 // Admin settings: homepage video count, plus read-only config state the
 // admin panel needs (email delivery configuration, geo-whitelist env vars).
-import { requireAdmin } from "../../../lib/guard";
+import { requireCapability } from "../../../lib/guard";
+import { CAP } from "../../../lib/roles";
 import {
   getGeoSettings,
   getSettings,
@@ -22,8 +23,9 @@ import { logAction } from "../../../lib/audit";
 import { withMonitorApi } from "../../../lib/monitor";
 
 async function handler(req, res) {
-  const admin = await requireAdmin(req, res);
-  if (!admin) return;
+  const access = await requireCapability(req, res, CAP.SETTINGS);
+  if (!access) return;
+  const admin = access.email;
 
   if (req.method === "GET") {
     try {

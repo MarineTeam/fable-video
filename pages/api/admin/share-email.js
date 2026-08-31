@@ -18,7 +18,8 @@
 // (stampShares) covering every successfully-emailed id — no per-id Redis
 // call in either direction, since every record involved is already in
 // memory from the initial batch read.
-import { requireAdmin } from "../../../lib/guard";
+import { requireCapability } from "../../../lib/guard";
+import { CAP } from "../../../lib/roles";
 import { getShares, isShareLive, shareUrl, stampShares } from "../../../lib/shares";
 import { bundleUrl, getBundle, liveBundleItems } from "../../../lib/bundles";
 import { emailEnabled, sendBulkShareEmail, sendShareEmail } from "../../../lib/email";
@@ -55,8 +56,9 @@ async function handler(req, res) {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
   }
-  const admin = await requireAdmin(req, res);
-  if (!admin) return;
+  const access = await requireCapability(req, res, CAP.SHARES);
+  if (!access) return;
+  const admin = access.email;
 
   if (!emailEnabled()) {
     return res.status(400).json({

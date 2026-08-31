@@ -10,8 +10,9 @@ import Link from "next/link";
 import AppShell from "../components/AppShell";
 import { PlayIcon, SearchIcon } from "../components/icons";
 import { auth0 } from "../lib/auth0";
-import { isAdmin, normalizeEmail } from "../lib/auth";
-import { isApprovedViewer } from "../lib/store";
+import { blockedByEmailVerification, normalizeEmail } from "../lib/auth";
+import { isStaffRole, resolveAccess } from "../lib/roles";
+import { getAccessRequest } from "../lib/accessRequests";
 import { fetchVideoLibrary } from "../lib/videoList";
 import { withMonitorPage } from "../lib/monitor";
 
@@ -28,13 +29,37 @@ async function gssp({ req, resolvedUrl }) {
       },
     };
   }
-  const admin = isAdmin(email);
-  let approved = admin;
+  // An unverified email is refused before any access lookup: whatever the
+  // roles hash says, we don't yet trust that this person owns this address.
+  if (blockedByEmailVerification(session.user)) {
+    return {
+      props: {
+        user: { email, name: session.user.name || email },
+        admin: false,
+        approved: false,
+        unverified: true,
+        requestStatus: null,
+        initialVideos: null,
+        initialThumbnails: false,
+      },
+    };
+  }
+
+  // resolveAccess fails closed internally — a Redis error yields an
+  // unapproved, unprivileged result rather than leaking the library.
+  const access = await resolveAccess(email);
+  const admin = isStaffRole(access.role);
+  const approved = access.approved;
+
+  // An unapproved visitor's panel needs to know whether they already asked,
+  // so it can show the outcome instead of offering the button again.
+  let requestStatus = null;
   if (!approved) {
     try {
-      approved = await isApprovedViewer(email);
+      requestStatus = (await getAccessRequest(email))?.status || null;
     } catch {
-      approved = false;
+      // Best-effort — worst case they see the button and the POST tells them
+      // they've already asked.
     }
   }
 
@@ -45,7 +70,7 @@ async function gssp({ req, resolvedUrl }) {
   let initialThumbnails = false;
   if (approved) {
     try {
-      const data = await fetchVideoLibrary();
+      const data = await fetchVideoLibrary(access.videoScope);
       initialVideos = data.videos;
       initialThumbnails = data.thumbnails;
     } catch {
@@ -58,6 +83,8 @@ async function gssp({ req, resolvedUrl }) {
       user: { email, name: session.user.name || email },
       admin,
       approved,
+      unverified: false,
+      requestStatus,
       initialVideos,
       initialThumbnails,
     },
@@ -75,16 +102,95 @@ function formatDuration(seconds) {
   return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
 }
 
-function NotApproved({ user }) {
+// Shown when REQUIRE_VERIFIED_EMAIL is on and this session's email claim
+// isn't verified. Deliberately separate from NotApproved: the fix is theirs
+// to make (check your inbox), not the admin's.
+function NotVerified({ user }) {
+  return (
+    <div className="center-panel">
+      <div className="card narrow-card">
+        <h1 className="panel-title">Verify your email address</h1>
+        <p className="muted">
+          You&apos;re signed in as <strong>{user.email}</strong>, but that
+          address hasn&apos;t been verified yet. Check your inbox for the
+          verification link, then sign in again.
+        </p>
+        <a href="/auth/logout" className="btn btn-ghost">
+          Sign out
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function NotApproved({ user, requestStatus }) {
+  const [status, setStatus] = useState(requestStatus);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch("/api/access-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "Could not send your request");
+      setStatus(data.status || "pending");
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
+  };
+
   return (
     <div className="center-panel">
       <div className="card narrow-card">
         <h1 className="panel-title">Your account isn&apos;t approved yet</h1>
         <p className="muted">
           You&apos;re signed in as <strong>{user.email}</strong>, but this
-          address hasn&apos;t been approved to view the video library. If you
-          were expecting access, contact the person who invited you.
+          address hasn&apos;t been approved to view the video library.
         </p>
+
+        {status === "pending" ? (
+          <div className="notice notice-ok">
+            Your request has been sent. You&apos;ll get access once an admin
+            approves it.
+          </div>
+        ) : status === "denied" ? (
+          // Deliberately not phrased as "denied" — the person can't act on
+          // that, and an admin may simply not have recognized the address.
+          <div className="notice">
+            Your request has been reviewed. If you were expecting access,
+            contact the person who invited you.
+          </div>
+        ) : (
+          <form onSubmit={submit} className="stack">
+            <p className="muted small">
+              Ask for access, and optionally say who you are so the admin can
+              place you.
+            </p>
+            <textarea
+              className="input textarea"
+              rows={3}
+              maxLength={300}
+              placeholder="Optional — e.g. deck crew, joined in March"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              aria-label="Optional note for the admin"
+            />
+            <button type="submit" className="btn btn-primary" disabled={busy}>
+              {busy ? "Sending…" : "Request access"}
+            </button>
+            {error ? <div className="notice notice-error">{error}</div> : null}
+          </form>
+        )}
+
         <a href="/auth/logout" className="btn btn-ghost">
           Sign out
         </a>
@@ -132,7 +238,15 @@ function ContinueWatching({ items, thumbnails }) {
   );
 }
 
-export default function Home({ user, admin, approved, initialVideos, initialThumbnails }) {
+export default function Home({
+  user,
+  admin,
+  approved,
+  unverified,
+  requestStatus,
+  initialVideos,
+  initialThumbnails,
+}) {
   const [allVideos, setAllVideos] = useState(initialVideos);
   const [thumbnails, setThumbnails] = useState(initialThumbnails);
   const [query, setQuery] = useState("");
@@ -204,9 +318,17 @@ export default function Home({ user, admin, approved, initialVideos, initialThum
     return (
       <AppShell user={user} admin={admin}>
         <Head>
-          <title>Not approved — Marine Video Portal</title>
+          <title>
+            {unverified
+              ? "Verify your email — Marine Video Portal"
+              : "Not approved — Marine Video Portal"}
+          </title>
         </Head>
-        <NotApproved user={user} />
+        {unverified ? (
+          <NotVerified user={user} />
+        ) : (
+          <NotApproved user={user} requestStatus={requestStatus} />
+        )}
       </AppShell>
     );
   }

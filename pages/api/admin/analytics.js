@@ -1,7 +1,8 @@
 // Analytics: total views, 30-day views, watch time, video count, a 30-day
 // views chart, and a most-watched list — from bunny.net video stats plus the
 // statistics API.
-import { requireAdmin } from "../../../lib/guard";
+import { requireCapability } from "../../../lib/guard";
+import { CAP } from "../../../lib/roles";
 import { getStatistics, listAllVideos } from "../../../lib/bunny";
 import { listShares, rollupShareAnalyticsByVideo } from "../../../lib/shares";
 import { withMonitorApi } from "../../../lib/monitor";
@@ -30,8 +31,9 @@ async function handler(req, res) {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ error: "Method not allowed" });
   }
-  const admin = await requireAdmin(req, res);
-  if (!admin) return;
+  const access = await requireCapability(req, res, CAP.INSIGHTS);
+  if (!access) return;
+  const admin = access.email;
 
   const dateTo = new Date();
   const dateFrom = new Date(dateTo.getTime() - 30 * 24 * 3600 * 1000);

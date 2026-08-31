@@ -5,15 +5,16 @@ import Link from "next/link";
 import AppShell from "../../../components/AppShell";
 import ResumablePlayer from "../../../components/ResumablePlayer";
 import { auth0 } from "../../../lib/auth0";
-import { isAdmin, normalizeEmail } from "../../../lib/auth";
+import { blockedByEmailVerification, normalizeEmail } from "../../../lib/auth";
+import { isStaffRole, resolveAccess, scopeAllows } from "../../../lib/roles";
 import {
   getVideoWatermarkOverride,
   getWatermarkSettings,
-  isApprovedViewer,
   isWatermarkExempt,
 } from "../../../lib/store";
 import { resolveWatermark } from "../../../lib/watermark";
 import { getVideo, signEmbedUrl } from "../../../lib/bunny";
+import { getSchedule, isLive } from "../../../lib/schedule";
 import { withMonitorPage } from "../../../lib/monitor";
 
 async function gssp({ req, params, resolvedUrl }) {
@@ -27,17 +28,38 @@ async function gssp({ req, params, resolvedUrl }) {
       },
     };
   }
-  const admin = isAdmin(email);
-  let approved = admin;
-  if (!approved) {
-    try {
-      approved = await isApprovedViewer(email);
-    } catch {
-      approved = false;
-    }
-  }
-  if (!approved) {
+  if (blockedByEmailVerification(session.user)) {
     return { redirect: { destination: "/", permanent: false } };
+  }
+  const access = await resolveAccess(email);
+  const admin = isStaffRole(access.role);
+  if (!access.approved) {
+    return { redirect: { destination: "/", permanent: false } };
+  }
+
+  // Group scoping is enforced HERE, not merely by omitting the video from
+  // the library list — the id is in the URL, so a restricted viewer who
+  // learns an id another way must still be turned away before any signed
+  // embed token is minted for it. 404 rather than 403: a restricted viewer
+  // should not be able to probe which ids exist.
+  if (!scopeAllows(access.videoScope, params.id)) {
+    return { notFound: true };
+  }
+
+  // Same reasoning as the scope check above: a video outside its publish
+  // window must be unreachable by URL, not merely absent from the list, or
+  // a bookmark from before it expired would still mint a playback token.
+  // Staff are exempt so an admin can preview an unpublished video.
+  if (!admin) {
+    let schedule = null;
+    try {
+      schedule = await getSchedule(params.id);
+    } catch (err) {
+      // Matches lib/videoList.js: an unreadable schedule means no
+      // constraint, rather than taking live content off the air.
+      console.error("Could not read the video schedule:", err);
+    }
+    if (!isLive(schedule)) return { notFound: true };
   }
 
   let video;

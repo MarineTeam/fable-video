@@ -1,7 +1,8 @@
 // Site palette. GET is public (it only exposes two accent colors, needed
 // pre-approval for the "not approved" page to render themed). POST is
 // admin-only and applies to all visitors.
-import { requireAdmin } from "../../lib/guard";
+import { requireCapability } from "../../lib/guard";
+import { CAP } from "../../lib/roles";
 import { getTheme, saveTheme } from "../../lib/store";
 import { isValidHex, PRESETS, resolveTheme } from "../../lib/theme";
 import { logAction } from "../../lib/audit";
@@ -19,8 +20,9 @@ async function handler(req, res) {
   }
 
   if (req.method === "POST") {
-    const admin = await requireAdmin(req, res);
-    if (!admin) return;
+    const access = await requireCapability(req, res, CAP.SETTINGS);
+    if (!access) return;
+    const admin = access.email;
 
     const body = req.body || {};
     let theme;

@@ -968,6 +968,22 @@ code {
   border-top: 1px solid var(--border);
 }
 
+/* A row whose editor panel expands underneath it (group access editing). */
+.row-stack {
+  align-items: flex-start;
+}
+
+/* Bounded, scrollable checkbox list — the per-group video allowlist can be
+   hundreds of entries and must not push the rest of the panel off-screen. */
+.scroll-list {
+  max-height: 16rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  background: var(--panel);
+}
+
 .video-item + .video-item {
   border-top: 1px solid var(--border);
 }

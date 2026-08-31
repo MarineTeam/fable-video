@@ -16,7 +16,8 @@
 // per-id calls, a Redis failure fails the whole batch rather than leaving
 // per-id partial results — that's a more honest reflection of reality
 // anyway (a Redis outage isn't a per-key phenomenon).
-import { requireAdmin } from "../../../lib/guard";
+import { requireCapability } from "../../../lib/guard";
+import { CAP } from "../../../lib/roles";
 import {
   listShares,
   permanentlyDeleteShares,
@@ -31,8 +32,9 @@ import { withMonitorApi } from "../../../lib/monitor";
 const MAX_IDS = 100;
 
 async function handler(req, res) {
-  const admin = await requireAdmin(req, res);
-  if (!admin) return;
+  const access = await requireCapability(req, res, CAP.SHARES);
+  if (!access) return;
+  const admin = access.email;
 
   if (req.method === "GET") {
     try {
