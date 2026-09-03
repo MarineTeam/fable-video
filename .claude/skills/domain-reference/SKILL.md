@@ -432,7 +432,12 @@ error that surfaces through the failure path above into the admin UI. This
 is an operational prerequisite, not something `lib/email.js` can detect or
 work around.
 
-`siteName()` defaults to `"Marine Video Portal"` if `SITE_NAME` is unset —
+The site name in an email is the admin-set one: `sendShareEmail()` and
+`sendBulkShareEmail()` resolve it from Redis and inject it into the template as
+`site`, falling back to `SITE_NAME`/`NEXT_PUBLIC_SITE_NAME` and then
+`"Marine Video Portal"` (`lib/siteName.js` `resolveSiteName()`). `siteName()`
+in `lib/email.js` is now only that env-level fallback, kept synchronous for
+callers that can't await. It is
 used in the email subject line and body via `shareEmailTemplate()`, which
 also HTML-escapes every interpolated value (`escapeHtml()`) before building
 the HTML body, since `videoTitle` and the recipient email are admin/user

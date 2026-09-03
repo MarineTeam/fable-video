@@ -9,6 +9,8 @@ import { PlayIcon } from "../components/icons";
 import { auth0 } from "../lib/auth0";
 import { blockedByEmailVerification, normalizeEmail } from "../lib/auth";
 import { isStaffRole, resolveAccess } from "../lib/roles";
+import { pageTitle } from "../lib/siteName";
+import { getSiteName } from "../lib/store";
 import { withMonitorPage } from "../lib/monitor";
 
 async function gssp({ req, resolvedUrl }) {
@@ -22,6 +24,7 @@ async function gssp({ req, resolvedUrl }) {
       },
     };
   }
+  const siteName = await getSiteName().catch(() => null);
   const unverified = blockedByEmailVerification(session.user);
   const access = unverified ? null : await resolveAccess(email);
   const admin = unverified ? false : isStaffRole(access.role);
@@ -32,6 +35,7 @@ async function gssp({ req, resolvedUrl }) {
       user: { email, name: session.user.name || email },
       admin,
       approved,
+      siteName,
     },
   };
 }
@@ -64,7 +68,7 @@ function NotApproved({ user }) {
   );
 }
 
-export default function Activity({ user, admin, approved }) {
+export default function Activity({ user, admin, approved, siteName }) {
   const [items, setItems] = useState(null);
   const [error, setError] = useState("");
   const [viewers, setViewers] = useState([]);
@@ -99,9 +103,9 @@ export default function Activity({ user, admin, approved }) {
 
   if (!approved) {
     return (
-      <AppShell user={user} admin={admin}>
+      <AppShell user={user} admin={admin} siteName={siteName}>
         <Head>
-          <title>Not approved — Marine Video Portal</title>
+          <title>{pageTitle("Not approved", siteName)}</title>
         </Head>
         <NotApproved user={user} />
       </AppShell>
@@ -109,9 +113,9 @@ export default function Activity({ user, admin, approved }) {
   }
 
   return (
-    <AppShell user={user} admin={admin}>
+    <AppShell user={user} admin={admin} siteName={siteName}>
       <Head>
-        <title>My activity — Marine Video Portal</title>
+        <title>{pageTitle("My activity", siteName)}</title>
       </Head>
       <div className="page-head">
         <h1 className="page-title">{viewAs ? `${viewAs}'s activity` : "My activity"}</h1>

@@ -26,9 +26,11 @@ import { blockedByEmailVerification, normalizeEmail } from "../lib/auth";
 // CAP comes from the storage-free policy module: pages/admin.js is a client
 // component, and lib/roles.js reaches into Redis.
 import { CAP } from "../lib/capabilities";
+import { pageTitle } from "../lib/siteName";
 import { isStaffRole, resolveAccess } from "../lib/roles";
 import { PRESETS } from "../lib/theme";
 import { applyResolvedTheme } from "../lib/theme-client";
+import { getSiteName } from "../lib/store";
 import { withMonitorPage } from "../lib/monitor";
 import { resetMonitorCalls } from "../lib/monitorClient";
 
@@ -50,12 +52,14 @@ async function gssp({ req, resolvedUrl }) {
   if (!isStaffRole(access.role)) {
     return { redirect: { destination: "/", permanent: false } };
   }
+  const siteName = await getSiteName().catch(() => null);
   return {
     props: {
       user: { email, name: session.user.name || email },
       admin: true,
       role: access.role,
       capabilities: access.capabilities,
+      siteName,
     },
   };
 }
@@ -2869,6 +2873,8 @@ function SharesTab({ emailConfigured, onCount }) {
 
 function SettingsTab({ config, onConfig }) {
   const [count, setCount] = useState(config.videoCount);
+  const [siteNameInput, setSiteNameInput] = useState(config.siteName || "");
+  const [siteNameNote, setSiteNameNote] = useState("");
   const [theme, setTheme] = useState(null);
   const [customA, setCustomA] = useState("#38bdf8");
   const [customB, setCustomB] = useState("#818cf8");
@@ -2887,6 +2893,12 @@ function SettingsTab({ config, onConfig }) {
   const [adminGeoEnabled, setAdminGeoEnabled] = useState(config.adminGeoEnabled);
   const [adminGeoNote, setAdminGeoNote] = useState("");
 
+  // config arrives asynchronously in Admin's own effect, so seed the field
+  // when it lands rather than leaving it stuck on the initial empty value.
+  useEffect(() => {
+    setSiteNameInput(config.siteName || "");
+  }, [config.siteName]);
+
   useEffect(() => {
     api("/api/theme")
       .then((data) => {
@@ -2904,6 +2916,23 @@ function SettingsTab({ config, onConfig }) {
       .then((data) => setExemptions(data.exemptions))
       .catch(() => {});
   }, []);
+
+  const saveSiteNameSetting = async (e) => {
+    e.preventDefault();
+    setError("");
+    setSiteNameNote("");
+    try {
+      const name = siteNameInput.trim();
+      await api("/api/admin/settings", {
+        method: "POST",
+        body: { siteName: name },
+      });
+      onConfig({ siteName: name });
+      setSiteNameNote("Saved — reload to see it everywhere.");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
 
   const toggleWatermark = async (enabled) => {
     setError("");
@@ -3029,6 +3058,38 @@ function SettingsTab({ config, onConfig }) {
   return (
     <div className="stack-lg">
       {error ? <div className="notice notice-error">{error}</div> : null}
+
+      <section className="card">
+        <h3>Site name</h3>
+        <p className="muted small">
+          Shown in the header, every page title, and share emails. Applies to
+          all visitors immediately — no redeploy.
+          {config.envSiteName
+            ? ` Clearing it isn't allowed; the SITE_NAME environment variable is set to "${config.envSiteName}", which is used only until a name is set here.`
+            : ""}
+        </p>
+        <form onSubmit={saveSiteNameSetting} className="inline-form">
+          <input
+            type="text"
+            className="input input-sm"
+            maxLength={config.maxSiteNameLength || 60}
+            placeholder="Marine Video Portal"
+            value={siteNameInput}
+            onChange={(e) => setSiteNameInput(e.target.value)}
+            aria-label="Site name"
+          />
+          <button
+            type="submit"
+            className="btn btn-primary btn-sm"
+            disabled={!siteNameInput.trim()}
+          >
+            Save
+          </button>
+          {siteNameNote ? (
+            <span className="muted small">{siteNameNote}</span>
+          ) : null}
+        </form>
+      </section>
 
       <section className="card">
         <h3>Homepage video count</h3>
@@ -3849,7 +3910,7 @@ const TABS = [
   ["analytics", "Analytics", CAP.INSIGHTS],
 ];
 
-export default function Admin({ user, role, capabilities }) {
+export default function Admin({ user, role, capabilities, siteName }) {
   const can = useCallback(
     (capability) => (capabilities || []).includes(capability),
     [capabilities]
@@ -3870,6 +3931,9 @@ export default function Admin({ user, role, capabilities }) {
   const [counts, setCounts] = useState({ viewers: null, shares: null });
   const [config, setConfig] = useState({
     videoCount: 30,
+    siteName: "",
+    envSiteName: "",
+    maxSiteNameLength: 60,
     emailConfigured: false,
     emailFrom: null,
     pushConfigured: false,
@@ -3887,6 +3951,9 @@ export default function Admin({ user, role, capabilities }) {
         .then((data) =>
           setConfig({
             videoCount: data.videoCount,
+            siteName: data.siteName,
+            envSiteName: data.envSiteName,
+            maxSiteNameLength: data.maxSiteNameLength,
             emailConfigured: data.emailConfigured,
             emailFrom: data.emailFrom,
             pushConfigured: data.pushConfigured,
@@ -3927,9 +3994,9 @@ export default function Admin({ user, role, capabilities }) {
   }, []);
 
   return (
-    <AppShell user={user} admin canNotify>
+    <AppShell user={user} admin canNotify siteName={siteName}>
       <Head>
-        <title>Admin — Marine Video Portal</title>
+        <title>{pageTitle("Admin", siteName)}</title>
       </Head>
       <h1 className="page-title">
         Admin

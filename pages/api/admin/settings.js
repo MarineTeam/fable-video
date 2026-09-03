@@ -10,9 +10,15 @@ import {
   saveAdminGeoEnabled,
   saveGeoEnabled,
   saveSettings,
+  saveSiteName,
   saveWatermarkEnabled,
 } from "../../../lib/store";
-import { emailEnabled, emailFrom, siteName } from "../../../lib/email";
+import { emailEnabled, emailFrom } from "../../../lib/email";
+import {
+  MAX_SITE_NAME_LENGTH,
+  envSiteName,
+  validateSiteName,
+} from "../../../lib/siteName";
 import { pushEnabled } from "../../../lib/push";
 import {
   adminGeoBypassEmails,
@@ -44,7 +50,11 @@ async function handler(req, res) {
         adminGeoBypassEmails: adminGeoBypassEmails(),
         emailConfigured: emailEnabled(),
         emailFrom: emailEnabled() ? emailFrom() : null,
-        siteName: siteName(),
+        // getSettings() resolves this: admin-set value, else the env var,
+        // else the built-in default. envSiteName is surfaced separately so
+        // the panel can say what clearing the field would fall back to.
+        envSiteName: envSiteName(),
+        maxSiteNameLength: MAX_SITE_NAME_LENGTH,
         pushConfigured: pushEnabled(),
       });
     } catch (err) {
@@ -70,6 +80,11 @@ async function handler(req, res) {
       }
       updates.push(["videoCount", Math.floor(videoCount)]);
     }
+    if (body.siteName !== undefined) {
+      const problem = validateSiteName(body.siteName);
+      if (problem) return res.status(400).json({ error: problem });
+      updates.push(["siteName", String(body.siteName).trim()]);
+    }
     if (body.watermarkEnabled !== undefined) {
       updates.push(["watermarkEnabled", Boolean(body.watermarkEnabled)]);
     }
@@ -86,6 +101,7 @@ async function handler(req, res) {
     try {
       await Promise.all(
         updates.map(([key, value]) => {
+          if (key === "siteName") return saveSiteName(value);
           if (key === "watermarkEnabled") return saveWatermarkEnabled(value);
           if (key === "geoEnabled") return saveGeoEnabled(value);
           if (key === "adminGeoEnabled") return saveAdminGeoEnabled(value);

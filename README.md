@@ -200,7 +200,7 @@ Without these, sharing still works — admins copy links and send them manually.
 | `RESEND_API_KEY` | Resend API key. Together with `EMAIL_FROM`, enables automatic emailing of share links. |
 | `EMAIL_FROM` | Sender, e.g. `Marine Video Portal <videos@yourdomain.com>`. The domain must be verified in Resend. |
 | `EMAIL_REPLY_TO` | Optional reply-to address. |
-| `SITE_NAME` | Portal name used in emails (default "Marine Video Portal"). |
+| `SITE_NAME` | Starting portal name, used until an admin sets one in **Settings → Site name** (default "Marine Video Portal"). Applies to the header, page titles, and emails. |
 
 ### Optional — push notifications
 
@@ -283,7 +283,7 @@ otherwise untouched.
 
 | Key | Description |
 | --- | --- |
-| `NEXT_PUBLIC_SITE_NAME` | Portal name shown in the header/title (default "Marine Video Portal"). |
+| `NEXT_PUBLIC_SITE_NAME` | Alternative spelling of `SITE_NAME`, kept for existing deployments. `SITE_NAME` wins if both are set, and the admin-set name wins over either. |
 | `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` | Enable Sentry error capture (server / client). Inert if unset. |
 | `SENTRY_ORG` / `SENTRY_PROJECT` / `SENTRY_AUTH_TOKEN` | Enable Sentry source-map upload during build. |
 
@@ -328,7 +328,8 @@ worker, or icons.
   serverless instance so that search, filtering, and pagination don't re-fetch
   the whole library — any admin mutation invalidates that cache immediately.
 - **Redis** (prefix `fablevideo:`) holds all app-owned state: approved viewers,
-  roles, groups, access requests, video schedules, last-seen timestamps, the custom homepage order, site
+  roles, groups, access requests, video schedules, the site name,
+  last-seen timestamps, the custom homepage order, site
   settings, the theme, per-viewer playback progress, share records, the audit
   log, rate-limit counters, and push subscriptions. Everything is editable live
   from `/admin` without redeploying.
@@ -411,6 +412,7 @@ lib/
   groups.js               Viewer groups: per-video allowlists over the existing tags
   accessRequests.js       Self-serve access requests (queue only — never grants)
   schedule.js             Per-video publish/expiry windows
+  siteName.js             Site-name resolution + page-title helper (pure, client-safe)
   guard.js                API guards: requireUser / requireAccess / requireCapability
   bunny.js                Bunny API: videos, collections, TUS signing, signed embed
                           URLs, thumbnail URLs (token-signed), statistics
@@ -492,7 +494,9 @@ enforce it independently.
   each single or **multi-select bulk**, with per-link success/failure
   results (email is bundle-consolidated when bundled). Creating a link
   (single or bulk) includes a **watermark** override.
-- **Settings** — homepage video count, the site **color palette** (7 presets +
+- **Settings** — the **site name** (header, page titles, and share emails —
+  applied to all visitors immediately, no redeploy), homepage video count, the
+  site **color palette** (7 presets +
   custom, applied to all visitors), the **email watermark** global default
   and exemption list, a **geo-location whitelist** (two independent
   enable/disable toggles — `GEO_WHITELIST` and the `ADMIN_GEO_WHITELIST`
@@ -577,6 +581,12 @@ surfaces in the admin UI).
   returns thumbnail URLs.
 - **Thumbnails 403 directly but load in the app** — expected: that's
   referrer-based hotlink protection. Direct/off-site access is blocked.
+- **Renaming the site doesn't change the PWA install name** — expected.
+  `public/manifest.webmanifest` and the push-notification fallback title in
+  `public/sw.js` are static files that can't read Redis, so the name shown on a
+  home-screen icon still comes from those files and needs an edit + redeploy.
+  Everything rendered by the app itself (header, page titles, share emails)
+  follows the admin-set name immediately.
 - **Share emails aren't sending** — confirm `RESEND_API_KEY` and `EMAIL_FROM` are
   set and picked up, and that the `EMAIL_FROM` domain is verified in Resend. The
   exact error appears in the admin UI when a send fails.

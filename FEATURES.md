@@ -209,6 +209,11 @@ setup and architecture, see [README.md](./README.md).
   a collection** in one action, mirroring the bulk-share UX. Each video is
   processed independently (one failure never blocks the rest), with a
   per-item success/failure report.
+- **Editable site name** — set the portal's name from Settings; it applies to
+  every visitor immediately, with no redeploy. It appears in the header, every
+  page title (including the share-link and "not approved" pages), and share
+  emails. `SITE_NAME` / `NEXT_PUBLIC_SITE_NAME` still work as the starting
+  value for a fresh install.
 - **Scheduled publish / expiry** — a per-video window (publish-at and/or
   expires-at, either optional) controlling when **viewers** can see it.
   Outside its window a video disappears from the library, search,
@@ -361,3 +366,7 @@ setup and architecture, see [README.md](./README.md).
 - **Recurring or per-group schedules** — a video's publish/expiry window is a
   single window that applies to every viewer; it can't differ per group or
   repeat.
+- **PWA install name and icons** — `public/manifest.webmanifest` and the
+  service worker's fallback notification title are static files, so the
+  home-screen name and the app icons still need a file edit and a redeploy;
+  the editable site name doesn't reach them.

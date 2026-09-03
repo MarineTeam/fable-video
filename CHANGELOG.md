@@ -28,6 +28,18 @@ to the portal's identity model since it shipped.
   tag itself, so no migration is needed and every existing tag keeps behaving
   as a plain label until a restriction is attached to it.
 
+- **Editable site name** — the portal's name is now set from **Settings →
+  Site name** and stored in Redis, so renaming applies to every visitor
+  immediately instead of needing an env-var change and a redeploy. It reaches
+  the header, every page title, and share emails. `SITE_NAME` and
+  `NEXT_PUBLIC_SITE_NAME` are unchanged in meaning but are now only the
+  starting value: the admin-set name wins over both, and both win over the
+  built-in default. The name resolves server-side and ships in the first HTML
+  rather than being fetched on mount like the palette — a late colour is a
+  flicker, but a late brand name would have every visitor read the wrong one
+  on first paint. Not covered: `public/manifest.webmanifest` and the service
+  worker's fallback notification title are static files, so the PWA install
+  name still needs a file edit and a redeploy.
 - **Self-serve access requests** — a signed-in but unapproved visitor can ask
   for access with an optional note instead of hitting a dead end. Requests
   queue at the top of the admin Viewers tab for approve / deny / dismiss. The
@@ -75,6 +87,9 @@ to the portal's identity model since it shipped.
   them — and a demoted one stops.
 - Deleting a video now also clears its schedule, alongside pruning it from the
   saved order and from every group's allowlist.
+- Every page title now goes through one `pageTitle()` helper instead of a
+  hardcoded "— Marine Video Portal" suffix repeated across twelve call sites,
+  so a rename can't leave a stale suffix on a page nobody remembered.
 
 ### Fixed
 

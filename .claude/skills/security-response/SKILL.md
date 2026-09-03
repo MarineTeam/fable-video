@@ -126,10 +126,10 @@ recognition list, not an open item):
   return nothing.
 - A secret read into a `NEXT_PUBLIC_*` variable, which ships to the browser bundle. Check:
   `grep -rn NEXT_PUBLIC_ pages/ components/ lib/` — as of this verification only
-  `NEXT_PUBLIC_SITE_NAME` (`pages/_app.js:31`, `components/AppShell.js:4`) exists, and it
-  is a non-secret display string. Any new `NEXT_PUBLIC_*` var carrying a secret is real.
-- An `/api/admin/*` route missing the `requireAdmin` guard from `lib/guard.js`. Check:
-  `grep -L requireAdmin pages/api/admin/*.js` (expect no output — verified below).
+  `NEXT_PUBLIC_SITE_NAME` (read via `envSiteName()` in `lib/siteName.js`) and
+  `NEXT_PUBLIC_SENTRY_DSN` exist, and both are non-secret display strings. Any new `NEXT_PUBLIC_*` var carrying a secret is real.
+- An `/api/admin/*` route missing its capability guard from `lib/guard.js`. Check:
+  `grep -L "requireCapability\|requireAdmin" pages/api/admin/*.js` (expect no output).
 - A share-lookup or error path that reveals the intended recipient's email to the wrong
   logged-in user. `pages/watch/[shareId].js` lines 34–37 deliberately return a generic
   `state: "mismatch"` instead of any detail when `share.email !== email` — any change that
