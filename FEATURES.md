@@ -92,8 +92,14 @@ setup and architecture, see [README.md](./README.md).
   PWA be installed to the Home Screen first (iOS 16.4+).
 - **Installable (PWA)** — a web app manifest, app icons (standard + maskable), and
   Apple touch-icon/meta let visitors install the portal and launch it standalone.
-  A deliberately minimal service worker caches only the static app icons — never
-  Auth0, `/api/*` responses, or signed video/thumbnail URLs.
+  The manifest's name/short_name and the iOS home-screen title both follow the
+  admin-set site name live (generated per-request, not a build-time file), so a
+  fresh install always picks up a rename; an already-installed app follows
+  whatever schedule the OS/browser uses to re-check an installed PWA's
+  manifest, which the app doesn't control. A deliberately minimal service
+  worker caches only the static app icons and the (now server-generated but
+  still public/non-secret) manifest — never Auth0, `/api/*` responses, or
+  signed video/thumbnail URLs.
 
 ---
 
@@ -366,7 +372,13 @@ setup and architecture, see [README.md](./README.md).
 - **Recurring or per-group schedules** — a video's publish/expiry window is a
   single window that applies to every viewer; it can't differ per group or
   repeat.
-- **PWA install name and icons** — `public/manifest.webmanifest` and the
-  service worker's fallback notification title are static files, so the
-  home-screen name and the app icons still need a file edit and a redeploy;
-  the editable site name doesn't reach them.
+- **PWA install icons** — the app icon *images* are static files and always
+  need a file edit + redeploy to change; only the *name* shown alongside them
+  is editable live. The service worker's push-notification fallback title
+  ("Marine Video Portal", used only if a push payload is ever sent without a
+  title — every current sender always supplies one) is likewise still static;
+  not worth threading a Redis read through a code path that never runs.
+- **Already-installed apps don't re-check the manifest promptly** — a platform
+  limitation, not something app code controls: browsers re-check an installed
+  PWA's manifest on their own schedule, which can be several app opens or
+  days. A fresh install always gets the current name immediately.

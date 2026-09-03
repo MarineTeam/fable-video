@@ -37,9 +37,22 @@ to the portal's identity model since it shipped.
   built-in default. The name resolves server-side and ships in the first HTML
   rather than being fetched on mount like the palette — a late colour is a
   flicker, but a late brand name would have every visitor read the wrong one
-  on first paint. Not covered: `public/manifest.webmanifest` and the service
-  worker's fallback notification title are static files, so the PWA install
-  name still needs a file edit and a redeploy.
+  on first paint. The PWA manifest and iOS home-screen title did not follow
+  this at first; that gap is closed below.
+- **The PWA manifest and iOS home-screen title now follow the site name too**
+  — `/manifest.webmanifest` was a static file, so an installed app's name was
+  frozen at build time even after the editable site name shipped. It's now
+  generated per-request by `pages/api/manifest.js` (rewritten from the same
+  URL in `next.config.js`, so nothing that references `/manifest.webmanifest`
+  had to change) and resolves the live site name, falling back to the default
+  if Redis is unreachable — a cosmetic value must never break PWA
+  installability. iOS Safari's "Add to Home Screen" reads a separate
+  `apple-mobile-web-app-title` meta tag rather than the manifest, so
+  `pages/_document.js` now resolves that live too. A fresh install always
+  gets the current name; an already-installed app follows whatever schedule
+  the OS/browser uses to re-check an installed PWA's manifest, which is a
+  platform behavior this app doesn't control. The app icon *images* are
+  unaffected — still static files, still need a file edit and a redeploy.
 - **Self-serve access requests** — a signed-in but unapproved visitor can ask
   for access with an optional note instead of hitting a dead end. Requests
   queue at the top of the admin Viewers tab for approve / deny / dismiss. The

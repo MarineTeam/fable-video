@@ -9,12 +9,20 @@
  *   - Every /api/* response is per-viewer data behind an Auth0 session.
  *   - /auth/* is the Auth0 login/callback flow.
  * So the fetch handler below only ever answers for a fixed allowlist of
- * immutable, public static assets. Everything else falls through to the
- * network untouched (the SW does not call respondWith for it).
+ * public, non-secret, same-for-everyone assets (see the PRECACHE comment
+ * below — one entry is server-generated, not a static file, but the safety
+ * property is unchanged). Everything else falls through to the network
+ * untouched (the SW does not call respondWith for it).
  */
 const CACHE = "mvp-static-v1";
 
-// Immutable, non-secret, public assets safe to cache.
+// Non-secret, public assets safe to cache — same content for every visitor,
+// nothing per-user or session-scoped. The icons are truly immutable files;
+// manifest.webmanifest is generated server-side from the admin-set site name
+// (pages/api/manifest.js) so it can change, but it stays just as safe to
+// cache: the cache-first-then-refresh strategy below re-fetches it on every
+// visit and updates the cache in the background, so a rename still reaches
+// this cache — just not necessarily on the very next load.
 const PRECACHE = [
   "/manifest.webmanifest",
   "/icon-192.png",

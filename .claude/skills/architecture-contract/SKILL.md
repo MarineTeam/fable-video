@@ -285,7 +285,7 @@ the delete happened — the tail must never wag the dog.
 *after* its main action succeeds, not as a precondition (`grep -n logAction
 pages/api/admin/share.js` → line 80, after the share and email logic above it).
 
-### (k) The service worker caches ONLY a fixed allowlist of immutable public static assets — never Auth0, `/api/*`, page navigations, or signed video/thumbnail URLs
+### (k) The service worker caches ONLY a fixed allowlist of public, non-secret, same-for-everyone assets — never Auth0, `/api/*`, page navigations, or signed video/thumbnail URLs
 
 **Statement:** `public/sw.js`'s `fetch` handler calls `event.respondWith(...)` **only** for
 same-origin GET requests whose pathname is in the hardcoded `PRECACHE` allowlist
@@ -293,6 +293,19 @@ same-origin GET requests whose pathname is in the hardcoded `PRECACHE` allowlist
 `/apple-touch-icon.png`). Every other request — cross-origin (bunny.net embeds/thumbnails),
 `/api/*`, `/auth/*`, and all page navigations — falls through to the network untouched (the
 SW returns early, never caching or serving it).
+
+**Updated (site-name work):** `/manifest.webmanifest` is no longer a static file —
+`next.config.js` rewrites it to `pages/api/manifest.js`, which generates it per-request from
+the admin-set site name (Redis), so the SW is now caching a response whose *content* can
+change. The allowlist's safety property is about WHO the content is for, not whether it's
+literally immutable: `/api/manifest` is public (no auth, matches `proxy.js`'s matcher
+exclusion), takes no per-request input, and returns the identical document to every
+caller — nothing here is user-specific or session-scoped, so this stays outside the class
+of thing invariant (k) exists to prevent. The SW's existing cache-first-then-refresh
+strategy (`sed -n '90,116p' public/sw.js`) already re-fetches on every visit and updates
+the cache in the background, so it needs no code change to keep working for a value that
+now varies — a rename just takes one more visit to reach the cache, the same way an icon
+change would.
 
 **Why:** This app's entire security model depends on responses being short-lived and
 per-viewer: video playback uses 3-hour signed bunny.net embed tokens (invariant (d)),
@@ -305,15 +318,18 @@ its icons offline **without** the SW ever touching anything sensitive. This is t
 class of invariant as (d): the cache must never become a place a secret or private response
 can leak from.
 
-**Enforced at:** `public/sw.js:1-14` (file-header statement of the rule),
-`public/sw.js:18-24` (the `PRECACHE` allowlist), `public/sw.js:83-108` (the `fetch` handler's
-two early-return guards: `url.origin !== self.location.origin` and
-`!PRECACHE.includes(url.pathname)` before any `respondWith`).
+**Enforced at:** `public/sw.js:1-16` (file-header statement of the rule),
+`public/sw.js:26-32` (the `PRECACHE` allowlist), `public/sw.js:90-116` (the `fetch`
+handler's two early-return guards: `url.origin !== self.location.origin` and
+`!PRECACHE.includes(url.pathname)` before any `respondWith`). The dynamic manifest itself:
+`pages/api/manifest.js` (no auth guard, by design — see its own header comment) and the
+`beforeFiles` rewrite in `next.config.js`.
 
-**Verify with:** `sed -n '83,108p' public/sw.js` — confirm both early returns precede the
-single `event.respondWith(...)`, and that `PRECACHE` (`sed -n '18,24p' public/sw.js`) lists
-only public, non-secret static assets. `grep -n "event.respondWith" public/sw.js` should show
-exactly one call site (line 94; the header comment at line 13 also mentions the word).
+**Verify with:** `sed -n '90,116p' public/sw.js` — confirm both early returns precede the
+single `event.respondWith(...)`, and that `PRECACHE` (`sed -n '26,32p' public/sw.js`) lists
+only public, non-secret, same-for-everyone assets. `grep -n "event.respondWith" public/sw.js`
+should show exactly one call site. Line numbers drift with comment edits — re-grep rather
+than trust the numbers above if this file has changed since 2026-09-03.
 
 ### (l) Web Push sends only ever reach currently-approved viewers/admins, the new-video announce is atomic per video, and broadcast click targets are same-origin only
 
@@ -520,6 +536,14 @@ context alone) — `proxy.js`, `lib/auth.js`, `lib/guard.js`, `lib/redis.js`,
 `pages/watch/[shareId].js`, `pages/api/admin/share.js`, `README.md`, and commit
 `c37919e`'s diff. All file:line citations above were confirmed against the actual file
 contents on that date. Facts below are volatile — re-verify before relying on them.
+
+**Updated 2026-09-03 (dynamic PWA manifest):** invariant (k) updated — the manifest is
+now generated per-request by `pages/api/manifest.js` (rewritten from `/manifest.webmanifest`
+in `next.config.js`) instead of being a static file, so its content can vary; the invariant's
+safety property (public, non-secret, same for every caller) is unaffected and the section
+title/wording was adjusted to stop implying the cached content itself must be immutable.
+Line-number citations refreshed against `public/sw.js` on that date. Verified by reading
+`pages/api/manifest.js`, `next.config.js`, `pages/_document.js`, and `public/sw.js` directly.
 
 **Updated 2026-08-31 (access requests, verified email, schedules, route tests):**
 invariant (m) extended to cover `lib/schedule.js` and to record why schedule reads fail
