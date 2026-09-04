@@ -18,6 +18,14 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # v5 defaults this to true, auto-caching npm state keyed off
+          # package.json. This repo commits no lockfile on purpose (Vercel
+          # installs fresh on deploy, and CI mirrors that — see below), so
+          # there's nothing for that cache key to pin against; a stale/
+          # incompatible restored cache was crashing npm's own dependency-
+          # graph resolver ("Cannot read properties of null (reading
+          # 'edgesOut')") on an install that succeeds cleanly uncached.
+          package-manager-cache: false
 
       # No lockfile is committed by design — Vercel installs fresh on deploy,
       # and CI mirrors that.
