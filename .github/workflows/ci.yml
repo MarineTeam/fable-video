@@ -28,25 +28,13 @@ jobs:
           package-manager-cache: false
 
       # No lockfile is committed by design — Vercel installs fresh on deploy,
-      # and CI mirrors that. That fresh-every-time resolution is currently
-      # hitting a known, unfixed npm bug in Arborist's peer-dependency tree
-      # building (npm/cli#8261: "Cannot read properties of null (reading
-      # 'edgesOut')") — reproduced 4/4 on this runner across two commits
-      # (2026-09-04), including 3 identical failures inside one retry loop,
-      # while a local install against the same package.json — same OS/arch,
-      # same npm version, direct (unproxied) registry access confirmed on
-      # both sides — succeeded every time. Retrying alone (kept below as a
-      # safety net for genuinely transient failures) did not clear it: this
-      # looks tied to something about this specific runner's resolution
-      # (registry CDN edge / fetch-completion ordering are the leading
-      # theories), not a one-off blip. --loglevel=verbose is TEMPORARY,
-      # added only to capture what the crash actually touches server-side —
-      # remove it once that's diagnosed and a real fix (a version pin, most
-      # likely) replaces this comment.
+      # and CI mirrors that. The retry loop is a general safety net for
+      # transient registry hiccups; see package.json's vitest pin for the
+      # specific bug it wasn't enough for on its own (2026-09-04).
       - name: Install dependencies
         run: |
           for attempt in 1 2 3; do
-            npm install --loglevel=verbose && break
+            npm install && break
             if [ "$attempt" -eq 3 ]; then
               echo "npm install failed after 3 attempts" >&2
               exit 1
