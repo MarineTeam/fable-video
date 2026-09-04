@@ -28,9 +28,30 @@ jobs:
           package-manager-cache: false
 
       # No lockfile is committed by design — Vercel installs fresh on deploy,
-      # and CI mirrors that.
+      # and CI mirrors that. That fresh-every-time resolution occasionally
+      # hits a known, unfixed npm bug in Arborist's peer-dependency tree
+      # building (npm/cli#8261: "Cannot read properties of null (reading
+      # 'edgesOut')") — confirmed via this repo's own CI logs on 2026-09-04,
+      # reproducing identically across two separate commits/attempts on the
+      # runner while a local `npm install` against the same package.json,
+      # including one matching the runner's exact npm version, succeeded
+      # every time. That split points at the runner's registry path, not
+      # this repo's dependency graph, so retrying — not changing what's
+      # installed — is the fix; node_modules is cleared between attempts
+      # since a tree left half-built by the crash can trip the same bug
+      # again on the next try.
       - name: Install dependencies
-        run: npm install
+        run: |
+          for attempt in 1 2 3; do
+            npm install && break
+            if [ "$attempt" -eq 3 ]; then
+              echo "npm install failed after 3 attempts" >&2
+              exit 1
+            fi
+            echo "npm install failed (attempt $attempt/3) — retrying" >&2
+            rm -rf node_modules
+            sleep 5
+          done
 
       - name: Lint
         run: npm run lint
