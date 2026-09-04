@@ -15,6 +15,8 @@ import {
 import { resolveWatermark } from "../../../lib/watermark";
 import { getVideo, signEmbedUrl } from "../../../lib/bunny";
 import { getSchedule, isLive } from "../../../lib/schedule";
+import { pageTitle } from "../../../lib/siteName";
+import { getSiteName } from "../../../lib/store";
 import { withMonitorPage } from "../../../lib/monitor";
 
 async function gssp({ req, params, resolvedUrl }) {
@@ -88,10 +90,13 @@ async function gssp({ req, params, resolvedUrl }) {
     console.error("Could not resolve watermark settings:", err);
   }
 
+  const siteName = await getSiteName().catch(() => null);
+
   return {
     props: {
       user: { email, name: session.user.name || email },
       admin,
+      siteName,
       video: {
         id: video.guid,
         title: video.title || "Untitled",
@@ -105,11 +110,18 @@ async function gssp({ req, params, resolvedUrl }) {
 
 export const getServerSideProps = withMonitorPage(gssp);
 
-export default function WatchVideo({ user, admin, video, embedSrc, watermarkText }) {
+export default function WatchVideo({
+  user,
+  admin,
+  video,
+  embedSrc,
+  watermarkText,
+  siteName,
+}) {
   return (
-    <AppShell user={user} admin={admin} canNotify>
+    <AppShell user={user} admin={admin} canNotify siteName={siteName}>
       <Head>
-        <title>{`${video.title} — Marine Video Portal`}</title>
+        <title>{pageTitle(video.title, siteName)}</title>
       </Head>
       <div className="watch-head">
         <Link href="/" className="back-link">

@@ -5,6 +5,7 @@ import { Inter } from "next/font/google";
 import IdleTimeout from "../components/IdleTimeout";
 import QueryMonitor from "../components/QueryMonitor";
 import { applyResolvedTheme } from "../lib/theme-client";
+import { resolveSiteName } from "../lib/siteName";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -39,7 +40,9 @@ export default function App({ Component, pageProps }) {
     <div className={inter.className}>
       <Head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>{process.env.NEXT_PUBLIC_SITE_NAME || "Marine Video Portal"}</title>
+        {/* Default title, used only until a page sets its own. Pages resolve
+            the admin-set name server-side and pass it through pageProps. */}
+        <title>{resolveSiteName(pageProps.siteName)}</title>
       </Head>
       {pageProps.user ? <IdleTimeout /> : null}
       <Component {...pageProps} />

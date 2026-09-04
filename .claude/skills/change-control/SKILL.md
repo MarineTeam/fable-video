@@ -88,14 +88,14 @@ explaining why, and never disable one just to get a PR through.
 npm test
 ```
 
-Expected output ends with (as of 2026-08-30):
+Expected output ends with (as of 2026-09-03):
 
 ```
- Test Files  14 passed (14)
-      Tests  157 passed (157)
+ Test Files  15 passed (15)
+      Tests  182 passed (182)
 ```
 
-The counts `14` and `157` are the current baseline. (The previously recorded
+The counts `15` and `182` are the current baseline. (The previously recorded
 `7`/`62` was stale — the tree measured 8/78 before the roles+groups change added
 `roles.test.js`, `groups.test.js`, and `access.test.js`.) **If your change adds tests, these
 numbers go UP — update this file's counts in the same PR.** If they go DOWN or anything
@@ -219,7 +219,7 @@ re-verify before relying on them; update this file when a check's expected outpu
 | Volatile claim | Re-verify with |
 |---|---|
 | Lint passes clean, banner-only output | `npm run lint; echo $?` (expect exit 0) |
-| Test baseline is 14 files / 157 tests | `npm test 2>&1 \| grep -E "Test Files\|Tests"` |
+| Test baseline is 15 files / 182 tests | `npm test 2>&1 \| grep -E "Test Files\|Tests"` |
 | Build env block matches CI | `sed -n '33,46p' .github/workflows/ci.yml` |
 | ESLint still pinned to ^9.x | `grep '"eslint"' package.json` |
 | All admin routes guarded by a capability | `grep -L "requireCapability\|requireAdmin" pages/api/admin/*.js` (expect no output) |

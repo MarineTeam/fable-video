@@ -1,10 +1,14 @@
 import Link from "next/link";
 import { PlayIcon } from "./icons";
 import PushToggle from "./PushToggle";
+import { resolveSiteName } from "../lib/siteName";
 
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "Marine Video Portal";
-
-export default function AppShell({ user, admin, canNotify, children }) {
+// `siteName` is resolved server-side and passed down from each page's
+// getServerSideProps. resolveSiteName falls back to the env value and then
+// the built-in default, so a page that doesn't pass one still renders a name
+// rather than an empty header.
+export default function AppShell({ user, admin, canNotify, siteName, children }) {
+  const site = resolveSiteName(siteName);
   return (
     <div className="shell">
       <header className="shell-header">
@@ -13,7 +17,7 @@ export default function AppShell({ user, admin, canNotify, children }) {
             <span className="brand-mark">
               <PlayIcon size={14} />
             </span>
-            <span>{SITE_NAME}</span>
+            <span>{site}</span>
           </Link>
           <nav className="shell-nav">
             <Link href="/" className="nav-link">

@@ -13,6 +13,8 @@ import { auth0 } from "../lib/auth0";
 import { blockedByEmailVerification, normalizeEmail } from "../lib/auth";
 import { isStaffRole, resolveAccess } from "../lib/roles";
 import { getAccessRequest } from "../lib/accessRequests";
+import { pageTitle } from "../lib/siteName";
+import { getSiteName } from "../lib/store";
 import { fetchVideoLibrary } from "../lib/videoList";
 import { withMonitorPage } from "../lib/monitor";
 
@@ -29,6 +31,10 @@ async function gssp({ req, resolvedUrl }) {
       },
     };
   }
+  // A cosmetic value: an unreadable name falls back to the env/default one
+  // rather than failing the page.
+  const siteName = await getSiteName().catch(() => null);
+
   // An unverified email is refused before any access lookup: whatever the
   // roles hash says, we don't yet trust that this person owns this address.
   if (blockedByEmailVerification(session.user)) {
@@ -38,6 +44,7 @@ async function gssp({ req, resolvedUrl }) {
         admin: false,
         approved: false,
         unverified: true,
+        siteName,
         requestStatus: null,
         initialVideos: null,
         initialThumbnails: false,
@@ -84,6 +91,7 @@ async function gssp({ req, resolvedUrl }) {
       admin,
       approved,
       unverified: false,
+      siteName,
       requestStatus,
       initialVideos,
       initialThumbnails,
@@ -243,6 +251,7 @@ export default function Home({
   admin,
   approved,
   unverified,
+  siteName,
   requestStatus,
   initialVideos,
   initialThumbnails,
@@ -316,12 +325,10 @@ export default function Home({
 
   if (!approved) {
     return (
-      <AppShell user={user} admin={admin}>
+      <AppShell user={user} admin={admin} siteName={siteName}>
         <Head>
           <title>
-            {unverified
-              ? "Verify your email — Marine Video Portal"
-              : "Not approved — Marine Video Portal"}
+            {pageTitle(unverified ? "Verify your email" : "Not approved", siteName)}
           </title>
         </Head>
         {unverified ? (
@@ -334,9 +341,9 @@ export default function Home({
   }
 
   return (
-    <AppShell user={user} admin={admin} canNotify>
+    <AppShell user={user} admin={admin} canNotify siteName={siteName}>
       <Head>
-        <title>Library — Marine Video Portal</title>
+        <title>{pageTitle("Library", siteName)}</title>
       </Head>
 
       <div className="page-head">

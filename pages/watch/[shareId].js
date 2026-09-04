@@ -17,6 +17,8 @@ import {
 import { resolveWatermark } from "../../lib/watermark";
 import ShareTrackedPlayer from "../../components/ShareTrackedPlayer";
 import ShareGateMessage from "../../components/ShareGateMessage";
+import { pageTitle } from "../../lib/siteName";
+import { getSiteName } from "../../lib/store";
 import { withMonitorPage } from "../../lib/monitor";
 
 async function gssp({ req, params, resolvedUrl }) {
@@ -31,6 +33,10 @@ async function gssp({ req, params, resolvedUrl }) {
     };
   }
   const user = { email, name: session.user.name || email };
+  // Resolved before the gone/mismatch branches so every state renders the
+  // same name. It is a global setting, not recipient data, so including it
+  // here can't leak who a link was for (invariant (g)).
+  const siteName = await getSiteName().catch(() => null);
 
   let share = null;
   try {
@@ -42,11 +48,11 @@ async function gssp({ req, params, resolvedUrl }) {
   // admin can Extend it) — that must read as "gone" to the recipient, same
   // as a revoked or never-existed id.
   if (!isShareLive(share)) {
-    return { props: { state: "gone", user } };
+    return { props: { state: "gone", user, siteName } };
   }
   if (share.email !== email) {
     // Never reveal the intended recipient.
-    return { props: { state: "mismatch", user } };
+    return { props: { state: "mismatch", user, siteName } };
   }
 
   await updateShare(params.shareId, shareViewPatch(share)).catch(() => {});
@@ -79,18 +85,27 @@ async function gssp({ req, params, resolvedUrl }) {
       title: share.videoTitle || "Untitled",
       embedSrc: signEmbedUrl(share.videoId),
       watermarkText,
+      siteName,
     },
   };
 }
 
 export const getServerSideProps = withMonitorPage(gssp);
 
-export default function SharedWatch({ state, user, shareId, title, embedSrc, watermarkText }) {
+export default function SharedWatch({
+  state,
+  user,
+  shareId,
+  title,
+  embedSrc,
+  watermarkText,
+  siteName,
+}) {
   if (state === "gone") {
     return (
       <>
         <Head>
-          <title>Link unavailable — Marine Video Portal</title>
+          <title>{pageTitle("Link unavailable", siteName)}</title>
         </Head>
         <ShareGateMessage title="This link isn&apos;t available" user={user}>
           <p>This private link has expired or doesn&apos;t exist.</p>
@@ -103,7 +118,7 @@ export default function SharedWatch({ state, user, shareId, title, embedSrc, wat
     return (
       <>
         <Head>
-          <title>Private link — Marine Video Portal</title>
+          <title>{pageTitle("Private link", siteName)}</title>
         </Head>
         <ShareGateMessage title="This link was made for someone else" user={user}>
           <p>
@@ -118,7 +133,7 @@ export default function SharedWatch({ state, user, shareId, title, embedSrc, wat
   return (
     <div className="share-page">
       <Head>
-        <title>{`${title} — Marine Video Portal`}</title>
+        <title>{pageTitle(title, siteName)}</title>
       </Head>
       <div className="share-watch">
         <div className="share-watch-head">

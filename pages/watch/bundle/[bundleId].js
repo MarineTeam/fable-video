@@ -15,6 +15,8 @@ import { normalizeEmail } from "../../../lib/auth";
 import { getBundle, liveBundleItems } from "../../../lib/bundles";
 import { shareUrl } from "../../../lib/shares";
 import ShareGateMessage from "../../../components/ShareGateMessage";
+import { pageTitle } from "../../../lib/siteName";
+import { getSiteName } from "../../../lib/store";
 import { withMonitorPage } from "../../../lib/monitor";
 
 async function gssp({ req, params, resolvedUrl }) {
@@ -29,6 +31,9 @@ async function gssp({ req, params, resolvedUrl }) {
     };
   }
   const user = { email, name: session.user.name || email };
+  // Global setting, resolved before the gone/mismatch branches — see the
+  // matching comment in pages/watch/[shareId].js.
+  const siteName = await getSiteName().catch(() => null);
 
   let bundle = null;
   try {
@@ -37,11 +42,11 @@ async function gssp({ req, params, resolvedUrl }) {
     bundle = null;
   }
   if (!bundle) {
-    return { props: { state: "gone", user } };
+    return { props: { state: "gone", user, siteName } };
   }
   if (bundle.email !== email) {
     // Never reveal the intended recipient.
-    return { props: { state: "mismatch", user } };
+    return { props: { state: "mismatch", user, siteName } };
   }
 
   const items = await liveBundleItems(bundle, params.bundleId);
@@ -50,6 +55,7 @@ async function gssp({ req, params, resolvedUrl }) {
     props: {
       state: "ok",
       user,
+      siteName,
       items: items
         .map((it) => ({
           id: it.id,
@@ -75,12 +81,12 @@ function formatExpiry(iso) {
   return `in ${days} day${days === 1 ? "" : "s"}`;
 }
 
-export default function SharedBundle({ state, user, items }) {
+export default function SharedBundle({ state, user, items, siteName }) {
   if (state === "gone") {
     return (
       <>
         <Head>
-          <title>Link unavailable — Marine Video Portal</title>
+          <title>{pageTitle("Link unavailable", siteName)}</title>
         </Head>
         <ShareGateMessage title="This page isn&apos;t available" user={user}>
           <p>This shared collection has expired or doesn&apos;t exist.</p>
@@ -93,7 +99,7 @@ export default function SharedBundle({ state, user, items }) {
     return (
       <>
         <Head>
-          <title>Private link — Marine Video Portal</title>
+          <title>{pageTitle("Private link", siteName)}</title>
         </Head>
         <ShareGateMessage title="This page was made for someone else" user={user}>
           <p>
@@ -108,7 +114,7 @@ export default function SharedBundle({ state, user, items }) {
   return (
     <div className="share-page">
       <Head>
-        <title>Shared with you — Marine Video Portal</title>
+        <title>{pageTitle("Shared with you", siteName)}</title>
       </Head>
       <div className="share-watch">
         <div className="share-watch-head">
