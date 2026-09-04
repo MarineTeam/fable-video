@@ -27,14 +27,39 @@ jobs:
           # 'edgesOut')") on an install that succeeds cleanly uncached.
           package-manager-cache: false
 
-      # No lockfile is committed by design — Vercel installs fresh on deploy,
-      # and CI mirrors that. The retry loop is a general safety net for
-      # transient registry hiccups; see package.json's vitest pin for the
-      # specific bug it wasn't enough for on its own (2026-09-04).
+      # The npm bundled with Node 22.23.2's actions/setup-node image (10.9.8
+      # as of 2026-09-04) hits a known Arborist bug during this repo's
+      # install — a crash deep in peer-dependency resolution, unrelated to
+      # anything in package.json (confirmed: identical crash across 6
+      # attempts spanning 45+ minutes and 3 prior targeted fixes —
+      # disabling the cache above, a retry loop, and pinning the one
+      # package that looked implicated by the crash's own log proximity —
+      # none of which cleared it). A local install with the runner's exact
+      # npm version, Node version, OS and architecture never reproduced it,
+      # and Vercel's own build of every one of those same commits succeeded
+      # — so this is specific to whatever this npm build does differently,
+      # not this repo's dependency graph.
+      #
+      # `npx npm@latest install` — NOT `npm install -g npm@latest` — runs a
+      # fresh copy of npm's latest release from npx's isolated cache without
+      # touching the runner's actual npm installation. That distinction is
+      # load-bearing: an in-place `npm install -g npm@latest` self-replaces
+      # the very files the running npm process is executing from, and was
+      # confirmed locally to leave npm broken (a bare `npm -v` afterward
+      # failed with a missing-module error) — trading one CI failure mode
+      # for a worse one. `npx`'s isolation avoids that entirely, and every
+      # subsequent step keeps using the runner's own unmodified npm (10.9.8)
+      # to run already-installed scripts, which never touched this bug —
+      # only dependency resolution did.
+      #
+      # No lockfile is committed by design — Vercel installs fresh on
+      # deploy, and CI mirrors that. The retry loop is a general safety net
+      # for ordinary transient registry hiccups, independent of the npm
+      # version pin above.
       - name: Install dependencies
         run: |
           for attempt in 1 2 3; do
-            npm install && break
+            npx --yes npm@latest install && break
             if [ "$attempt" -eq 3 ]; then
               echo "npm install failed after 3 attempts" >&2
               exit 1
