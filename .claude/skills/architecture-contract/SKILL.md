@@ -445,6 +445,92 @@ API guard and every page gate share one implementation.
 
 ---
 
+### (o) Per-video decoration is additive and never load-bearing — chapters and notes decide nothing about access
+
+**Statement:** `lib/videoMeta.js` stores chapters (`k("chapters")`) and sermon notes
+(`k("notes")`), one hash each, video id -> value. Absence of a row means no chapters
+and no notes and behaviour identical to before those features existed — the same
+shape `lib/schedule.js` uses for "no window". Neither hash is ever consulted to decide
+whether someone may see or play a video, and every read of either is wrapped so a
+failure costs the decoration and nothing else (`lib/videoList.js`, the admin
+`GET /api/admin/videos`, and the `gssp` in `pages/watch/video/[id].js` all
+`.catch()` into an empty value rather than propagating).
+
+Notes ride along in the `/api/videos` payload so the existing client-side search can
+match them. That search (`videoMatchesQuery`, `lib/notes.js`) is a pure predicate over
+the list the server already built — it only ever NARROWS that list. It cannot widen it,
+because it never consults anything outside the video object it was handed, and the
+list it runs over has already been through group scope and schedule filtering
+server-side.
+
+**Why:** Two distinct failure modes this shape rules out. First, the additive default:
+a decoration feature whose absence changed behaviour would, on the deploy that
+introduced it, look exactly like an outage (see also invariant (m) and the same
+reasoning in `lib/schedule.js`). Second, the search: if notes were matched by asking
+the server "which videos mention X", that query would become a second, parallel path
+to the library needing its own scope and schedule enforcement — a path any future
+change would have to re-reason about. Filtering client-side over an
+already-authorized list means there is exactly one place that decides what a viewer
+may see, and it stays `lib/videoList.js`.
+
+**Pure/storage split, again:** `lib/chapters.js` and `lib/notes.js` import no Redis.
+They are reached from the browser (the watch page renders the chapter list; the
+homepage runs the search predicate), and importing `lib/redis.js` from client-reachable
+code pulls `async_hooks` in via `lib/monitor.js` and fails the build. This is the third
+instance of the same split — `lib/capabilities.js` vs `lib/roles.js`,
+`lib/siteName.js` vs `lib/store.js`, and now these vs `lib/videoMeta.js`. Treat it as
+the house pattern, not a one-off.
+
+**Enforced at:** `lib/chapters.js`, `lib/notes.js` (both pure), `lib/videoMeta.js`
+(all storage), `lib/videoList.js` (the `getNotesMap().catch(() => ({}))` line),
+`pages/watch/video/[id].js` (the chapters/notes read is after every access check and
+inside its own try/catch), `pages/api/admin/videos.js` (the `set-chapters` /
+`set-notes` actions, both behind `CAP.VIDEOS`).
+
+**Verify with:** `grep -n "^import" lib/chapters.js lib/notes.js` (expect **no output** —
+both modules import nothing at all; a `redis` mention in a comment is not an import);
+`grep -n "getChapters\|getNotes" "pages/watch/video/[id].js"` — confirm both appear
+AFTER `scopeAllows` and the schedule check.
+
+### (p) A notification addressed to a subset never goes out via the broadcast sender
+
+**Statement:** `sendPushToApproved()` reaches every currently-approved viewer and is
+correct only for content everyone is entitled to ("a new video is ready").
+`sendPushToEmails(emails, payload)` (`lib/push.js`) is the addressed sender, and is
+what `lib/accessRequestNotify.js` uses. Recipients there are derived from
+`capabilityHolders(CAP.PEOPLE)` (`lib/roles.js`) — from the role/capability table, not
+a hardcoded "admins" list. The whole notification is best-effort and
+inert-until-configured: no Resend key means no email, no VAPID keys mean no push,
+neither means no errors, and every path is wrapped so a delivery failure cannot fail
+the access request it describes.
+
+**Why:** Broadcasting an access request would tell every approved viewer that a named
+stranger asked to join — the request, the requester's address, and the fact that they
+are not yet approved, to an audience with no reason to know any of it. Deriving
+recipients from the capability rather than the role name means that if `CAP.PEOPLE`
+ever moves between roles, the recipients move with it instead of silently going to the
+wrong people. And the best-effort wrapping is the same rule as invariant (j): the tail
+must never wag the dog — a person's request for access must be recorded whether or not
+anyone's mail server is up.
+
+The requester's note is free text typed by a signed-in stranger. It is clamped and
+control-stripped at the source (`lib/accessRequests.js`), HTML-escaped again in the
+email template, and deliberately kept OUT of the push body — a push renders on a lock
+screen readable by anyone holding the phone. There is also no approve-by-link: a link
+that grants access from an inbox grants it to whoever else can read that inbox.
+
+**Enforced at:** `lib/push.js` (`sendPushToEmails`, and the comment on it saying why it
+is not a variant of `sendPushToApproved`), `lib/roles.js` (`capabilityHolders`),
+`lib/accessRequestNotify.js`, `lib/email.js` (`accessRequestEmailTemplate`),
+`pages/api/access-request.js` (the try/catch around the call).
+
+**Verify with:** `grep -n "sendPushToApproved\|sendPushToEmails" lib/accessRequestNotify.js`
+(expect only `sendPushToEmails`); `npm test -- accessRequestNotify` — the suite pins the
+addressed-not-broadcast property, the inert-until-configured paths, and that every
+delivery failure is swallowed.
+
+---
+
 ## 2. Load-bearing decisions (don't undo these without a deliberate call)
 
 | Decision | Why it's load-bearing |
@@ -521,7 +607,15 @@ playback, or the data layer:
     share updates, or move viewer/settings/order data out of Redis?** Any of these needs a
     deliberate, explicit decision — not an incidental side effect of an unrelated change.
     (Section 2)
-19. **Is this change touching one of the weak points in section 3?** If so, treat it as
+19. **Am I adding per-video content (chapters, notes, anything similar)?** Its absence
+    must mean "behaves exactly as before", the parsing must live in a Redis-free module
+    if anything client-reachable imports it, and every read of it must be wrapped so a
+    failure costs the decoration and nothing else. (o)
+20. **Am I sending a notification that is not for everyone?** Use `sendPushToEmails`,
+    never `sendPushToApproved`; derive the recipients from a capability rather than a
+    role name; wrap the whole thing so a delivery failure can't fail the action it
+    describes. (p)
+21. **Is this change touching one of the weak points in section 3?** If so, treat it as
     an explicit design decision worth calling out in the PR description, not a silent fix
     or a silently-inherited risk.
 
@@ -552,6 +646,17 @@ endpoint and for `REQUIRE_VERIFIED_EMAIL`. Route-level coverage now exists for t
 authorization layer (`lib/__tests__/routes.test.js`), so the "no route tests at all"
 weak point in section 3 is narrower than it was — pages and business logic are still
 uncovered.
+
+**Updated 2026-09-13 (chapters, sermon notes, access-request notifications):** added
+invariants (o) (additive per-video decoration; the search narrows and never widens; the
+pure/storage split as a house pattern) and (p) (addressed vs broadcast push; capability-
+derived recipients; best-effort and inert-until-configured). Verified by reading
+`lib/chapters.js`, `lib/notes.js`, `lib/videoMeta.js`, `lib/accessRequestNotify.js`,
+`lib/push.js`, `lib/roles.js`, `lib/videoList.js`, `pages/watch/video/[id].js` and
+`pages/api/admin/videos.js` on that date, and by running the suite (18 files / 240
+tests). Also in that change: `pages/api/admin/notify.js` moved its capability guard
+ABOVE its `req.method` check — it was the only admin route answering an unauthorised
+caller with a 405.
 
 **Updated 2026-08-30 (roles + groups):** invariant (b) is now capability-based rather
 than a single admin bit; (c) gained the role/group fail-closed rules and the
@@ -591,5 +696,9 @@ that date. Line numbers in (k)/(l) are against those files as of v1.8.0 and will
 | `ADMIN_EMAILS` is still an un-demotable seed, not the only admin source | `grep -n "isEnvAdmin" lib/auth.js lib/roles.js`; `grep -n "ADMIN_EMAILS" pages/api/admin/roles.js` |
 | Test coverage still limited to `lib/__tests__/` (though `access.test.js` now covers the resolver with Redis stubbed) | `ls lib/__tests__/`; `grep -rL "test(" pages/api/**/*.js 2>/dev/null \| wc -l` (all of them, since none have tests) |
 | SW caches only the `PRECACHE` allowlist, one `respondWith` (k) | `sed -n '83,108p' public/sw.js`; `grep -n "event.respondWith" public/sw.js` (expect exactly one call) |
+| Chapters/notes modules import no Redis (o) | `grep -n "^import" lib/chapters.js lib/notes.js` (expect no output) |
+| Chapters/notes are read only AFTER every access check (o) | `grep -n "scopeAllows\|getSchedule\|getChapters" "pages/watch/video/[id].js"` (the first two must precede the third) |
+| Access-request notification is addressed, not broadcast (p) | `grep -n "sendPushTo" lib/accessRequestNotify.js` (expect only `sendPushToEmails`) |
+| Every admin route guards before its method check | `npm test -- routes` — the `/api/admin/notify` ordering tests |
 | Push sends filter live viewers; announce is atomic; click is same-origin (l) | `sed -n '100,143p' lib/push.js`; `grep -n 'startsWith("/")' pages/api/admin/notify.js` |
 | Lint/test/build baselines | see `change-control`'s Provenance table — same repo, same date |

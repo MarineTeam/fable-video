@@ -346,12 +346,18 @@ old prefix is orphaned data, not read by current code — see
 
 | Key | Type | Written by | Read by | TTL |
 |---|---|---|---|---|
-| `fablevideo:settings` | hash | `saveSettings()` (`pages/api/admin/settings.js`) | `getSettings()` — homepage video count cap | none |
+| `fablevideo:settings` | hash. Fields include `videoCount` and `siteName` (plus the watermark/geo settings) | `saveSettings()` / `setSiteName()` (`pages/api/admin/settings.js`) | `getSettings()` — homepage video count cap; `getSiteName()` — header, page titles, emails, PWA manifest | none |
 | `fablevideo:viewers` | hash, field = normalized email, value = `{addedAt, addedBy}` | `addViewers()` (`pages/api/admin/viewers.js`) | `listViewers()`, `isApprovedViewer()` — access gate | none |
 | `fablevideo:lastseen` | hash, field = email, value = ISO timestamp | `stampLastSeen()` (called from `requireApproved` in `lib/guard.js`, best-effort) | `listViewers()` — admin Viewers tab | none |
 | `fablevideo:order` | string (JSON array of video GUIDs) | `saveOrder()` (`pages/api/admin/order.js`) | `getOrder()` → `applyOrder()` (`lib/order.js`) — homepage/admin ordering | none |
 | `fablevideo:theme` | string (JSON object `{preset, accent, accent2}`) | `saveTheme()` (`pages/api/theme.js` POST) | `getTheme()` (`pages/api/theme.js` GET, `pages/_app.js`) | none |
 | `fablevideo:progress:<email>` | hash, field = videoId, value = `{t, d, at}` | `saveProgress()` (`pages/api/progress.js` POST, called by `ResumablePlayer`) | `getProgress()` (`pages/api/progress.js` GET — resume position + continue-watching list) | none |
+| `fablevideo:roles` | hash, field = normalized email, value = `"manager"` / `"admin"` | `setRole()` (`pages/api/admin/roles.js`) | `listStoredRoles()`, `listRoles()`, `capabilityHolders()`, `resolveRole()`/`resolveAccess()` (`lib/roles.js`) — the authorization gate | none. Only ever describes deviations from the default: storing `"viewer"` deletes the field |
+| `fablevideo:groups` | hash, field = normalized group name, value = `{restricted, videoIds}` | `pages/api/admin/groups.js`; pruned by `pruneVideoFromGroups()` on video delete | `allowedVideoIds()` → `resolveAccess().videoScope` (`lib/groups.js`) — per-video allowlist for tagged viewers | none |
+| `fablevideo:requests` | hash, field = normalized email, value = `{name, message, requestedAt, status, decidedAt, decidedBy}` | `createAccessRequest()` (`pages/api/access-request.js`), `denyAccessRequest()` (`pages/api/admin/access-requests.js`) | `getAccessRequest()`, `listAccessRequests()` (`lib/accessRequests.js`) — the admin queue. Approval **deletes** the record; the viewer row becomes the truth | none |
+| `fablevideo:schedule` | hash, field = video GUID, value = `{publishAt, expiresAt}` | `setSchedule()` (`pages/api/admin/videos.js`, `action: "set-schedule"`) | `getScheduleMap()`/`getSchedule()` → `isLive()` (`lib/schedule.js`) — hides a video from viewers outside its window. Read failures fail **OPEN** | none. An empty window deletes the field |
+| `fablevideo:chapters` | hash, field = video GUID, value = JSON array of `{t, label}` (t = seconds) | `setChapters()` (`pages/api/admin/videos.js`, `action: "set-chapters"`; parsed server-side by `lib/chapters.js`) | `getChapters()`/`getChaptersMap()` (`lib/videoMeta.js`) — the chapter list under the player | none. An empty list deletes the field |
+| `fablevideo:notes` | hash, field = video GUID, value = plain text (≤ `MAX_NOTES_LENGTH`) | `setNotes()` (`pages/api/admin/videos.js`, `action: "set-notes"`; cleaned by `lib/notes.js`) | `getNotes()` (watch page), `getNotesMap()` (`lib/videoList.js`, so the client-side search can match notes) | none. Empty deletes the field |
 | `fablevideo:shares` | **hash**, field = share id, value = JSON share record, **per-field TTL** (Redis 7.4 hash-field-TTL — `HEXPIRE`/`HSETEX` family; confirmed supported by Upstash via `@upstash/redis`'s command bindings) | `createShare(s)`/`stampShares`/`revokeShares`/`unrevokeShares`/`extendShares` — all via `writeShares()`'s `HSETEX` (`lib/shares.js`) | `getShare()` (`HGET`), `getShares()` (`HMGET`, batch), `listShares()` (`HGETALL`, whole hash in 1 command) | per-field: `ex` = `hours * 3600 + GRACE_SECONDS` at creation/extend, or `keepttl` (preserved exactly, no read-back) on any patch that doesn't move `expiresAt` |
 | `fablevideo:audit` | list, capped, JSON-string entries | `logAction()` (`lib/audit.js`, called from nearly every admin mutation) | `recentActions()` (`pages/api/admin/audit.js` — Activity tab) | none; length capped to 200 via `ltrim(key, 0, 199)` after every `lpush` |
 | `fablevideo:rl:<name>` | Ratelimit-internal keys (one family per limiter name/tokens/window combo) | `@upstash/ratelimit` internals via `limiterFor()` (`lib/ratelimit.js`) | same | window-scoped, managed by the `@upstash/ratelimit` library itself |
@@ -634,7 +640,10 @@ tab without installing.
   prefix `fablevideo:` (since commit `c37919e`, 2026-07-09).
 - **Updated 2026-07-15 (v1.8.0):** added section 8 (Web Push + PWA), four
   glossary rows (Web Push, VAPID, service worker, PWA), and the three
-  `fablevideo:push:*` keys to the section-4 inventory — verified by reading
+  the roles/groups/requests/schedule/chapters/notes rows to the section-4
+  inventory on 2026-09-13 (the table had drifted — several of those keys shipped in
+  earlier changes without being recorded here), alongside the earlier
+  `fablevideo:push:*` keys — verified by reading
   `lib/push.js`, `public/sw.js`, `public/manifest.webmanifest`,
   `components/PushToggle.js`, `pages/_app.js`, `pages/_document.js`,
   `pages/api/push/subscribe.js`, and `pages/api/admin/notify.js` on that date.

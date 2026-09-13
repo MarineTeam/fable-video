@@ -1,5 +1,7 @@
 // Plays a library video for an approved viewer with a fresh signed embed
-// token, remembering playback position via the resumable player.
+// token, remembering playback position via the resumable player. Chapters and
+// sermon notes are additive decoration: a video with neither renders exactly
+// as it did before they existed.
 import Head from "next/head";
 import Link from "next/link";
 import AppShell from "../../../components/AppShell";
@@ -15,6 +17,8 @@ import {
 import { resolveWatermark } from "../../../lib/watermark";
 import { getVideo, signEmbedUrl } from "../../../lib/bunny";
 import { getSchedule, isLive } from "../../../lib/schedule";
+import { getChapters, getNotes } from "../../../lib/videoMeta";
+import { notesLines } from "../../../lib/notes";
 import { pageTitle } from "../../../lib/siteName";
 import { getSiteName } from "../../../lib/store";
 import { withMonitorPage } from "../../../lib/monitor";
@@ -90,6 +94,17 @@ async function gssp({ req, params, resolvedUrl }) {
     console.error("Could not resolve watermark settings:", err);
   }
 
+  // Best-effort, like the watermark above: chapters and notes are decoration
+  // on a video the viewer has already been authorized for, so an unreadable
+  // one costs the extra UI and nothing else.
+  let chapters = [];
+  let notes = null;
+  try {
+    [chapters, notes] = await Promise.all([getChapters(params.id), getNotes(params.id)]);
+  } catch (err) {
+    console.error("Could not read the video's chapters or notes:", err);
+  }
+
   const siteName = await getSiteName().catch(() => null);
 
   return {
@@ -104,6 +119,8 @@ async function gssp({ req, params, resolvedUrl }) {
       },
       embedSrc: signEmbedUrl(video.guid),
       watermarkText,
+      chapters,
+      notes,
     },
   };
 }
@@ -117,6 +134,8 @@ export default function WatchVideo({
   embedSrc,
   watermarkText,
   siteName,
+  chapters,
+  notes,
 }) {
   return (
     <AppShell user={user} admin={admin} canNotify siteName={siteName}>
@@ -129,7 +148,27 @@ export default function WatchVideo({
         </Link>
         <h1 className="page-title">{video.title}</h1>
       </div>
-      <ResumablePlayer src={embedSrc} videoId={video.id} watermark={watermarkText} />
+      <ResumablePlayer
+        src={embedSrc}
+        videoId={video.id}
+        watermark={watermarkText}
+        chapters={chapters}
+      />
+      {notes ? (
+        <section className="notes card">
+          <h2 className="notes-title">Notes</h2>
+          {/* Admin-authored text rendered as plain text with line breaks
+              preserved — each line becomes its own element, so nothing typed
+              into the notes field is ever interpreted as markup. */}
+          <div className="notes-body">
+            {notesLines(notes).map((line, index) => (
+              <p key={index} className="notes-line">
+                {line || "\u00a0"}
+              </p>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </AppShell>
   );
 }

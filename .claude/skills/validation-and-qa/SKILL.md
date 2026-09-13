@@ -100,15 +100,16 @@ npm test
 Predicted (current baseline — **a moving target, see Provenance below**):
 
 ```
- Test Files  7 passed (7)
-      Tests  62 passed (62)
+ Test Files  18 passed (18)
+      Tests  240 passed (240)
 ```
 
-Verified fresh 2026-07-23 (after the `ADMIN_GEO_BYPASS_EMAILS` feature added 6 tests
-to `geo.test.js`, still 7 files): matched. Note the file count has already drifted
-past the "four files" language in section 3 below — `shares.test.js` and
-`watermark.test.js` exist too but aren't yet in that table; treat section 3's map as
-incomplete, not wrong about the files it does list. Full run also printed a
+Verified fresh 2026-09-13 (after the chapters / sermon-notes / access-request-
+notification change added `chapters.test.js`, `notes.test.js` and
+`accessRequestNotify.test.js`, and extended `routes.test.js`, `email.test.js` and
+`access.test.js`; it was 15/182 before). Section 3's map below lists only the
+earliest files and has been stale for several changes — treat it as incomplete, not
+wrong about the files it does list; `ls lib/__tests__/` is the authoritative list. Full run also printed a
 `Duration` line, which is informational, not part of the prediction — don't treat a
 duration change as a failure.
 
@@ -139,8 +140,13 @@ it locally when you have the checkout to yourself.
 ## 3. Existing test map
 
 Read fresh from the four files in `lib/__tests__/` on 2026-07-13 (all pass, see
-above). This is the entire suite — there is no test coverage outside these four
-files.
+above). **This table is a historical snapshot, not the current suite** — it has not
+been extended as tests were added. There are 18 test files today; run
+`ls lib/__tests__/` or `npx vitest list` for the real inventory. Coverage is still
+confined to `lib/__tests__/`: pure logic, plus `access.test.js` (the resolver with
+Redis stubbed), `accessRequestNotify.test.js` (delivery stubbed) and
+`routes.test.js` (real API handlers through `helpers/route.js`, Auth0 + Redis
+stubbed).
 
 | File | Module under test | What it actually asserts | Example test name |
 |---|---|---|---|
@@ -330,7 +336,8 @@ Written 2026-07-13 against commit state matching `change-control`'s 2026-07-10
 snapshot (v1.6.0). Verified fresh in this session, this checkout:
 
 - `npm run lint` → exit 0, banner-only output (matched section 2's prediction).
-- `npm test` → `Test Files  4 passed (4)` / `Tests  24 passed (24)` (matched).
+- `npm test` → `Test Files  4 passed (4)` / `Tests  24 passed (24)` (matched at the
+  time; the baseline is 18/240 as of 2026-09-13).
 - `npm run build` — NOT run in this session (avoided per the concurrency warning
   this file itself states); cites the same 2026-07-10 baseline as `change-control`.
 - All four `lib/__tests__/*.test.js` files read in full; section 3's table is a

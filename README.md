@@ -328,11 +328,11 @@ worker, or icons.
   serverless instance so that search, filtering, and pagination don't re-fetch
   the whole library — any admin mutation invalidates that cache immediately.
 - **Redis** (prefix `fablevideo:`) holds all app-owned state: approved viewers,
-  roles, groups, access requests, video schedules, the site name,
-  last-seen timestamps, the custom homepage order, site
-  settings, the theme, per-viewer playback progress, share records, the audit
-  log, rate-limit counters, and push subscriptions. Everything is editable live
-  from `/admin` without redeploying.
+  roles, groups, access requests, video schedules, per-video chapters and
+  sermon notes, the site name, last-seen timestamps, the custom homepage
+  order, site settings, the theme, per-viewer playback progress, share
+  records, the audit log, rate-limit counters, and push subscriptions.
+  Everything is editable live from `/admin` without redeploying.
 
 ### Playback security
 
@@ -349,8 +349,13 @@ credentials — the file never passes through the app server.
 - **Fail closed on access:** approval and share-recipient checks deny on error.
 - **Fail open on infrastructure:** rate limiting and audit logging never block a
   real user if Redis hiccups.
-- **Best-effort side effects:** last-seen stamps, push announcements, and audit
-  entries never break the action they accompany.
+- **Best-effort side effects:** last-seen stamps, push announcements,
+  access-request notifications, and audit entries never break the action they
+  accompany.
+- **Additive by default:** a video with no schedule, no chapters and no notes
+  behaves exactly as it did before those features existed, and a viewer in no
+  group is unrestricted. A default that hides content on deploy is
+  indistinguishable from an outage.
 
 ---
 
@@ -417,6 +422,10 @@ lib/
   groups.js               Viewer groups: per-video allowlists over the existing tags
   accessRequests.js       Self-serve access requests (queue only — never grants)
   schedule.js             Per-video publish/expiry windows
+  chapters.js             Chapter parsing/formatting — pure, storage-free, client-safe
+  notes.js                Sermon-notes cleaning + the search predicate (pure, client-safe)
+  videoMeta.js            Redis storage for chapters and notes (the two hashes above)
+  accessRequestNotify.js  Best-effort email/push to whoever can action a new request
   siteName.js             Site-name resolution + page-title/short-name helpers (pure, client-safe)
   guard.js                API guards: requireUser / requireAccess / requireCapability
   bunny.js                Bunny API: videos, collections, TUS signing, signed embed
@@ -426,8 +435,10 @@ lib/
   shares.js               Share-link records (app-level expiry + grace-window TTL), view/
                           playback tracking, extend, soft revoke/restore, permanent delete
   bundles.js              One-bundle-per-recipient grouping (ids only, always read live)
-  email.js                Resend delivery + share/bundle email templates (inert until configured)
-  push.js                 Web Push subscriptions + send + new-video announce (inert until configured)
+  email.js                Resend delivery + share/bundle/access-request email templates
+                          (inert until configured)
+  push.js                 Web Push subscriptions, broadcast + addressed send, new-video
+                          announce (inert until configured)
   videoList.js            Viewer-facing library (ordered, ready-only, signed thumbnails)
   order.js                Apply custom video order (new uploads float to top, newest first)
   theme.js                Palette presets, validation
@@ -469,7 +480,10 @@ enforce it independently.
   drag-to-reorder, search, encoding-status badges, per-video collection
   assignment, a per-video **watermark override** (Default/Always/Never), a
   a per-video **Schedule** (publish-at / expires-at window, with Scheduled and
-  Expired badges), a per-row **Stats** toggle showing that video's share-link
+  Expired badges), a per-video **Chapters & notes** dialog (timestamped
+  chapters typed one per line, plus free-text sermon notes — the server
+  parses the chapters, sorts them on save, and reports back any line it could
+  not read), a per-row **Stats** toggle showing that video's share-link
   analytics inline,
   per-video private share-link creation (with an "email the link" option),
   and **multi-select bulk sharing** (select several videos, share them with
@@ -534,6 +548,12 @@ When `RESEND_API_KEY` and `EMAIL_FROM` are set:
   sends, or lost emails.
 - Email failures never lose the link: the admin sees the error, can copy the link
   manually, and can retry later. Sends are recorded in the activity log.
+- A new **access request** also emails everyone holding the people-management
+  capability (admins and `ADMIN_EMAILS`), with the requester's address and
+  their note. It links to `/admin` and never carries an approve-by-link — a
+  link that grants access from an inbox grants it to whoever else can read
+  that inbox. Only a genuinely new request sends; re-asking while one is
+  pending sends nothing. A failure here never fails the request itself.
 
 The sending domain must be verified in Resend or delivery will fail (the error
 surfaces in the admin UI).

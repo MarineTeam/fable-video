@@ -16,6 +16,7 @@ import {
   createAccessRequest,
   getAccessRequest,
 } from "../../lib/accessRequests";
+import { notifyNewAccessRequest } from "../../lib/accessRequestNotify";
 import { logAction } from "../../lib/audit";
 import { withMonitorApi } from "../../lib/monitor";
 
@@ -65,6 +66,16 @@ async function handler(req, res) {
     // Actor is the requester — this is the one audit entry not written by an
     // admin, and seeing who asked is the point of logging it.
     await logAction(email, "access.request", email);
+    // Best-effort, and only on a genuinely new request — createAccessRequest
+    // returns null when one already exists, and the early return above means
+    // a re-ask while pending never reaches here. Wrapped anyway: a mail or
+    // push failure must not turn a recorded request into an error the person
+    // is told to retry.
+    try {
+      await notifyNewAccessRequest(created);
+    } catch (err) {
+      console.error("Could not notify admins of the access request:", err);
+    }
     return res.json({ status: "pending", alreadyRequested: false });
   } catch (err) {
     console.error("Could not record the access request:", err);

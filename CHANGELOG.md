@@ -6,9 +6,43 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 Role-based access control and content-scoped viewer groups — the first change
-to the portal's identity model since it shipped.
+to the portal's identity model since it shipped — plus the first features
+aimed squarely at long-form recordings: chapters, sermon notes, and a
+notification when someone asks for access.
 
 ### Added
+
+- **Chapters per video** — a timestamped list ("Worship 0:00 · Announcements
+  18:30 · Sermon 24:15 · Communion 1:11:00") rendered under the player, where
+  clicking a chapter seeks to it. A 60–90 minute service recording is the case
+  this exists for. Admins type one chapter per line in a dialog on the Videos
+  tab, in `M:SS`, `MM:SS` or `H:MM:SS`; the **server** parses it, sorts by
+  timestamp on save so the typed order doesn't matter, and **reports which
+  lines it could not read** and which timestamps fall past the end of the
+  recording rather than dropping them quietly. If `player.js` never becomes
+  available the list still renders, as plain non-clickable text rather than
+  buttons that would do nothing. Additive: a video with no chapters renders
+  exactly as it did before.
+- **Sermon notes per video** — free text under the player (an outline, the
+  passage covered, who spoke), rendered as plain text with line breaks
+  preserved and never as markup. The library's existing instant search now
+  matches notes as well as titles, so a passage that was never in the title is
+  findable months later. Search still only narrows the list the server already
+  decided a viewer may see, so notes can't surface a video group scoping or a
+  schedule had excluded. Scripture-reference *parsing* is deliberately not
+  included — abbreviations, ranges and translations make it far deeper than it
+  looks, and it isn't needed for the core value.
+- **Access-request notifications** — a new request now emails and
+  push-notifies the people who can action it, instead of waiting to be noticed
+  on the Viewers tab. Recipients are derived from who holds the
+  people-management capability (today: admins and `ADMIN_EMAILS`) rather than
+  hardcoded, so moving that capability moves the recipients with it. Only a
+  genuinely new request notifies — re-asking while one is pending sends
+  nothing, so a refresh loop can't become a notification flood. Best-effort
+  throughout: a mail or push failure never fails the request it describes, and
+  with no Resend key and no VAPID keys nothing sends and nothing errors. The
+  push says only who asked; the requester's note goes in the email, HTML-
+  escaped, not onto a lock screen. There is no approve-by-link, deliberately.
 
 - **User roles** — three roles, each a strict superset of the one below:
   **Viewer** (watch only), **Manager** (the video library, sharing, analytics
@@ -109,6 +143,12 @@ to the portal's identity model since it shipped.
 - The Groups tab's video picker read `video.guid`, but `/api/admin/videos`
   returns `id` — so no checkbox ever matched and an allowlist couldn't be
   edited. Introduced and fixed within this unreleased set of changes.
+- `/api/admin/notify` checked `req.method` **before** its capability guard, so
+  an unauthorised caller got `405 Method not allowed` — which confirms the
+  route exists and names the verb it wants — instead of a `403`. Every other
+  admin route in the repo guards first; this one now does too, with a test
+  asserting an unauthorised GET returns 403 and an authorised one still gets
+  the 405 it deserves.
 
 ## [1.16.0] - 2026-07-30
 

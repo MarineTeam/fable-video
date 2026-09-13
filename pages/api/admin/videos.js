@@ -1,5 +1,6 @@
 // Admin video library: ordered list with encoding status, rename,
-// collection assignment, and delete (which also prunes the saved order).
+// collection assignment, chapters, sermon notes, and delete (which also
+// prunes the saved order).
 import { requireCapability } from "../../../lib/guard";
 import { CAP } from "../../../lib/roles";
 import {
@@ -18,6 +19,15 @@ import {
   setVideoWatermarkOverride,
 } from "../../../lib/store";
 import { pruneVideoFromGroups } from "../../../lib/groups";
+import { beyondDuration, formatTimestamp, parseChapters } from "../../../lib/chapters";
+import { MAX_NOTES_LENGTH } from "../../../lib/notes";
+import {
+  getChaptersMap,
+  getNotesMap,
+  pruneVideoMeta,
+  setChapters,
+  setNotes,
+} from "../../../lib/videoMeta";
 import {
   clearSchedule,
   getScheduleMap,
@@ -39,12 +49,17 @@ async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
-      const [all, order, watermarkOverrides, schedules] = await Promise.all([
-        listAllVideos(),
-        getOrder().catch(() => []),
-        getVideoWatermarkOverrides().catch(() => ({})),
-        getScheduleMap().catch(() => ({})),
-      ]);
+      const [all, order, watermarkOverrides, schedules, chapters, notes] =
+        await Promise.all([
+          listAllVideos(),
+          getOrder().catch(() => []),
+          getVideoWatermarkOverrides().catch(() => ({})),
+          getScheduleMap().catch(() => ({})),
+          // Decoration, not access control: an unreadable hash costs the
+          // admin the editor's current contents, never the video list.
+          getChaptersMap().catch(() => ({})),
+          getNotesMap().catch(() => ({})),
+        ]);
       const now = Date.now();
       const videos = applyOrder(all, order).map((video) => ({
         id: video.guid,
@@ -61,6 +76,8 @@ async function handler(req, res) {
         // the admin list can badge what viewers can't currently see.
         schedule: schedules[video.guid] || null,
         scheduleState: scheduleState(schedules[video.guid], now),
+        chapters: chapters[video.guid] || [],
+        notes: notes[video.guid] || "",
       }));
       // Best-effort: announce any newly-ready video to subscribers. Never let
       // a push failure break the admin video list.
@@ -97,6 +114,7 @@ async function handler(req, res) {
             await pruneFromOrder(videoId).catch(() => {});
             await pruneVideoFromGroups(videoId).catch(() => {});
             await clearSchedule(videoId).catch(() => {});
+            await pruneVideoMeta(videoId).catch(() => {});
             results[videoId] = { ok: true };
           } catch (err) {
             console.error("Bulk delete failed on bunny.net:", err);
@@ -172,6 +190,44 @@ async function handler(req, res) {
       return res.json({ ok: true, schedule: saved });
     }
 
+    if (action === "set-chapters") {
+      // Parsing is pure (lib/chapters.js) and happens here rather than in the
+      // browser so what gets stored is what the server read, not what a
+      // client claims it read.
+      const { chapters, ignored } = parseChapters(req.body?.text || "");
+      let saved;
+      try {
+        saved = await setChapters(id, chapters);
+      } catch (err) {
+        console.error("Could not save the video chapters:", err);
+        return res.status(502).json({ error: "Could not save the chapters" });
+      }
+      const duration = Number(req.body?.length) || 0;
+      const late = beyondDuration(saved, duration).map((c) => formatTimestamp(c.t));
+      await logAction(admin, "video.chapters", `${id} → ${saved.length} chapter(s)`);
+      // Ignored lines are reported, never silently dropped — the admin needs
+      // to know a line they typed did not become a chapter.
+      return res.json({ ok: true, chapters: saved, ignored, beyondDuration: late });
+    }
+
+    if (action === "set-notes") {
+      const text = String(req.body?.text || "");
+      if (text.length > MAX_NOTES_LENGTH * 2) {
+        return res
+          .status(400)
+          .json({ error: `Notes must be at most ${MAX_NOTES_LENGTH} characters` });
+      }
+      let saved;
+      try {
+        saved = await setNotes(id, text);
+      } catch (err) {
+        console.error("Could not save the video notes:", err);
+        return res.status(502).json({ error: "Could not save the notes" });
+      }
+      await logAction(admin, "video.notes", saved ? `${id} → ${saved.length} chars` : `${id} → cleared`);
+      return res.json({ ok: true, notes: saved || "" });
+    }
+
     if (action === "set-watermark") {
       const mode = clampWatermarkMode(req.body?.watermark);
       try {
@@ -232,6 +288,7 @@ async function handler(req, res) {
     // a group's allowlist where a recycled id could inherit its grant.
     await pruneVideoFromGroups(id).catch(() => {});
     await clearSchedule(id).catch(() => {});
+    await pruneVideoMeta(id).catch(() => {});
     await logAction(admin, "video.delete", id);
     return res.json({ ok: true });
   }

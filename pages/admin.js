@@ -27,6 +27,8 @@ import { blockedByEmailVerification, normalizeEmail } from "../lib/auth";
 // component, and lib/roles.js reaches into Redis.
 import { CAP } from "../lib/capabilities";
 import { pageTitle } from "../lib/siteName";
+import { MAX_NOTES_LENGTH } from "../lib/notes";
+import { formatChapters } from "../lib/chapters";
 import { isStaffRole, resolveAccess } from "../lib/roles";
 import { PRESETS } from "../lib/theme";
 import { applyResolvedTheme } from "../lib/theme-client";
@@ -146,6 +148,130 @@ function fromLocalInput(value) {
   if (!value) return null;
   const date = new Date(value);
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
+// Chapters and sermon notes for one video. Both are stored per video and are
+// additive — a video with neither behaves exactly as it did before these
+// existed. The textarea is the source of truth; the SERVER parses it
+// (lib/chapters.js) and reports back which lines it could not read, so a
+// typo is surfaced here rather than silently dropped.
+function DetailsEditor({ video, onClose, onSaved }) {
+  const [chapterText, setChapterText] = useState(formatChapters(video.chapters));
+  const [notes, setNotes] = useState(video.notes || "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [ignored, setIgnored] = useState([]);
+  const [late, setLate] = useState([]);
+  const [saved, setSaved] = useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    setError("");
+    setSaved(false);
+    try {
+      const result = await api("/api/admin/videos", {
+        method: "POST",
+        body: {
+          action: "set-chapters",
+          id: video.id,
+          text: chapterText,
+          length: video.length || 0,
+        },
+      });
+      await api("/api/admin/videos", {
+        method: "POST",
+        body: { action: "set-notes", id: video.id, text: notes },
+      });
+      setIgnored(result?.ignored || []);
+      setLate(result?.beyondDuration || []);
+      setChapterText(formatChapters(result?.chapters || []));
+      setSaved(true);
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose} role="presentation">
+      <div
+        className="modal card"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label="Chapters and notes"
+      >
+        <div className="modal-head">
+          <h3 className="modal-title">Chapters &amp; notes</h3>
+          <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
+            <XIcon size={14} />
+          </button>
+        </div>
+        <p className="muted small">
+          Viewers see these under the player on <strong>{video.title}</strong>.
+          Leave both empty for no chapters and no notes.
+        </p>
+        <label className="stack-sm">
+          <span className="muted small">
+            Chapters — one per line, timestamp first: <code>24:15 Sermon</code>.
+            M:SS, MM:SS and H:MM:SS all work; they are sorted for you on save.
+          </span>
+          <textarea
+            className="input textarea chapters-help"
+            rows={8}
+            value={chapterText}
+            onChange={(e) => setChapterText(e.target.value)}
+            placeholder={"0:00 Worship\n18:30 Announcements\n24:15 Sermon"}
+          />
+        </label>
+        <label className="stack-sm">
+          <span className="muted small">
+            Notes — an outline or the passage covered. Searchable from the
+            library. {notes.length}/{MAX_NOTES_LENGTH} characters.
+          </span>
+          <textarea
+            className="input textarea"
+            rows={6}
+            maxLength={MAX_NOTES_LENGTH}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Philippians 4:10-20 — contentment and provision."
+          />
+        </label>
+        {error ? <div className="notice notice-error">{error}</div> : null}
+        {ignored.length ? (
+          <div className="notice notice-warn notice-block">
+            Skipped {ignored.length} line{ignored.length === 1 ? "" : "s"} that
+            did not start with a timestamp:
+            <ul>
+              {ignored.map((entry) => (
+                <li key={entry.line}>
+                  Line {entry.line}: &ldquo;{entry.text}&rdquo; — {entry.reason}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {late.length ? (
+          <div className="notice notice-warn">
+            Saved, but {late.join(", ")} {late.length === 1 ? "is" : "are"} past
+            the end of this recording.
+          </div>
+        ) : null}
+        {saved && !ignored.length && !late.length ? (
+          <div className="notice notice-ok">Saved.</div>
+        ) : null}
+        <div className="row-actions">
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={save}>
+            Save
+          </button>
+          <button type="button" className="btn btn-ghost" disabled={busy} onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ScheduleEditor({ video, onClose, onSaved }) {
@@ -1064,6 +1190,7 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
   const [shareFor, setShareFor] = useState(null);
   const [privateListFor, setPrivateListFor] = useState(null);
   const [scheduleFor, setScheduleFor] = useState(null);
+  const [detailsFor, setDetailsFor] = useState(null);
   const [selected, setSelected] = useState(() => new Set());
   const [bulkShareOpen, setBulkShareOpen] = useState(false);
   const [renaming, setRenaming] = useState(null);
@@ -1715,6 +1842,14 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
                   </button>
                   <button
                     type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setDetailsFor(video)}
+                    title="Chapters and sermon notes for this video"
+                  >
+                    {video.chapters?.length || video.notes ? "Chapters ✓" : "Chapters"}
+                  </button>
+                  <button
+                    type="button"
                     className="icon-btn"
                     aria-label="Rename"
                     onClick={() => setRenaming({ id: video.id, title: video.title })}
@@ -1843,6 +1978,13 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
         <ScheduleEditor
           video={scheduleFor}
           onClose={() => setScheduleFor(null)}
+          onSaved={load}
+        />
+      ) : null}
+      {detailsFor ? (
+        <DetailsEditor
+          video={detailsFor}
+          onClose={() => setDetailsFor(null)}
           onSaved={load}
         />
       ) : null}
@@ -3719,6 +3861,8 @@ const ACTION_LABELS = {
   "video.collection": "Video collection changed",
   "video.watermark": "Video watermark setting changed",
   "video.schedule": "Video schedule changed",
+  "video.chapters": "Video chapters changed",
+  "video.notes": "Video notes changed",
   "video.bulk_delete": "Videos bulk-deleted",
   "video.bulk_collection": "Videos bulk-moved to a collection",
   "order.update": "Library reordered",

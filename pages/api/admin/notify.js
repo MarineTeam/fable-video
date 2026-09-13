@@ -8,14 +8,18 @@ import { logAction } from "../../../lib/audit";
 import { withMonitorApi } from "../../../lib/monitor";
 
 async function handler(req, res) {
+  // Guard BEFORE the method check, like every other admin route. Checking the
+  // method first answered an unauthorised caller with 405 "Method not
+  // allowed", which confirms the route exists and names the verb it wants —
+  // this was the only route in the repo doing so.
+  const access = await requireCapability(req, res, CAP.SETTINGS);
+  if (!access) return;
+  const admin = access.email;
+
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
   }
-
-  const access = await requireCapability(req, res, CAP.SETTINGS);
-  if (!access) return;
-  const admin = access.email;
 
   if (!pushEnabled()) {
     return res.status(503).json({ error: "Push notifications are not configured" });
