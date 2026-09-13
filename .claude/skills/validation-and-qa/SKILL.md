@@ -100,14 +100,14 @@ npm test
 Predicted (current baseline — **a moving target, see Provenance below**):
 
 ```
- Test Files  18 passed (18)
-      Tests  240 passed (240)
+ Test Files  23 passed (23)
+      Tests  323 passed (323)
 ```
 
-Verified fresh 2026-09-13 (after the chapters / sermon-notes / access-request-
-notification change added `chapters.test.js`, `notes.test.js` and
-`accessRequestNotify.test.js`, and extended `routes.test.js`, `email.test.js` and
-`access.test.js`; it was 15/182 before). Section 3's map below lists only the
+Verified fresh 2026-09-13 (after the public-links + podcast-feed change added
+`publicVideos.test.js`, `publicRoute.test.js`, `feedTokens.test.js`,
+`feedRoutes.test.js` and `podcast.test.js`; it was 18/240 before that, and
+15/182 before the chapters/notes change). Section 3's map below lists only the
 earliest files and has been stale for several changes — treat it as incomplete, not
 wrong about the files it does list; `ls lib/__tests__/` is the authoritative list. Full run also printed a
 `Duration` line, which is informational, not part of the prediction — don't treat a
@@ -141,7 +141,7 @@ it locally when you have the checkout to yourself.
 
 Read fresh from the four files in `lib/__tests__/` on 2026-07-13 (all pass, see
 above). **This table is a historical snapshot, not the current suite** — it has not
-been extended as tests were added. There are 18 test files today; run
+been extended as tests were added. There are 23 test files today; run
 `ls lib/__tests__/` or `npx vitest list` for the real inventory. Coverage is still
 confined to `lib/__tests__/`: pure logic, plus `access.test.js` (the resolver with
 Redis stubbed), `accessRequestNotify.test.js` (delivery stubbed) and

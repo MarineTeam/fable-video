@@ -10,6 +10,7 @@ import {
   setViewerTags,
 } from "../../../lib/store";
 import { CAP, DEFAULT_ROLE, listRoles, removeRole } from "../../../lib/roles";
+import { deleteFeedToken } from "../../../lib/feedTokens";
 import { logAction } from "../../../lib/audit";
 import { withMonitorApi } from "../../../lib/monitor";
 
@@ -138,6 +139,12 @@ async function handler(req, res) {
       // approved), so removing someone has to clear it too — otherwise
       // "remove" would silently leave a manager with a way back in.
       await removeRole(email);
+      // Best-effort: their feed would deny on its next poll regardless,
+      // because entitlement is re-resolved per fetch (lib/feedAccess.js).
+      // Deleting the token anyway keeps that fact obvious rather than
+      // leaving a live-looking row behind for someone to later "optimize"
+      // the feed by trusting.
+      await deleteFeedToken(email).catch(() => {});
     } catch (err) {
       console.error("Could not remove viewer:", err);
       return res.status(502).json({ error: "Could not remove viewer" });

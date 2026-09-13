@@ -68,6 +68,83 @@ function NotApproved({ user }) {
   );
 }
 
+// The viewer's own podcast feed address.
+//
+// Lives here rather than in the nav because it is a personal, per-account
+// thing — the same reason this page exists. It is only ever the signed-in
+// viewer's own link: there is deliberately no way for an admin to read
+// someone else's, and the "View as" picker above does not reach it.
+function PodcastFeed() {
+  const [state, setState] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/feed-token")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setState(data || { enabled: false }))
+      .catch(() => setState({ enabled: false }));
+  }, []);
+
+  const regenerate = async () => {
+    setBusy(true);
+    setCopied(false);
+    try {
+      const res = await fetch("/api/feed-token", { method: "POST" });
+      if (res.ok) setState(await res.json());
+    } catch {
+      // Leave the existing link on screen; it still works.
+    }
+    setBusy(false);
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(state.url);
+      setCopied(true);
+    } catch {
+      // Clipboard blocked — the address is on screen to copy by hand.
+    }
+  };
+
+  // Nothing at all when the feature is off, so the page is unchanged for a
+  // portal that never turns it on.
+  if (!state?.enabled || !state?.url) return null;
+
+  return (
+    <div className="card podcast-card">
+      <h2 className="chapters-title">Listen in a podcast app</h2>
+      <p className="muted small">
+        Paste this address into your podcast app to get new recordings
+        automatically. It is yours alone — treat it like a password, because
+        anyone you give it to sees what you see.
+        {state.mediaReady ? "" : " (No episodes yet — ask an admin to finish setup.)"}
+      </p>
+      <input
+        className="input"
+        readOnly
+        value={state.url}
+        onFocus={(e) => e.target.select()}
+        aria-label="Your private podcast feed address"
+      />
+      <div className="row-actions">
+        <button type="button" className="btn btn-ghost btn-sm" onClick={copy}>
+          {copied ? "Copied" : "Copy address"}
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          disabled={busy}
+          onClick={regenerate}
+          title="Replaces the address everywhere — use this if you shared it by mistake"
+        >
+          Regenerate
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Activity({ user, admin, approved, siteName }) {
   const [items, setItems] = useState(null);
   const [error, setError] = useState("");
@@ -117,6 +194,7 @@ export default function Activity({ user, admin, approved, siteName }) {
       <Head>
         <title>{pageTitle("My activity", siteName)}</title>
       </Head>
+      {viewAs ? null : <PodcastFeed />}
       <div className="page-head">
         <h1 className="page-title">{viewAs ? `${viewAs}'s activity` : "My activity"}</h1>
         {admin ? (

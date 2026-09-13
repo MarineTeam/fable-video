@@ -216,6 +216,17 @@ Inert until both VAPID keys are set. Generate them with
 > **iOS only delivers push to the PWA once it's installed to the Home Screen**
 > (iOS/iPadOS 16.4+).
 
+### Optional — podcast feed
+
+| Variable | What it does |
+| --- | --- |
+| `BUNNY_MP4_HEIGHT` | Which MP4 fallback rendition the podcast feed serves (default `720`). Must be a height your bunny.net library actually generates. |
+
+The feed also requires `BUNNY_CDN_HOSTNAME` (shared with thumbnails) and
+`APP_BASE_URL`, plus **MP4 Fallback** enabled on the bunny.net library — see
+"Podcast feed" below. Without these, the feature is inert: subscribers get a
+valid but empty feed rather than an error.
+
 ### Optional — geo-location whitelist
 
 `GEO_WHITELIST` and `ADMIN_GEO_WHITELIST` are lists only — each is inert
@@ -329,14 +340,20 @@ worker, or icons.
   the whole library — any admin mutation invalidates that cache immediately.
 - **Redis** (prefix `fablevideo:`) holds all app-owned state: approved viewers,
   roles, groups, access requests, video schedules, per-video chapters and
-  sermon notes, the site name, last-seen timestamps, the custom homepage
+  sermon notes, the public-video flags, podcast feed tokens, the site name, last-seen timestamps, the custom homepage
   order, site settings, the theme, per-viewer playback progress, share
   records, the audit log, rate-limit counters, and push subscriptions.
   Everything is editable live from `/admin` without redeploying.
 
 ### Playback security
 
-Video files are never served or linked directly. Each playback uses a fresh,
+Video files are never served or linked directly, with exactly one narrow,
+deliberate exception: the podcast feed's media route, which 302-redirects to a
+pull-zone-signed MP4 that expires in 15 minutes, and only after it has
+re-checked the caller's approval, group scope and the video's publish window.
+That URL never appears in the feed document, in Redis, in a log, or in any
+client bundle. Everything else — the library, share links, and the public page
+— plays only through a signed embed token. Each playback uses a fresh,
 time-limited embed token (`SHA256(tokenKey + videoId + expires)`) generated per
 request and never stored. Thumbnails are CDN-token-signed the same way, so they
 keep working with bunny.net's "Block Direct URL File Access" enabled, and they
@@ -422,6 +439,11 @@ lib/
   groups.js               Viewer groups: per-video allowlists over the existing tags
   accessRequests.js       Self-serve access requests (queue only — never grants)
   schedule.js             Per-video publish/expiry windows
+  publicVideos.js         The one no-login flag: default deny, fails CLOSED on error
+  feedTokens.js           256-bit podcast-feed tokens (identity claim only)
+  feedAccess.js           Re-resolves feed entitlement on EVERY fetch
+  podcast.js              RSS 2.0 + iTunes feed builder — pure, storage-free
+  bunnyMedia.js           Signed short-lived CDN MP4 urls (podcast enclosures only)
   chapters.js             Chapter parsing/formatting — pure, storage-free, client-safe
   notes.js                Sermon-notes cleaning + the search predicate (pure, client-safe)
   videoMeta.js            Redis storage for chapters and notes (the two hashes above)
@@ -489,6 +511,8 @@ enforce it independently.
   and **multi-select bulk sharing** (select several videos, share them with
   several recipients in one request) as well as **bulk delete** and **bulk
   move to a collection**. Includes a Collections manager (create/delete).
+  An admin-only **Public link** button makes one video watchable with no
+  account at all, on its own separate page (see "Public links" below).
   A per-video **"Private list"** button opens a persistent, editable panel
   of everyone added to that one video's list — add several emails at once
   (only the ones not already on the list get a new share and a
@@ -557,6 +581,71 @@ When `RESEND_API_KEY` and `EMAIL_FROM` are set:
 
 The sending domain must be verified in Resend or delivery will fail (the error
 surfaces in the admin UI).
+
+---
+
+## Public links
+
+An admin can make **one video at a time** watchable by anyone with the address,
+with no account and no sign-in, from the Videos tab (**Public link**). It is
+the only part of the portal that serves video without a session, and it is
+deliberately narrow:
+
+- **Its own page** (`/watch/public/<id>`), not a relaxed branch of an existing
+  one. That page shows one video, its chapters and its notes — no search, no
+  collections, no counts, no link into the library, and a `noindex` so it does
+  not turn up in search results.
+- **Default deny, and fails closed.** A video is public only while a row exists
+  for it. If Redis can't be read the link 404s rather than risk publishing —
+  the opposite of how schedules behave, and on purpose: a link briefly down
+  beats the library briefly public.
+- **Still gated by the publish/expiry window**, and still played through a
+  fresh signed, time-limited token. "Public" means no login; it never means an
+  unsigned or permanent URL.
+- **No per-viewer anything** — no watermark, no resume position, no last-seen,
+  no push. Those are all keyed to an email address, and there isn't one.
+- **Admins only.** Managers see a **Public** badge on the row but cannot change
+  it; publishing needs `settings.manage`.
+
+Anyone the address is forwarded to can watch. Turning it off is immediate.
+
+---
+
+## Podcast feed
+
+Each viewer can get a private feed address from **My activity** and paste it
+into any podcast app. Off until an admin enables it in **Settings → Podcast
+feed**.
+
+**The address identifies the account and grants nothing.** It carries a
+256-bit random token, and approval, role, group restrictions and publish
+windows are all re-resolved from Redis on every poll and every episode
+download — through the same code the website uses. So removing a viewer,
+restricting their group, or expiring a video takes effect on their next poll,
+with no revocation step, because there was never a grant to revoke.
+**Regenerate** replaces the address if it is ever shared by mistake.
+
+### Setting it up
+
+The feed serves media from the bunny.net CDN pull zone, so it needs
+`BUNNY_CDN_HOSTNAME` set. Then, **on the bunny.net library itself**:
+
+1. Enable **MP4 Fallback** under the library's Encoding settings.
+2. Be aware that bunny.net generates an MP4 only for videos uploaded **after**
+   that setting was turned on. Existing recordings have no MP4 and their
+   episodes will fail to download until they are re-uploaded.
+
+**Episodes are video, not audio.** bunny.net Stream has no audio-only or MP3
+rendition — this was checked against their documentation, not assumed. Episodes
+are therefore MP4 video at the height set by `BUNNY_MP4_HEIGHT` (default 720).
+They play in essentially every podcast app, but a 90-minute service is a much
+larger download than audio would be. If audio matters more than convenience,
+the honest answer today is to publish audio elsewhere rather than expect this
+feed to produce it.
+
+The feed marks itself `<itunes:block>Yes</itunes:block>` so it is never listed
+in Apple's public directory, and every denial — unknown address, retired
+address, or an account that lost access — returns an identical `404`.
 
 ---
 

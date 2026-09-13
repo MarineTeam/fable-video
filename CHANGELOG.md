@@ -32,6 +32,30 @@ notification when someone asks for access.
   schedule had excluded. Scripture-reference *parsing* is deliberately not
   included — abbreviations, ranges and translations make it far deeper than it
   looks, and it isn't needed for the core value.
+- **Public video links** — an admin can make one video watchable by anyone
+  with the address, no account and no sign-in. It lives on its own route
+  (`/watch/public/<id>`) rather than as an "or public" branch in the existing
+  gates, so there is exactly one file to audit when asking what an anonymous
+  visitor can reach. Default deny, and the flag **fails CLOSED on a Redis
+  error** — the opposite of the schedule's polarity, and deliberate: a public
+  link briefly 404ing during an outage beats publishing the library during
+  one. A public video is still bound by its publish/expiry window, still plays
+  through a fresh signed time-limited embed token, and carries no watermark,
+  no resume position, no last-seen stamp and no push subscription — all of
+  those are keyed by an email, and there isn't one. The page asks search
+  engines not to index it, shows no search, no collections, no counts and no
+  route into the library. Enabling it needs `settings.manage`, so a manager
+  can see that a video is public but cannot make one public.
+- **Per-subscriber podcast feed** — each viewer gets a private feed address
+  (`/api/feed/<token>`) to paste into a podcast app, with a 256-bit token.
+  The token is an **identity claim only**: approval, role, group video scope
+  and publish windows are all re-resolved from Redis on every feed poll and
+  every episode download, through the same `fetchVideoLibrary` the website
+  uses. Removing a viewer, restricting their group or expiring a video takes
+  effect on their next poll with no revocation step, because there is no
+  grant to revoke. Regenerating replaces the address for a token that leaked.
+  Off by default — unlike a schedule or a group, this widens how the library
+  can be reached, so it is opt-in. Every denial answers an identical 404.
 - **Access-request notifications** — a new request now emails and
   push-notifies the people who can action it, instead of waiting to be noticed
   on the Viewers tab. Recipients are derived from who holds the
@@ -110,6 +134,22 @@ notification when someone asks for access.
   under-privileged 403s, the verified-email gate, the role-assignment
   guardrails, and the access-request rules. Previously lint and build were the
   only automated checks on any `/api/**` handler.
+
+### Known limitation
+
+- **Podcast episodes are video, not audio.** Verified against bunny.net's own
+  documentation rather than assumed: bunny.net Stream has **no audio-only or
+  MP3 rendition** — a video's stored files are `playlist.m3u8`, optional
+  `play_{height}p.mp4` fallbacks, the original, and thumbnails/captions.
+  Episodes are therefore 720p MP4s (configurable via `BUNNY_MP4_HEIGHT`).
+  They play in essentially every podcast app but are a far larger download
+  than audio would be, which matters for a 90-minute recording on mobile
+  data. Two further conditions live on the bunny.net library and cannot be
+  set from this repo: **MP4 Fallback** must be enabled under its Encoding
+  settings, and bunny.net only generates an MP4 for videos uploaded **after**
+  that was turned on — existing recordings need re-uploading or their
+  episodes will fail to download. The admin Settings panel states all of this
+  next to the toggle rather than letting it be discovered by a subscriber.
 
 ### Changed
 

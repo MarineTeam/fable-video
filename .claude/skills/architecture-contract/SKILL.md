@@ -154,9 +154,15 @@ and is scoped to one video.
 (`lib/bunny.js:179-195`, token-signed when `BUNNY_CDN_TOKEN_KEY`/`BUNNY_TOKEN_AUTH_KEY`
 is set).
 
+**AMENDED 2026-09-13 — see invariant (s).** The podcast feed's media route may 302 to a
+pull-zone-signed, 15-minute MP4 URL, because podcast apps cannot render an iframe. That
+is the ONLY exception, the URL never appears in any document or store, and it is minted
+only after a full authorization re-check. Every other playback path is unchanged.
+
 **Verify with:** `grep -rn "b-cdn.net" pages lib` (expect no hardcoded direct file URLs —
-only the CDN *hostname* via `cdnHostname()` composed into `thumbnailUrl`, never a raw
-`.mp4`/`.m3u8` path) and `grep -n "signEmbedUrl" lib/bunny.js pages/watch/**/*.js`.
+only the CDN *hostname* via `cdnHostname()` composed into `thumbnailUrl` and
+`lib/bunnyMedia.js`, never a raw `.mp4`/`.m3u8` path in a stored or rendered value) and
+`grep -n "signEmbedUrl" lib/bunny.js pages/watch/**/*.js`.
 
 ### (e) Every Redis key goes through `k()` — the `"fablevideo:"` namespace
 
@@ -531,6 +537,136 @@ delivery failure is swallowed.
 
 ---
 
+### (q) Exactly one route serves video without a session, and it is default-deny and fails CLOSED
+
+**Statement:** `pages/watch/public/[id].js` is the only path in the app that returns
+video to a caller with no Auth0 session. A video reaches it only when a row exists for
+it in `k("public")` — written solely by `pages/api/admin/public-videos.js`, which
+authorizes **`CAP.SETTINGS`** (admins), not `CAP.VIDEOS` (which managers hold). The
+flag is never inferred: `isPublicVideo` returns true for one reason and returns
+**false on absence, on a blank id, and on any Redis error**.
+
+That last clause inverts this repo's usual polarity and is deliberate.
+`lib/schedule.js` fails OPEN because a schedule decides *when* already-entitled people
+see content, so an unreadable one must not take the library off the air. This flag
+decides whether *the whole internet* sees a video, so an unreadable one must not
+publish it. A public link briefly 404ing during a Redis outage is a smaller harm than
+the library being published during one. The publish-window check on the public page
+follows the same inverted rule for the same reason, even though the signed-in watch
+page's copy of that check fails open.
+
+**Why a separate page rather than a branch:** every other viewer-facing path
+(`pages/index.js`, `pages/api/videos.js`, `pages/api/collections.js`,
+`pages/watch/video/[id].js`) is an invite-only gate. An "…or the video is public"
+branch in any of them would mean every future change to those files had to
+re-reason about the anonymous case. One file means one file to audit when asking
+"what can someone with no account reach?".
+
+**What the public page still enforces, and what it deliberately drops:** it keeps the
+publish/expiry window, a fresh signed time-limited embed token (invariant (d) is
+untouched — "public" means no login, never an unsigned or permanent URL), and the geo
+whitelist by construction, since `proxy.js` enforces that at the network boundary for
+every matched route. It drops the watermark (there is no identity to stamp), and every
+per-viewer key — no progress, no last-seen, no push. It uses a bare `<iframe>` rather
+than `ResumablePlayer` *because* that wrapper posts to `/api/progress`: the surest way
+not to track an anonymous visitor is not to ship the code that would. Groups are not
+consulted, correctly — a group narrows a *viewer's* access and a public visitor is not
+a viewer. The page sends `noindex, nofollow`: "no login required" is not "list me in
+search results".
+
+**Enforced at:** `lib/publicVideos.js` (the flag and its fail-closed read),
+`pages/watch/public/[id].js` (the only anonymous video path),
+`pages/api/admin/public-videos.js` (`CAP.SETTINGS`), plus the prune alongside the
+order/group/schedule/meta prunes in `pages/api/admin/videos.js` — a stale row would
+let a recycled bunny.net id inherit a public grant.
+
+**Verify with:** `npm test -- publicVideos publicRoute`. `grep -rn "isPublicVideo" pages lib`
+should show the definition plus exactly ONE caller (the public page) — a second caller
+means the flag has escaped its one route.
+
+### (r) A feed token is an identity claim, never an entitlement
+
+**Statement:** The podcast feed authenticates with a 256-bit random token
+(`lib/feedTokens.js`) instead of a session, because podcast apps cannot log in. The
+token answers exactly one question — *which account is asking* — and nothing else.
+Approval, role, group video scope and publish windows are re-resolved from Redis on
+**every** feed poll and **every** episode download, via `resolveFeedRequest`
+(`lib/feedAccess.js`) and the same `fetchVideoLibrary(access.videoScope)` the website
+uses. No entitlement is encoded in the token, cached beside it, or remembered between
+polls.
+
+**Why this shape:** it is what makes the feature safe to have at all. Because nothing
+is cached, removing someone from the viewer list, restricting their group, or expiring
+a video ends the corresponding access on their app's next poll — with no revocation
+step to remember and no stale grant to go looking for. A design that checked
+entitlement once at subscribe time would need a revocation path, and revocation paths
+are where this class of feature leaks. Token rotation exists for the *other* problem —
+a leaked URL — and deletes the old token row so the old address stops resolving.
+
+**Reuse is the security property, not an optimization:** the feed builds its episode
+list from `fetchVideoLibrary`, the same function the homepage and `/api/videos` call,
+precisely so group scoping and the publish window cannot drift between the website and
+the feed. A feed that assembled its own list would be a second authorization path.
+
+Denials are uniform: unknown token, malformed token, unapproved account, and
+feature-disabled all answer an identical `404`. A feed URL is a bearer string that gets
+pasted into apps and synced between devices; the response to a wrong one must not
+distinguish "no such token" from "that person is no longer approved".
+
+**Enforced at:** `lib/feedTokens.js` (256-bit generation, shape check before any Redis
+lookup, fail-closed resolution, rotation deleting the old row), `lib/feedAccess.js`
+(the single re-resolution point), `pages/api/feed/[token].js`,
+`pages/api/feed/[token]/[file].js` (re-checks scope AND schedule before minting any
+URL), and `deleteFeedToken` on viewer removal in `pages/api/admin/viewers.js`.
+
+**Verify with:** `npm test -- feedTokens feedRoutes` — the suite drives the real
+handlers, changes the world in Redis between two calls with the SAME token, and
+asserts the second answer differs.
+
+### (s) Invariant (d) amended: the podcast feed may redirect to a signed, short-lived CDN media URL — nothing else may
+
+**Statement:** Invariant (d) and change-control rule 3 say no direct bunny CDN file
+URLs anywhere. A podcast feed cannot honour that literally — podcast apps fetch a media
+URL, they do not render an iframe — so (d) is **narrowed**, not abandoned, and the
+narrowing is written down here rather than discovered later in a diff:
+
+1. No CDN URL ever appears in the feed document, in Redis, in a log, or in any client
+   bundle. The `<enclosure>` points at **this app**
+   (`/api/feed/<token>/<videoId>.mp4`). `lib/__tests__/feedRoutes.test.js` asserts the
+   feed body contains no `b-cdn.net`.
+2. The CDN URL exists only as a transient `302 Location`, minted per request **after**
+   identity, group scope and the publish window have been re-checked.
+3. It is pull-zone token-signed and expires in 15 minutes.
+
+What invariant (d) exists to prevent is "a permanent, unauthenticated, shareable
+bypass". A 15-minute signed URL handed out only after a full authorization check is
+none of those three. Everything else in the app — the watch page, the share page, the
+public page — still plays only through `signEmbedUrl`, unchanged.
+
+**`lib/bunny.js` was not modified.** The signing helpers there are byte-exact vendor
+contracts; the new pull-zone signer lives in `lib/bunnyMedia.js` and **duplicates**
+the thumbnail token formula rather than factoring it out, because refactoring a working
+signature for a new caller's benefit is exactly the change most likely to silently
+break thumbnails. Two copies, both pinned by tests, is the cheaper risk.
+
+**bunny.net capability, verified not assumed (2026-09-13, against bunny.net's docs):**
+Stream has **no audio-only or MP3 rendition**. Per-video storage is `playlist.m3u8`,
+optional `play_{height}p.mp4` fallbacks, `original`, thumbnails/previews, and
+`captions/*.vtt`. So episodes are video MP4s — playable in podcast apps, but a much
+larger download than audio. Two conditions live on the bunny.net library and cannot be
+set from this repo: MP4 Fallback must be enabled in its Encoding settings, and
+bunny.net generates an MP4 only for videos uploaded **after** that was turned on. The
+admin Settings panel states both next to the toggle.
+
+**Enforced at:** `lib/bunnyMedia.js` (the only place a CDN media URL is built, with the
+reasoning in its header), `pages/api/feed/[token]/[file].js` (the only caller),
+`lib/podcast.js` (enclosures are app URLs by construction).
+
+**Verify with:** `grep -rn "signedMp4Url\|signCdnPath" pages lib` — expect the
+definitions plus exactly one caller. `npm test -- feedRoutes podcast`.
+
+---
+
 ## 2. Load-bearing decisions (don't undo these without a deliberate call)
 
 | Decision | Why it's load-bearing |
@@ -615,7 +751,17 @@ playback, or the data layer:
     never `sendPushToApproved`; derive the recipients from a capability rather than a
     role name; wrap the whole thing so a delivery failure can't fail the action it
     describes. (p)
-21. **Is this change touching one of the weak points in section 3?** If so, treat it as
+21. **Am I adding a path that serves content without a session?** There is exactly one
+    today (q). A second needs an explicit decision, must be default-deny, must fail
+    CLOSED, and must be its own file rather than a branch in an existing gate.
+22. **Am I authenticating something with a bearer token instead of a session?** The
+    token may identify an account and nothing more; re-resolve entitlement on every
+    request from the same functions the website uses, and make every denial identical
+    (r).
+23. **Am I about to build a direct bunny CDN file URL?** Invariant (d) forbids it
+    everywhere except the one narrowed case in (s). If you think you need another,
+    that is a design decision for the owner, not a local call.
+24. **Is this change touching one of the weak points in section 3?** If so, treat it as
     an explicit design decision worth calling out in the PR description, not a silent fix
     or a silently-inherited risk.
 
@@ -646,6 +792,18 @@ endpoint and for `REQUIRE_VERIFIED_EMAIL`. Route-level coverage now exists for t
 authorization layer (`lib/__tests__/routes.test.js`), so the "no route tests at all"
 weak point in section 3 is narrower than it was — pages and business logic are still
 uncovered.
+
+**Updated 2026-09-13 (public links + podcast feed):** added invariants (q) (the single
+anonymous video route, default-deny and fail-CLOSED — the deliberate inversion of the
+schedule's polarity), (r) (a feed token is an identity claim, never an entitlement) and
+(s) (**invariant (d) is narrowed**: the podcast media route may 302 to a signed,
+15-minute CDN URL after a full authorization re-check; nothing else may, and
+`lib/bunny.js` was not touched). Checklist items 21-23 added. The bunny.net
+audio-only question was resolved against bunny.net's documentation, not assumed:
+there is no audio-only rendition, so episodes are MP4 video. Verified by reading
+`lib/publicVideos.js`, `lib/bunnyMedia.js`, `lib/feedTokens.js`, `lib/feedAccess.js`,
+`lib/podcast.js`, `pages/watch/public/[id].js`, both feed routes and
+`pages/api/admin/public-videos.js`, and by running the suite (23 files / 323 tests).
 
 **Updated 2026-09-13 (chapters, sermon notes, access-request notifications):** added
 invariants (o) (additive per-video decoration; the search narrows and never widens; the
@@ -696,6 +854,13 @@ that date. Line numbers in (k)/(l) are against those files as of v1.8.0 and will
 | `ADMIN_EMAILS` is still an un-demotable seed, not the only admin source | `grep -n "isEnvAdmin" lib/auth.js lib/roles.js`; `grep -n "ADMIN_EMAILS" pages/api/admin/roles.js` |
 | Test coverage still limited to `lib/__tests__/` (though `access.test.js` now covers the resolver with Redis stubbed) | `ls lib/__tests__/`; `grep -rL "test(" pages/api/**/*.js 2>/dev/null \| wc -l` (all of them, since none have tests) |
 | SW caches only the `PRECACHE` allowlist, one `respondWith` (k) | `sed -n '83,108p' public/sw.js`; `grep -n "event.respondWith" public/sw.js` (expect exactly one call) |
+| Only ONE caller of `isPublicVideo` (q) | `grep -rn "isPublicVideo" pages lib` (definition + the public page, nothing else) |
+| The public flag fails closed on a Redis error (q) | `npm test -- publicVideos` |
+| Publishing needs CAP.SETTINGS, not CAP.VIDEOS (q) | `grep -n "requireCapability" pages/api/admin/public-videos.js`; `npm test -- publicRoute` |
+| Feed entitlement is re-resolved per fetch, not cached (r) | `npm test -- feedRoutes` — the same token, two different answers |
+| The feed body never contains a CDN url (s) | `npm test -- feedRoutes` (asserts no `b-cdn.net` in the document) |
+| Only the feed media route builds a CDN media url (s) | `grep -rn "signedMp4Url\|signCdnPath" pages lib` (definitions + one caller) |
+| `lib/bunny.js` signing helpers still untouched (s) | `git log --oneline -- lib/bunny.js` |
 | Chapters/notes modules import no Redis (o) | `grep -n "^import" lib/chapters.js lib/notes.js` (expect no output) |
 | Chapters/notes are read only AFTER every access check (o) | `grep -n "scopeAllows\|getSchedule\|getChapters" "pages/watch/video/[id].js"` (the first two must precede the third) |
 | Access-request notification is addressed, not broadcast (p) | `grep -n "sendPushTo" lib/accessRequestNotify.js` (expect only `sendPushToEmails`) |

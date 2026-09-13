@@ -1500,3 +1500,41 @@ code {
 .chapters-help {
   font-variant-numeric: tabular-nums;
 }
+
+/* The viewer's own podcast feed address (pages/activity.js) and the
+   standalone public watch page (pages/watch/public/[id].js). */
+
+.podcast-card {
+  margin-bottom: 18px;
+}
+
+.podcast-card .input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+}
+
+/* The public page has no AppShell — no nav, no user menu, no link into the
+   library. One video, nothing else. */
+.public-page {
+  min-height: 100vh;
+  padding: 32px 16px 64px;
+}
+
+.public-main {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.public-head {
+  margin-bottom: 18px;
+}
+
+.public-site {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}

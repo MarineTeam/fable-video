@@ -19,6 +19,7 @@ import {
   setVideoWatermarkOverride,
 } from "../../../lib/store";
 import { pruneVideoFromGroups } from "../../../lib/groups";
+import { getPublicMap, prunePublicVideo } from "../../../lib/publicVideos";
 import { beyondDuration, formatTimestamp, parseChapters } from "../../../lib/chapters";
 import { MAX_NOTES_LENGTH } from "../../../lib/notes";
 import {
@@ -49,7 +50,7 @@ async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
-      const [all, order, watermarkOverrides, schedules, chapters, notes] =
+      const [all, order, watermarkOverrides, schedules, chapters, notes, publicMap] =
         await Promise.all([
           listAllVideos(),
           getOrder().catch(() => []),
@@ -59,6 +60,11 @@ async function handler(req, res) {
           // admin the editor's current contents, never the video list.
           getChaptersMap().catch(() => ({})),
           getNotesMap().catch(() => ({})),
+          // Read-only here so the Videos tab can badge which videos are
+          // public. CHANGING the flag is a CAP.SETTINGS action on its own
+          // route (pages/api/admin/public-videos.js) — a manager can see
+          // that a video is public but cannot make one public.
+          getPublicMap().catch(() => ({})),
         ]);
       const now = Date.now();
       const videos = applyOrder(all, order).map((video) => ({
@@ -78,6 +84,7 @@ async function handler(req, res) {
         scheduleState: scheduleState(schedules[video.guid], now),
         chapters: chapters[video.guid] || [],
         notes: notes[video.guid] || "",
+        public: Boolean(publicMap[video.guid]),
       }));
       // Best-effort: announce any newly-ready video to subscribers. Never let
       // a push failure break the admin video list.
@@ -115,6 +122,7 @@ async function handler(req, res) {
             await pruneVideoFromGroups(videoId).catch(() => {});
             await clearSchedule(videoId).catch(() => {});
             await pruneVideoMeta(videoId).catch(() => {});
+            await prunePublicVideo(videoId).catch(() => {});
             results[videoId] = { ok: true };
           } catch (err) {
             console.error("Bulk delete failed on bunny.net:", err);
@@ -289,6 +297,9 @@ async function handler(req, res) {
     await pruneVideoFromGroups(id).catch(() => {});
     await clearSchedule(id).catch(() => {});
     await pruneVideoMeta(id).catch(() => {});
+    // A stale public row on a recycled bunny.net id would inherit a public
+    // grant — the worst direction for this flag to leak.
+    await prunePublicVideo(id).catch(() => {});
     await logAction(admin, "video.delete", id);
     return res.json({ ok: true });
   }

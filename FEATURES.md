@@ -95,6 +95,21 @@ setup and architecture, see [README.md](./README.md).
   viewers list, to look up any approved viewer's watch history the same
   way.
 
+### Listening in a podcast app
+- **Private per-subscriber feed** — each viewer gets their own feed address
+  (from **My activity**) to paste into any podcast app, so a service can be
+  listened to while driving or walking. The address carries a 256-bit random
+  token that identifies **the account and nothing else**: approval, group
+  restrictions and publish windows are all re-checked on every poll and every
+  download. Losing access ends the feed on the next poll — there is nothing
+  to revoke, because the address never granted anything. A **Regenerate**
+  button replaces the address if it is ever shared by mistake.
+- Episodes are **video MP4s**, not audio: bunny.net has no audio-only format.
+  They play in podcast apps but download far more data than audio would.
+- Off until an admin enables it, and every denial looks identical from
+  outside — a wrong or retired address is indistinguishable from one
+  belonging to someone who is no longer approved.
+
 ### Notifications & installable app
 - **Push notifications** — approved viewers can opt in with a "Notify me" button
   and get a Web Push notification when a **new video becomes ready** (announced
@@ -239,6 +254,19 @@ setup and architecture, see [README.md](./README.md).
   timestamps fall past the end of the recording — nothing is dropped
   silently. Notes are a second field in the same dialog. Both are additive: a
   video with neither behaves exactly as it did before they existed.
+- **Public link** _(admin only)_ — makes **one** video watchable by anyone
+  with the address, with no account and no sign-in, on its own separate page.
+  Everything else stays private: that page shows one video and reveals
+  nothing about the rest of the library — no search, no collections, no
+  counts, no way in — and asks search engines not to index it. A public video
+  still obeys its publish/expiry window and still plays through a fresh
+  signed, time-limited token; what it does *not* get is a watermark, a resume
+  position, a last-seen stamp or a push subscription, since all of those are
+  keyed to an email address and an anonymous visitor has none. The flag
+  defaults to off and **fails closed**: if Redis can't be read, the link
+  404s rather than risk publishing. Managers see a **Public** badge on the
+  row but cannot change it — publishing is a site-policy decision, so it
+  needs `settings.manage`.
 - **Scheduled publish / expiry** — a per-video window (publish-at and/or
   expires-at, either optional) controlling when **viewers** can see it.
   Outside its window a video disappears from the library, search,
@@ -408,13 +436,19 @@ setup and architecture, see [README.md](./README.md).
   browser over the notes that ship with the library payload, which is bounded
   by the admin's homepage video count. It is instant, but it is not a search
   engine and it does not reach videos beyond that cap.
-- **No audio-only or podcast feed** — the portal has no RSS feed and no
-  audio-only rendition. Podcast apps cannot authenticate, so this needs a
-  deliberate decision about how (or whether) to widen access before it could
-  be built.
-- **No public or unlisted videos** — every path still requires a session; the
-  only widening mechanism is a per-recipient share link, which needs the
-  recipient's email address up front.
+- **Podcast episodes are video, not audio** — bunny.net Stream has no
+  audio-only or MP3 rendition (verified against their docs), so episodes are
+  720p MP4s. They play everywhere but are a much larger download than audio.
+  They also need **MP4 Fallback** enabled on the bunny.net library, and
+  bunny.net only generates an MP4 for videos uploaded *after* that was turned
+  on — older recordings need re-uploading.
+- **No per-episode podcast artwork** — the feed uses the site icon for every
+  episode. Per-video thumbnails are signed and time-limited, and podcast apps
+  cache artwork long past that expiry, so using them would break and would
+  leave signed URLs in app caches.
+- **Public videos are one at a time, by hand** — there is no public
+  collection, no public library page, and no bulk publish. That is the
+  intent: one video, one decision, one link.
 - **Recurring or per-group schedules** — a video's publish/expiry window is a
   single window that applies to every viewer; it can't differ per group or
   repeat.

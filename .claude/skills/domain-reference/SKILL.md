@@ -290,6 +290,34 @@ fresh in `getServerSideProps` on every watch-page load
 iframe `src` to `ResumablePlayer` / the raw `<iframe>`. It is never persisted
 to Redis or anywhere else.
 
+### Direct media (MP4) URLs — and the audio-only question
+
+**Verified against bunny.net's documentation on 2026-09-13, not assumed.** Stream has
+**no audio-only or MP3 rendition.** A video's stored files are:
+
+- `playlist.m3u8` (HLS),
+- optional `play_{height}p.mp4` fallbacks (1080/720/360/240),
+- `original` (only with "keep original files" on),
+- `thumbnail.jpg` + numbered variants, `seek/_N.jpg` sprites, `preview.webp|gif|
+  webm|mp4`,
+- `captions/{lang}.vtt`.
+
+Two conditions on the MP4 fallbacks, both set on the bunny.net LIBRARY and not
+settable from this repo:
+
+1. **MP4 Fallback** must be enabled under the library's Encoding settings.
+2. bunny.net generates an MP4 only for videos uploaded **after** that was turned on —
+   pre-existing videos have none and their URLs 404 until re-uploaded.
+
+Pull-zone token authentication and "Block Direct URL File Access" apply to these URLs
+exactly as they do to thumbnails, using the same
+`base64url(SHA256(cdnTokenKey + path + expires))` formula. That is why the podcast feed
+is possible at all: `lib/bunnyMedia.js` signs `/{guid}/play_{height}p.mp4` with the
+same scheme `thumbnailUrl()` uses. Consequence for the feed: episodes are **video**,
+not audio — playable in podcast apps, but a far larger download. See
+`architecture-contract` (s) for why this is a narrowed exception to invariant (d) and
+why the formula is duplicated rather than shared with `lib/bunny.js`.
+
 ### Thumbnails
 
 - Default filename: `thumbnail.jpg` — used when `video.thumbnailFileName`
@@ -358,6 +386,9 @@ old prefix is orphaned data, not read by current code — see
 | `fablevideo:schedule` | hash, field = video GUID, value = `{publishAt, expiresAt}` | `setSchedule()` (`pages/api/admin/videos.js`, `action: "set-schedule"`) | `getScheduleMap()`/`getSchedule()` → `isLive()` (`lib/schedule.js`) — hides a video from viewers outside its window. Read failures fail **OPEN** | none. An empty window deletes the field |
 | `fablevideo:chapters` | hash, field = video GUID, value = JSON array of `{t, label}` (t = seconds) | `setChapters()` (`pages/api/admin/videos.js`, `action: "set-chapters"`; parsed server-side by `lib/chapters.js`) | `getChapters()`/`getChaptersMap()` (`lib/videoMeta.js`) — the chapter list under the player | none. An empty list deletes the field |
 | `fablevideo:notes` | hash, field = video GUID, value = plain text (≤ `MAX_NOTES_LENGTH`) | `setNotes()` (`pages/api/admin/videos.js`, `action: "set-notes"`; cleaned by `lib/notes.js`) | `getNotes()` (watch page), `getNotesMap()` (`lib/videoList.js`, so the client-side search can match notes) | none. Empty deletes the field |
+| `fablevideo:public` | hash, field = video GUID, value = `{enabledAt, enabledBy}` | `setPublicVideo()` (`pages/api/admin/public-videos.js`, CAP.SETTINGS) | `isPublicVideo()` — the ONLY anonymous video path (`pages/watch/public/[id].js`). Presence is the whole flag; reads fail CLOSED | none. Turning it off deletes the field |
+| `fablevideo:feed:tokens` | hash, field = 256-bit base64url token, value = normalized email | `rotateFeedToken()` (`pages/api/feed-token.js`) | `emailForToken()` → `resolveFeedRequest()` (`lib/feedAccess.js`) — identifies the podcast subscriber and nothing more | none. Rotation deletes the old field; viewer removal deletes both |
+| `fablevideo:feed:byemail` | hash, field = normalized email, value = that account's current token | `rotateFeedToken()` | `getFeedToken()` — so a viewer can be shown their own feed address | none |
 | `fablevideo:shares` | **hash**, field = share id, value = JSON share record, **per-field TTL** (Redis 7.4 hash-field-TTL — `HEXPIRE`/`HSETEX` family; confirmed supported by Upstash via `@upstash/redis`'s command bindings) | `createShare(s)`/`stampShares`/`revokeShares`/`unrevokeShares`/`extendShares` — all via `writeShares()`'s `HSETEX` (`lib/shares.js`) | `getShare()` (`HGET`), `getShares()` (`HMGET`, batch), `listShares()` (`HGETALL`, whole hash in 1 command) | per-field: `ex` = `hours * 3600 + GRACE_SECONDS` at creation/extend, or `keepttl` (preserved exactly, no read-back) on any patch that doesn't move `expiresAt` |
 | `fablevideo:audit` | list, capped, JSON-string entries | `logAction()` (`lib/audit.js`, called from nearly every admin mutation) | `recentActions()` (`pages/api/admin/audit.js` — Activity tab) | none; length capped to 200 via `ltrim(key, 0, 199)` after every `lpush` |
 | `fablevideo:rl:<name>` | Ratelimit-internal keys (one family per limiter name/tokens/window combo) | `@upstash/ratelimit` internals via `limiterFor()` (`lib/ratelimit.js`) | same | window-scoped, managed by the `@upstash/ratelimit` library itself |
@@ -640,8 +671,10 @@ tab without installing.
   prefix `fablevideo:` (since commit `c37919e`, 2026-07-09).
 - **Updated 2026-07-15 (v1.8.0):** added section 8 (Web Push + PWA), four
   glossary rows (Web Push, VAPID, service worker, PWA), and the three
-  the roles/groups/requests/schedule/chapters/notes rows to the section-4
-  inventory on 2026-09-13 (the table had drifted — several of those keys shipped in
+  the public/feed-token rows and the "Direct media (MP4) URLs" section on
+  2026-09-13 (the bunny.net audio-only question answered against their live
+  docs), and the roles/groups/requests/schedule/chapters/notes rows to the
+  section-4 inventory the same day (the table had drifted — several of those keys shipped in
   earlier changes without being recorded here), alongside the earlier
   `fablevideo:push:*` keys — verified by reading
   `lib/push.js`, `public/sw.js`, `public/manifest.webmanifest`,
