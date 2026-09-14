@@ -6,9 +6,67 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 Role-based access control and content-scoped viewer groups — the first change
-to the portal's identity model since it shipped.
+to the portal's identity model since it shipped — plus the first features
+aimed squarely at long-form recordings: chapters, sermon notes, and a
+notification when someone asks for access.
 
 ### Added
+
+- **Chapters per video** — a timestamped list ("Worship 0:00 · Announcements
+  18:30 · Sermon 24:15 · Communion 1:11:00") rendered under the player, where
+  clicking a chapter seeks to it. A 60–90 minute service recording is the case
+  this exists for. Admins type one chapter per line in a dialog on the Videos
+  tab, in `M:SS`, `MM:SS` or `H:MM:SS`; the **server** parses it, sorts by
+  timestamp on save so the typed order doesn't matter, and **reports which
+  lines it could not read** and which timestamps fall past the end of the
+  recording rather than dropping them quietly. If `player.js` never becomes
+  available the list still renders, as plain non-clickable text rather than
+  buttons that would do nothing. Additive: a video with no chapters renders
+  exactly as it did before.
+- **Sermon notes per video** — free text under the player (an outline, the
+  passage covered, who spoke), rendered as plain text with line breaks
+  preserved and never as markup. The library's existing instant search now
+  matches notes as well as titles, so a passage that was never in the title is
+  findable months later. Search still only narrows the list the server already
+  decided a viewer may see, so notes can't surface a video group scoping or a
+  schedule had excluded. Scripture-reference *parsing* is deliberately not
+  included — abbreviations, ranges and translations make it far deeper than it
+  looks, and it isn't needed for the core value.
+- **Public video links** — an admin can make one video watchable by anyone
+  with the address, no account and no sign-in. It lives on its own route
+  (`/watch/public/<id>`) rather than as an "or public" branch in the existing
+  gates, so there is exactly one file to audit when asking what an anonymous
+  visitor can reach. Default deny, and the flag **fails CLOSED on a Redis
+  error** — the opposite of the schedule's polarity, and deliberate: a public
+  link briefly 404ing during an outage beats publishing the library during
+  one. A public video is still bound by its publish/expiry window, still plays
+  through a fresh signed time-limited embed token, and carries no watermark,
+  no resume position, no last-seen stamp and no push subscription — all of
+  those are keyed by an email, and there isn't one. The page asks search
+  engines not to index it, shows no search, no collections, no counts and no
+  route into the library. Enabling it needs `settings.manage`, so a manager
+  can see that a video is public but cannot make one public.
+- **Per-subscriber podcast feed** — each viewer gets a private feed address
+  (`/api/feed/<token>`) to paste into a podcast app, with a 256-bit token.
+  The token is an **identity claim only**: approval, role, group video scope
+  and publish windows are all re-resolved from Redis on every feed poll and
+  every episode download, through the same `fetchVideoLibrary` the website
+  uses. Removing a viewer, restricting their group or expiring a video takes
+  effect on their next poll with no revocation step, because there is no
+  grant to revoke. Regenerating replaces the address for a token that leaked.
+  Off by default — unlike a schedule or a group, this widens how the library
+  can be reached, so it is opt-in. Every denial answers an identical 404.
+- **Access-request notifications** — a new request now emails and
+  push-notifies the people who can action it, instead of waiting to be noticed
+  on the Viewers tab. Recipients are derived from who holds the
+  people-management capability (today: admins and `ADMIN_EMAILS`) rather than
+  hardcoded, so moving that capability moves the recipients with it. Only a
+  genuinely new request notifies — re-asking while one is pending sends
+  nothing, so a refresh loop can't become a notification flood. Best-effort
+  throughout: a mail or push failure never fails the request it describes, and
+  with no Resend key and no VAPID keys nothing sends and nothing errors. The
+  push says only who asked; the requester's note goes in the email, HTML-
+  escaped, not onto a lock screen. There is no approve-by-link, deliberately.
 
 - **User roles** — three roles, each a strict superset of the one below:
   **Viewer** (watch only), **Manager** (the video library, sharing, analytics
@@ -77,6 +135,22 @@ to the portal's identity model since it shipped.
   guardrails, and the access-request rules. Previously lint and build were the
   only automated checks on any `/api/**` handler.
 
+### Known limitation
+
+- **Podcast episodes are video, not audio.** Verified against bunny.net's own
+  documentation rather than assumed: bunny.net Stream has **no audio-only or
+  MP3 rendition** — a video's stored files are `playlist.m3u8`, optional
+  `play_{height}p.mp4` fallbacks, the original, and thumbnails/captions.
+  Episodes are therefore 720p MP4s (configurable via `BUNNY_MP4_HEIGHT`).
+  They play in essentially every podcast app but are a far larger download
+  than audio would be, which matters for a 90-minute recording on mobile
+  data. Two further conditions live on the bunny.net library and cannot be
+  set from this repo: **MP4 Fallback** must be enabled under its Encoding
+  settings, and bunny.net only generates an MP4 for videos uploaded **after**
+  that was turned on — existing recordings need re-uploading or their
+  episodes will fail to download. The admin Settings panel states all of this
+  next to the toggle rather than letting it be discovered by a subscriber.
+
 ### Changed
 
 - `ADMIN_EMAILS` is now a **bootstrap seed** rather than the only source of
@@ -109,6 +183,23 @@ to the portal's identity model since it shipped.
 - The Groups tab's video picker read `video.guid`, but `/api/admin/videos`
   returns `id` — so no checkbox ever matched and an allowlist couldn't be
   edited. Introduced and fixed within this unreleased set of changes.
+- **Type confusion on an admin request parameter** (CodeQL, Critical). The
+  chapters editor sent the video's duration in a field named `length`, and the
+  route read `req.body?.length`. When a request body is an array or a string
+  rather than an object, `.length` is the built-in size property — so a
+  tampered body produced a number no caller sent. Introduced and fixed within
+  this unreleased set of changes. Fixed at the root: the field is renamed to
+  `durationSeconds` (no built-in to collide with), and every request parameter
+  in the new routes now goes through `lib/params.js`, which **rejects** a
+  wrong-typed value instead of coercing it — `String(["a","b"])` quietly
+  becoming `"a,b"` is the same class of bug, and Next.js hands back `string[]`
+  for any repeated query key.
+- `/api/admin/notify` checked `req.method` **before** its capability guard, so
+  an unauthorised caller got `405 Method not allowed` — which confirms the
+  route exists and names the verb it wants — instead of a `403`. Every other
+  admin route in the repo guards first; this one now does too, with a test
+  asserting an unauthorised GET returns 403 and an authorised one still gets
+  the 405 it deserves.
 
 ## [1.16.0] - 2026-07-30
 

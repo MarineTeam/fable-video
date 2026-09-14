@@ -49,7 +49,7 @@ skill BEFORE writing code, not after.
 | Pure lib logic | `lib/*.js` with no route/page changes | lint + test (add/update tests in `lib/__tests__/`) | `validation-and-qa` |
 | API route | anything under `pages/api/**` | lint + test + build | `architecture-contract` (guard/logging/rate-limit patterns) |
 | Page UI | `pages/*.js`, `pages/watch/**`, `components/`, `styles/` | lint + build (+ manual check via `run-and-operate`) | `feature-shipping-campaign` |
-| Security-touching | `lib/auth.js`, `lib/capabilities.js`, `lib/roles.js`, `lib/groups.js`, `lib/schedule.js`, `lib/accessRequests.js`, `lib/guard.js`, `lib/shares.js`, token signing in `lib/bunny.js` (lines ~145–195), `pages/watch/**`, `proxy.js` | ALL gates + full self-review checklist (section 4) | `security-response` AND `architecture-contract` |
+| Security-touching | `lib/auth.js`, `lib/capabilities.js`, `lib/roles.js`, `lib/groups.js`, `lib/schedule.js`, `lib/accessRequests.js`, `lib/accessRequestNotify.js`, `lib/publicVideos.js`, `lib/feedTokens.js`, `lib/feedAccess.js`, `lib/bunnyMedia.js`, `lib/guard.js`, `lib/shares.js`, token signing in `lib/bunny.js` (lines ~145–195), `pages/watch/**`, `pages/api/feed/**`, `proxy.js` | ALL gates + full self-review checklist (section 4) | `security-response` AND `architecture-contract` |
 | Config-env | `next.config.js`, `vitest.config.js`, `eslint.config.mjs`, env-var additions | lint + test + build; env-var changes ALSO need a Vercel redeploy | `environment-and-config`; redeploy via `run-and-operate` |
 | Dependency bump | any edit to `package.json` deps | fresh `npm install`, then ALL gates | `dependency-currency` (latest-versions doctrine + the ESLint 9.x exception) |
 | CI workflow | `.github/workflows/ci.yml` | lint + test locally; workflow itself is verified by the PR run | `security-response` (keep `permissions: contents: read` — added in 7968919 for CodeQL alert #1) |
@@ -76,7 +76,17 @@ Expected output — exactly this, then exit 0 (verify with `echo $?`):
 > eslint .
 ```
 
-No warnings, no errors, nothing after the script banner. Any extra output = failure.
+Nothing after the script banner, except one KNOWN pre-existing warning:
+
+```
+components/IdleTimeout.js
+  14:7  warning  Do not use `window.location.assign()` to navigate to internal
+                 Next.js pages  @next/next/no-location-assign-relative-destination
+```
+
+That rule arrived with a fresh `eslint-config-next` resolution (no lockfile —
+see `dependency-currency`), not with any code change; exit status is still 0.
+Anything BEYOND that banner and that one warning = failure.
 Note: one rule (`react-hooks/set-state-in-effect`) is deliberately disabled with a
 rationale comment in `eslint.config.mjs` (commit eef72fb). If lint flags something you
 believe is a false positive, follow that pattern — never disable a rule without a comment
@@ -88,16 +98,18 @@ explaining why, and never disable one just to get a PR through.
 npm test
 ```
 
-Expected output ends with (as of 2026-09-03):
+Expected output ends with (as of 2026-09-13):
 
 ```
- Test Files  15 passed (15)
-      Tests  182 passed (182)
+ Test Files  23 passed (23)
+      Tests  323 passed (323)
 ```
 
-The counts `15` and `182` are the current baseline. (The previously recorded
-`7`/`62` was stale — the tree measured 8/78 before the roles+groups change added
-`roles.test.js`, `groups.test.js`, and `access.test.js`.) **If your change adds tests, these
+The counts `23` and `323` are the current baseline. (It was 18/240 before the
+public-links + podcast-feed change added `publicVideos.test.js`,
+`publicRoute.test.js`, `feedTokens.test.js`, `feedRoutes.test.js` and
+`podcast.test.js`; and 15/182 before the chapters/notes/notification change
+before that.) **If your change adds tests, these
 numbers go UP — update this file's counts in the same PR.** If they go DOWN or anything
 reports `failed`, the gate failed. Tests live only in `lib/__tests__/`. Mostly pure logic, plus two kinds of integration
 test: `access.test.js` stubs `lib/redis` to exercise `resolveAccess`'s fail-closed
@@ -152,9 +164,9 @@ Break none of these. Each row: the rule, why it exists, and where to verify it.
 
 | # | Rule | Rationale / incident | Evidence |
 |---|---|---|---|
-| 1 | Every `/api/admin/*` route's handler begins with an independent capability check — `const access = await requireCapability(req, res, CAP.X); if (!access) return;` (or `requireAdmin`, = `CAP.PEOPLE`) — and thus returns 403 to anyone lacking it | Double-gating doctrine: the `/admin` page is gated server-side AND every API route is gated independently — a UI bug (including the capability-driven tab list) can never expose an admin API. Routes declare a capability, never a role name | `lib/guard.js:1-8` (stated contract); `lib/capabilities.js` (role→capability table); every file in `pages/api/admin/` complies; README "Security notes" |
+| 1 | Every `/api/admin/*` route's handler begins — BEFORE it inspects `req.method` — with an independent capability check — `const access = await requireCapability(req, res, CAP.X); if (!access) return;` (or `requireAdmin`, = `CAP.PEOPLE`) — and thus returns 403 to anyone lacking it | Double-gating doctrine: the `/admin` page is gated server-side AND every API route is gated independently — a UI bug (including the capability-driven tab list) can never expose an admin API. Routes declare a capability, never a role name | `lib/guard.js:1-8` (stated contract); `lib/capabilities.js` (role→capability table); every file in `pages/api/admin/` complies; README "Security notes". Guarding AFTER the method check answers an unauthorised caller with `405 Method not allowed`, confirming the route exists and naming the verb it wants — `pages/api/admin/notify.js` did this until it was fixed; `lib/__tests__/routes.test.js` now pins the ordering |
 | 2 | Every `catch` block logs `console.error("label:", err)` BEFORE returning a generic 5xx | Incident: before 1e01860, every data-layer catch swallowed its error — a Redis misconfiguration produced invisible generic 502s across the entire admin panel, undiagnosable from Vercel logs | commit 1e01860; pattern in `pages/api/admin/viewers.js:16-17,35,57` |
-| 3 | No direct bunny CDN file URLs (`*.b-cdn.net/.../playlist.m3u8`, `play_720p.mp4`) anywhere — playback only via signed, time-limited embed tokens; thumbnails only via token-signed CDN URLs | Core security property: videos are never public. A direct file URL bypasses token auth permanently | `lib/bunny.js:1-4` (stated invariant), `signEmbedUrl` at `lib/bunny.js:147`; README "Security notes"; see `architecture-contract` |
+| 3 | No direct bunny CDN file URLs (`*.b-cdn.net/.../playlist.m3u8`, `play_720p.mp4`) anywhere — playback only via signed, time-limited embed tokens; thumbnails only via token-signed CDN URLs. **One narrow exception (added 2026-09-13):** the podcast media route may 302 to a pull-zone-signed, 15-minute MP4 — see `architecture-contract` (s). It never appears in a document or store, and only after a full authorization re-check. Do not add a second exception without the owner | Core security property: videos are never public. A direct file URL bypasses token auth permanently | `lib/bunny.js:1-4` (stated invariant), `signEmbedUrl` at `lib/bunny.js:147`; README "Security notes"; see `architecture-contract` |
 | 4 | Never commit a lockfile (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`) | Deliberate latest-versions policy: Vercel and CI install fresh every time. A stray lockfile out of sync with `package.json` is a documented deploy-failure mode | `.gitignore:1-6`; README "Common issues" ("`npm install` fails on deploy"); ci.yml:22-23 comment |
 | 5 | New Redis keys ONLY via `k(...)` from `lib/redis.js` — never hand-build a key string | Every key is namespaced `fablevideo:`. Commit c37919e renamed the prefix (pvp:→fablevideo:) in ONE place because all keys go through `k()`; old `pvp:*` keys were NOT migrated — a hand-built key would have silently orphaned data | `lib/redis.js:5-9`; commit c37919e |
 | 6 | Any new bunny.net mutation (create/update/delete video) calls `invalidateVideoListCache()` after the API call | The 4-second promise cache (added 68ee934 for homepage speed) would otherwise serve stale lists after an admin mutation | `lib/bunny.js:50-52` and call sites at lines 97, 106, 112 |
@@ -186,6 +198,8 @@ Walk this checklist against your diff. Every "yes" required.
 - [ ] Fail-open/fail-closed semantics unchanged, including role/scope resolution? (rule 12)
 - [ ] `ADMIN_EMAILS` still un-demotable and Redis-free; self-role-change still blocked? (rule 13)
 - [ ] Any new path to a video checks `videoScope` server-side? (rule 14)
+- [ ] Any new session-less path to content is default-deny, fails CLOSED, and is its own file rather than a branch in an existing gate? (`architecture-contract` (q))
+- [ ] Any new bearer-token auth identifies an account only, re-resolving entitlement per request, with uniform denials? (`architecture-contract` (r))
 - [ ] Tests added for new pure-logic code in `lib/`, and the counts in Gate 2 of this file updated if totals changed?
 - [ ] README / CHANGELOG updated if behavior, env vars, or setup steps changed?
 
@@ -219,7 +233,7 @@ re-verify before relying on them; update this file when a check's expected outpu
 | Volatile claim | Re-verify with |
 |---|---|
 | Lint passes clean, banner-only output | `npm run lint; echo $?` (expect exit 0) |
-| Test baseline is 15 files / 182 tests | `npm test 2>&1 \| grep -E "Test Files\|Tests"` |
+| Test baseline is 23 files / 323 tests | `npm test 2>&1 \| grep -E "Test Files\|Tests"` |
 | Build env block matches CI | `sed -n '33,46p' .github/workflows/ci.yml` |
 | ESLint still pinned to ^9.x | `grep '"eslint"' package.json` |
 | All admin routes guarded by a capability | `grep -L "requireCapability\|requireAdmin" pages/api/admin/*.js` (expect no output) |

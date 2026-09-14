@@ -4,15 +4,18 @@ import { requireCapability } from "../../../lib/guard";
 import { CAP } from "../../../lib/roles";
 import {
   getGeoSettings,
+  getPodcastSettings,
   getSettings,
   getWatermarkSettings,
   MAX_VIDEO_COUNT,
   saveAdminGeoEnabled,
   saveGeoEnabled,
+  savePodcastEnabled,
   saveSettings,
   saveSiteName,
   saveWatermarkEnabled,
 } from "../../../lib/store";
+import { mediaEnabled, mp4Height } from "../../../lib/bunnyMedia";
 import { emailEnabled, emailFrom } from "../../../lib/email";
 import {
   MAX_SITE_NAME_LENGTH,
@@ -35,10 +38,11 @@ async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
-      const [settings, watermark, geo] = await Promise.all([
+      const [settings, watermark, geo, podcast] = await Promise.all([
         getSettings(),
         getWatermarkSettings(),
         getGeoSettings(),
+        getPodcastSettings(),
       ]);
       return res.json({
         ...settings,
@@ -56,6 +60,13 @@ async function handler(req, res) {
         envSiteName: envSiteName(),
         maxSiteNameLength: MAX_SITE_NAME_LENGTH,
         pushConfigured: pushEnabled(),
+        podcastEnabled: podcast.enabled,
+        // The feed can only serve media through the CDN pull zone, and only
+        // for videos that actually have an MP4 fallback. Surfaced so the
+        // Settings panel can warn rather than let an admin switch on a
+        // feature that will hand subscribers 404s.
+        podcastMediaReady: mediaEnabled(),
+        podcastMp4Height: mp4Height(),
       });
     } catch (err) {
       console.error("Could not load settings:", err);
@@ -88,6 +99,9 @@ async function handler(req, res) {
     if (body.watermarkEnabled !== undefined) {
       updates.push(["watermarkEnabled", Boolean(body.watermarkEnabled)]);
     }
+    if (body.podcastEnabled !== undefined) {
+      updates.push(["podcastEnabled", Boolean(body.podcastEnabled)]);
+    }
     if (body.geoEnabled !== undefined) {
       updates.push(["geoEnabled", Boolean(body.geoEnabled)]);
     }
@@ -103,6 +117,7 @@ async function handler(req, res) {
         updates.map(([key, value]) => {
           if (key === "siteName") return saveSiteName(value);
           if (key === "watermarkEnabled") return saveWatermarkEnabled(value);
+          if (key === "podcastEnabled") return savePodcastEnabled(value);
           if (key === "geoEnabled") return saveGeoEnabled(value);
           if (key === "adminGeoEnabled") return saveAdminGeoEnabled(value);
           return saveSettings({ [key]: value });

@@ -2,8 +2,9 @@
 // configured), debounced search, collection filter chips, a continue-watching
 // strip with progress bars, and pagination. The whole (admin-capped) library
 // is fetched once — search/filter/pagination happen instantly against it in
-// the browser, no round trip per keystroke or chip click. Login is enforced
-// server-side; unapproved users see a clear message and no video data.
+// the browser, no round trip per keystroke or chip click. Search matches
+// sermon notes as well as titles. Login is enforced server-side; unapproved
+// users see a clear message and no video data.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Head from "next/head";
 import Link from "next/link";
@@ -16,6 +17,7 @@ import { getAccessRequest } from "../lib/accessRequests";
 import { pageTitle } from "../lib/siteName";
 import { getSiteName } from "../lib/store";
 import { fetchVideoLibrary } from "../lib/videoList";
+import { videoMatchesQuery } from "../lib/notes";
 import { withMonitorPage } from "../lib/monitor";
 
 const PER_PAGE = 10;
@@ -311,9 +313,11 @@ export default function Home({
 
   const filtered = useMemo(() => {
     if (loading) return [];
-    const q = debouncedQuery.toLowerCase();
     return allVideos.filter((video) => {
-      if (q && !video.title.toLowerCase().includes(q)) return false;
+      // Matches titles AND sermon notes. This narrows an already-authorized
+      // list — the server decided what is in it (group scope, schedule) — so
+      // searching can never surface a video the viewer may not see.
+      if (!videoMatchesQuery(video, debouncedQuery)) return false;
       if (collection && video.collectionId !== collection) return false;
       return true;
     });

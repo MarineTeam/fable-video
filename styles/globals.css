@@ -487,6 +487,24 @@ code {
   color: color-mix(in srgb, var(--ok) 80%, white);
 }
 
+.notice-warn {
+  border-color: color-mix(in srgb, var(--warn) 38%, transparent);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  color: color-mix(in srgb, var(--warn) 82%, white);
+}
+
+/* .notice is a centered flex row, which is wrong for a notice that carries a
+   list (e.g. the skipped-chapter-lines report). This stacks it instead. */
+.notice-block {
+  display: block;
+  line-height: 1.55;
+}
+
+.notice-block ul {
+  margin: 6px 0 0;
+  padding-left: 1.1rem;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -1395,4 +1413,128 @@ code {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Chapters and sermon notes on the watch page. Both are additive: a video
+   with neither renders exactly as it did before they existed. */
+
+.chapters,
+.notes {
+  margin-top: 18px;
+}
+
+.chapters-title,
+.notes-title {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.chapter-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chapter-btn,
+.chapter-static {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+}
+
+.chapter-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+}
+
+.chapter-btn:hover,
+.chapter-btn:focus-visible {
+  border-color: var(--border-strong);
+  background: var(--panel);
+}
+
+.chapter-time {
+  flex: 0 0 auto;
+  min-width: 4.5em;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.chapter-btn .chapter-label,
+.chapter-static .chapter-label {
+  font-size: 0.92rem;
+}
+
+/* Non-clickable fallback when player.js never became available — the list
+   still helps someone scrub manually, without pretending to be a control. */
+.chapter-static .chapter-time {
+  color: var(--muted);
+}
+
+.notes-body {
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.notes-line {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chapters-help {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The viewer's own podcast feed address (pages/activity.js) and the
+   standalone public watch page (pages/watch/public/[id].js). */
+
+.podcast-card {
+  margin-bottom: 18px;
+}
+
+.podcast-card .input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+}
+
+/* The public page has no AppShell — no nav, no user menu, no link into the
+   library. One video, nothing else. */
+.public-page {
+  min-height: 100vh;
+  padding: 32px 16px 64px;
+}
+
+.public-main {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.public-head {
+  margin-bottom: 18px;
+}
+
+.public-site {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }

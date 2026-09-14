@@ -27,6 +27,8 @@ import { blockedByEmailVerification, normalizeEmail } from "../lib/auth";
 // component, and lib/roles.js reaches into Redis.
 import { CAP } from "../lib/capabilities";
 import { pageTitle } from "../lib/siteName";
+import { MAX_NOTES_LENGTH } from "../lib/notes";
+import { formatChapters } from "../lib/chapters";
 import { isStaffRole, resolveAccess } from "../lib/roles";
 import { PRESETS } from "../lib/theme";
 import { applyResolvedTheme } from "../lib/theme-client";
@@ -146,6 +148,257 @@ function fromLocalInput(value) {
   if (!value) return null;
   const date = new Date(value);
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
+// Chapters and sermon notes for one video. Both are stored per video and are
+// additive — a video with neither behaves exactly as it did before these
+// existed. The textarea is the source of truth; the SERVER parses it
+// (lib/chapters.js) and reports back which lines it could not read, so a
+// typo is surfaced here rather than silently dropped.
+function DetailsEditor({ video, onClose, onSaved }) {
+  const [chapterText, setChapterText] = useState(formatChapters(video.chapters));
+  const [notes, setNotes] = useState(video.notes || "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [ignored, setIgnored] = useState([]);
+  const [late, setLate] = useState([]);
+  const [saved, setSaved] = useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    setError("");
+    setSaved(false);
+    try {
+      const result = await api("/api/admin/videos", {
+        method: "POST",
+        body: {
+          action: "set-chapters",
+          id: video.id,
+          text: chapterText,
+          // Named durationSeconds rather than length: see lib/params.js —
+          // `length` collides with the built-in property on the server.
+          durationSeconds: video.length || 0,
+        },
+      });
+      await api("/api/admin/videos", {
+        method: "POST",
+        body: { action: "set-notes", id: video.id, text: notes },
+      });
+      setIgnored(result?.ignored || []);
+      setLate(result?.beyondDuration || []);
+      setChapterText(formatChapters(result?.chapters || []));
+      setSaved(true);
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose} role="presentation">
+      <div
+        className="modal card"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label="Chapters and notes"
+      >
+        <div className="modal-head">
+          <h3 className="modal-title">Chapters &amp; notes</h3>
+          <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
+            <XIcon size={14} />
+          </button>
+        </div>
+        <p className="muted small">
+          Viewers see these under the player on <strong>{video.title}</strong>.
+          Leave both empty for no chapters and no notes.
+        </p>
+        <label className="stack-sm">
+          <span className="muted small">
+            Chapters — one per line, timestamp first: <code>24:15 Sermon</code>.
+            M:SS, MM:SS and H:MM:SS all work; they are sorted for you on save.
+          </span>
+          <textarea
+            className="input textarea chapters-help"
+            rows={8}
+            value={chapterText}
+            onChange={(e) => setChapterText(e.target.value)}
+            placeholder={"0:00 Worship\n18:30 Announcements\n24:15 Sermon"}
+          />
+        </label>
+        <label className="stack-sm">
+          <span className="muted small">
+            Notes — an outline or the passage covered. Searchable from the
+            library. {notes.length}/{MAX_NOTES_LENGTH} characters.
+          </span>
+          <textarea
+            className="input textarea"
+            rows={6}
+            maxLength={MAX_NOTES_LENGTH}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Philippians 4:10-20 — contentment and provision."
+          />
+        </label>
+        {error ? <div className="notice notice-error">{error}</div> : null}
+        {ignored.length ? (
+          <div className="notice notice-warn notice-block">
+            Skipped {ignored.length} line{ignored.length === 1 ? "" : "s"} that
+            did not start with a timestamp:
+            <ul>
+              {ignored.map((entry) => (
+                <li key={entry.line}>
+                  Line {entry.line}: &ldquo;{entry.text}&rdquo; — {entry.reason}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {late.length ? (
+          <div className="notice notice-warn">
+            Saved, but {late.join(", ")} {late.length === 1 ? "is" : "are"} past
+            the end of this recording.
+          </div>
+        ) : null}
+        {saved && !ignored.length && !late.length ? (
+          <div className="notice notice-ok">Saved.</div>
+        ) : null}
+        <div className="row-actions">
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={save}>
+            Save
+          </button>
+          <button type="button" className="btn btn-ghost" disabled={busy} onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Turns one video's public (no-login) link on or off. Deliberately a
+// confirm-then-act dialog rather than an inline toggle in the row: this is
+// the only control in the panel that makes something reachable by anyone on
+// the internet, and it should be harder to hit by accident than a checkbox
+// sitting next to "Rename".
+function PublicLinkEditor({ video, onClose, onSaved }) {
+  const [isPublic, setIsPublic] = useState(Boolean(video.public));
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!video.public) return;
+    api("/api/admin/public-videos")
+      .then((data) => {
+        const row = (data?.videos || []).find((v) => v.id === video.id);
+        setUrl(row?.url || "");
+      })
+      .catch(() => {});
+  }, [video.id, video.public]);
+
+  const save = async (next) => {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api("/api/admin/public-videos", {
+        method: "POST",
+        body: { id: video.id, public: next },
+      });
+      setIsPublic(next);
+      setUrl(result?.url || "");
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+    } catch {
+      // Clipboard blocked — the address is on screen to copy by hand.
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose} role="presentation">
+      <div
+        className="modal card"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label="Public link"
+      >
+        <div className="modal-head">
+          <h3 className="modal-title">Public link</h3>
+          <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
+            <XIcon size={14} />
+          </button>
+        </div>
+        <p className="muted small">
+          Makes <strong>{video.title}</strong> watchable by anyone who has the
+          address, with no account and no sign-in. Everything else stays
+          private — the page shows this one video and nothing about the rest
+          of the library.
+        </p>
+        <div className="notice notice-block">
+          Still applies: the publish/expiry window, and a fresh signed
+          playback token per view. Not applied: watermarks, resume position,
+          and any per-viewer record — there is no viewer to attribute. The
+          page asks search engines not to index it, but anyone the address is
+          forwarded to can watch.
+        </div>
+        {error ? <div className="notice notice-error">{error}</div> : null}
+        {isPublic ? (
+          <>
+            {url ? (
+              <label className="stack-sm">
+                <span className="muted small">Anyone with this address can watch</span>
+                <input className="input" readOnly value={url} onFocus={(e) => e.target.select()} />
+              </label>
+            ) : (
+              <div className="notice notice-warn notice-block">
+                Public, but <strong>APP_BASE_URL</strong> is not configured, so
+                the address can&apos;t be shown here.
+              </div>
+            )}
+            <div className="row-actions">
+              {url ? (
+                <button type="button" className="btn btn-ghost" onClick={copy}>
+                  {copied ? "Copied" : "Copy link"}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={busy}
+                onClick={() => save(false)}
+              >
+                Turn off public link
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="row-actions">
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={busy}
+              onClick={() => save(true)}
+            >
+              Make this video public
+            </button>
+            <button type="button" className="btn btn-ghost" disabled={busy} onClick={onClose}>
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function ScheduleEditor({ video, onClose, onSaved }) {
@@ -1053,7 +1306,7 @@ function PrivateListManager({ video, viewers, emailConfigured, onClose, onChange
 /* Videos tab                                                          */
 /* ------------------------------------------------------------------ */
 
-function VideosTab({ emailConfigured, onSharesChanged }) {
+function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
   const [videos, setVideos] = useState(null);
   const [thumbs, setThumbs] = useState(false);
   const [collections, setCollections] = useState([]);
@@ -1064,6 +1317,8 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
   const [shareFor, setShareFor] = useState(null);
   const [privateListFor, setPrivateListFor] = useState(null);
   const [scheduleFor, setScheduleFor] = useState(null);
+  const [detailsFor, setDetailsFor] = useState(null);
+  const [publicFor, setPublicFor] = useState(null);
   const [selected, setSelected] = useState(() => new Set());
   const [bulkShareOpen, setBulkShareOpen] = useState(false);
   const [renaming, setRenaming] = useState(null);
@@ -1654,6 +1909,14 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
                 </div>
                 <StatusBadge video={video} />
                 <ScheduleBadge video={video} />
+                {video.public ? (
+                  <span
+                    className="badge badge-warn"
+                    title="Anyone with the link can watch this without signing in"
+                  >
+                    Public
+                  </span>
+                ) : null}
                 <select
                   className="input input-sm collection-select"
                   value={video.collectionId}
@@ -1713,6 +1976,24 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
                   >
                     Schedule
                   </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setDetailsFor(video)}
+                    title="Chapters and sermon notes for this video"
+                  >
+                    {video.chapters?.length || video.notes ? "Chapters ✓" : "Chapters"}
+                  </button>
+                  {canPublish ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => setPublicFor(video)}
+                      title="Public link — anyone with the address, no sign-in"
+                    >
+                      Public link
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="icon-btn"
@@ -1843,6 +2124,20 @@ function VideosTab({ emailConfigured, onSharesChanged }) {
         <ScheduleEditor
           video={scheduleFor}
           onClose={() => setScheduleFor(null)}
+          onSaved={load}
+        />
+      ) : null}
+      {detailsFor ? (
+        <DetailsEditor
+          video={detailsFor}
+          onClose={() => setDetailsFor(null)}
+          onSaved={load}
+        />
+      ) : null}
+      {publicFor ? (
+        <PublicLinkEditor
+          video={publicFor}
+          onClose={() => setPublicFor(null)}
           onSaved={load}
         />
       ) : null}
@@ -2885,6 +3180,8 @@ function SettingsTab({ config, onConfig }) {
   const [pushNote, setPushNote] = useState("");
   const [watermarkEnabled, setWatermarkEnabled] = useState(config.watermarkEnabled);
   const [watermarkNote, setWatermarkNote] = useState("");
+  const [podcastEnabled, setPodcastEnabled] = useState(config.podcastEnabled);
+  const [podcastNote, setPodcastNote] = useState("");
   const [exemptions, setExemptions] = useState(null);
   const [exemptInput, setExemptInput] = useState("");
   const [exemptError, setExemptError] = useState("");
@@ -2945,6 +3242,22 @@ function SettingsTab({ config, onConfig }) {
       setWatermarkEnabled(enabled);
       onConfig({ watermarkEnabled: enabled });
       setWatermarkNote("Saved.");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const togglePodcast = async (enabled) => {
+    setError("");
+    setPodcastNote("");
+    try {
+      await api("/api/admin/settings", {
+        method: "POST",
+        body: { podcastEnabled: enabled },
+      });
+      setPodcastEnabled(enabled);
+      onConfig({ podcastEnabled: enabled });
+      setPodcastNote("Saved.");
     } catch (err) {
       setError(err.message);
     }
@@ -3149,6 +3462,43 @@ function SettingsTab({ config, onConfig }) {
           >
             Apply custom colors
           </button>
+        </div>
+      </section>
+
+      <section className="card">
+        <h3>Podcast feed</h3>
+        <p className="muted small">
+          Gives each viewer a private feed address they can paste into a
+          podcast app. The address identifies the account and nothing more —
+          approval, group restrictions and publish windows are re-checked on
+          every fetch, so removing someone ends their feed on the next poll
+          with no separate step. Off by default: unlike a schedule or a
+          group, this widens how the library can be reached.
+        </p>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={Boolean(podcastEnabled)}
+            onChange={(e) => togglePodcast(e.target.checked)}
+          />
+          <span>Serve per-subscriber podcast feeds</span>
+        </label>
+        {podcastNote ? <span className="muted small">{podcastNote}</span> : null}
+        {!config.podcastMediaReady ? (
+          <div className="notice notice-warn notice-block">
+            <strong>BUNNY_CDN_HOSTNAME is not set</strong>, so feeds will
+            contain no episodes. The feed serves media from the CDN pull zone.
+          </div>
+        ) : null}
+        <div className="notice notice-warn notice-block">
+          bunny.net has no audio-only format, so episodes are{" "}
+          <strong>{config.podcastMp4Height || 720}p video MP4s</strong> — they
+          play in podcast apps but are a much bigger download than audio.
+          They also require <strong>MP4 Fallback</strong> to be enabled under
+          your bunny.net library&apos;s Encoding settings, and bunny.net only
+          generates an MP4 for videos uploaded <em>after</em> that was turned
+          on — older recordings need re-uploading or their episodes will fail
+          to download.
         </div>
       </section>
 
@@ -3719,6 +4069,11 @@ const ACTION_LABELS = {
   "video.collection": "Video collection changed",
   "video.watermark": "Video watermark setting changed",
   "video.schedule": "Video schedule changed",
+  "video.public_on": "Video made public",
+  "video.public_off": "Public link turned off",
+  "feed.rotate": "Podcast feed link regenerated",
+  "video.chapters": "Video chapters changed",
+  "video.notes": "Video notes changed",
   "video.bulk_delete": "Videos bulk-deleted",
   "video.bulk_collection": "Videos bulk-moved to a collection",
   "order.update": "Library reordered",
@@ -3938,6 +4293,9 @@ export default function Admin({ user, role, capabilities, siteName }) {
     emailFrom: null,
     pushConfigured: false,
     watermarkEnabled: false,
+    podcastEnabled: false,
+    podcastMediaReady: false,
+    podcastMp4Height: 720,
     geoEnabled: false,
     adminGeoEnabled: false,
     geoWhitelist: [],
@@ -3958,6 +4316,9 @@ export default function Admin({ user, role, capabilities, siteName }) {
             emailFrom: data.emailFrom,
             pushConfigured: data.pushConfigured,
             watermarkEnabled: data.watermarkEnabled,
+            podcastEnabled: data.podcastEnabled,
+            podcastMediaReady: data.podcastMediaReady,
+            podcastMp4Height: data.podcastMp4Height,
             geoEnabled: data.geoEnabled,
             adminGeoEnabled: data.adminGeoEnabled,
             geoWhitelist: data.geoWhitelist,
@@ -4031,6 +4392,11 @@ export default function Admin({ user, role, capabilities, siteName }) {
         <VideosTab
           emailConfigured={config.emailConfigured}
           onSharesChanged={refreshShareCount}
+          // Making a video reachable without a login is a site-policy
+          // decision, not library management, so it is admin-only. The route
+          // behind it enforces CAP.SETTINGS independently — hiding the
+          // control is a convenience, never the boundary.
+          canPublish={can(CAP.SETTINGS)}
         />
       ) : null}
       {tab === "viewers" ? (

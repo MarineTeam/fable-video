@@ -53,7 +53,10 @@ setup and architecture, see [README.md](./README.md).
   list** otherwise. Thumbnail URLs are **CDN token-signed** so they work with
   "Block Direct URL File Access" enabled.
 - **Instant search** — the whole (admin-capped) library loads once, then search
-  runs client-side against it (debounced) — no round trip per keystroke.
+  runs client-side against it (debounced) — no round trip per keystroke. It
+  matches **sermon notes as well as titles**, so a passage or speaker that was
+  never in the title is still findable months later. Searching only ever
+  narrows the list the server already decided this viewer may see.
 - **Collection filters** — narrow the library to a single collection via chips;
   filtering is instant and client-side.
 - **Pagination** — 10 per page with Previous/Next, reset to page one whenever the
@@ -74,6 +77,15 @@ setup and architecture, see [README.md](./README.md).
   video (via player.js); reopening seeks back to the saved spot. Progress is
   saved on pause, on end, and periodically during playback. Degrades gracefully
   if the player protocol is unavailable — plain playback still works.
+- **Chapters** — a video can carry a list of timestamped chapters ("Worship
+  0:00 · Announcements 18:30 · Sermon 24:15 · Communion 1:11:00"), shown under
+  the player; clicking one seeks straight to it. Aimed at 60–90 minute service
+  recordings, where scrubbing blind is the whole problem. If the player
+  protocol is unavailable the list still renders, as plain non-clickable text
+  rather than buttons that would do nothing.
+- **Sermon notes** — free text under the player: an outline, the passage
+  covered, who spoke. Rendered as plain text with line breaks preserved
+  (never as markup), and searchable from the library.
 - **Continue-watching** — the homepage shows a strip of in-progress videos with
   progress bars, newest first. Finished and barely-started videos are excluded.
 - **My activity** — a full watch-history page (`/activity`, linked from the
@@ -82,6 +94,21 @@ setup and architecture, see [README.md](./README.md).
   additionally get a **"View as"** dropdown, populated from the approved
   viewers list, to look up any approved viewer's watch history the same
   way.
+
+### Listening in a podcast app
+- **Private per-subscriber feed** — each viewer gets their own feed address
+  (from **My activity**) to paste into any podcast app, so a service can be
+  listened to while driving or walking. The address carries a 256-bit random
+  token that identifies **the account and nothing else**: approval, group
+  restrictions and publish windows are all re-checked on every poll and every
+  download. Losing access ends the feed on the next poll — there is nothing
+  to revoke, because the address never granted anything. A **Regenerate**
+  button replaces the address if it is ever shared by mistake.
+- Episodes are **video MP4s**, not audio: bunny.net has no audio-only format.
+  They play in podcast apps but download far more data than audio would.
+- Off until an admin enables it, and every denial looks identical from
+  outside — a wrong or retired address is indistinguishable from one
+  belonging to someone who is no longer approved.
 
 ### Notifications & installable app
 - **Push notifications** — approved viewers can opt in with a "Notify me" button
@@ -220,6 +247,26 @@ setup and architecture, see [README.md](./README.md).
   page title (including the share-link and "not approved" pages), and share
   emails. `SITE_NAME` / `NEXT_PUBLIC_SITE_NAME` still work as the starting
   value for a fresh install.
+- **Chapters & notes editor** — one dialog per video on the Videos tab. Type
+  one chapter per line (`24:15 Sermon`; `M:SS`, `MM:SS` and `H:MM:SS` all
+  work) and the server parses, de-duplicates the ordering problem by sorting
+  on save, and **reports back which lines it could not read** and which
+  timestamps fall past the end of the recording — nothing is dropped
+  silently. Notes are a second field in the same dialog. Both are additive: a
+  video with neither behaves exactly as it did before they existed.
+- **Public link** _(admin only)_ — makes **one** video watchable by anyone
+  with the address, with no account and no sign-in, on its own separate page.
+  Everything else stays private: that page shows one video and reveals
+  nothing about the rest of the library — no search, no collections, no
+  counts, no way in — and asks search engines not to index it. A public video
+  still obeys its publish/expiry window and still plays through a fresh
+  signed, time-limited token; what it does *not* get is a watermark, a resume
+  position, a last-seen stamp or a push subscription, since all of those are
+  keyed to an email address and an anonymous visitor has none. The flag
+  defaults to off and **fails closed**: if Redis can't be read, the link
+  404s rather than risk publishing. Managers see a **Public** badge on the
+  row but cannot change it — publishing is a site-policy decision, so it
+  needs `settings.manage`.
 - **Scheduled publish / expiry** — a per-video window (publish-at and/or
   expires-at, either optional) controlling when **viewers** can see it.
   Outside its window a video disappears from the library, search,
@@ -252,6 +299,18 @@ setup and architecture, see [README.md](./README.md).
   **Dismiss** a denial to let them ask again. The request records who asked
   and what they said, and grants nothing on its own: the address comes from
   the session rather than the request body, and it's rate-limited to 5 a day.
+- **Access-request notifications** — a new request emails and push-notifies
+  the people who can action it (those holding the people-management
+  capability, which today is admins and `ADMIN_EMAILS`). Only a genuinely new
+  request notifies: re-asking while one is already pending sends nothing, so
+  a refresh loop can't become a notification flood. Delivery is best-effort
+  and inherits the existing inert-until-configured posture — no Resend key
+  means no email, no VAPID keys mean no push, neither means no errors and no
+  visible difference — and a delivery failure never fails the request itself.
+  The push says only who asked; the requester's note goes in the email, HTML-
+  escaped, rather than onto a lock screen. There is deliberately no
+  approve-by-link: a link that grants access from an inbox grants it to
+  whoever else can read that inbox.
 - **Optional verified-email enforcement** — with `REQUIRE_VERIFIED_EMAIL` set,
   a session whose Auth0 `email_verified` claim isn't true is refused
   everywhere, before any approval or role lookup. A missing claim counts as
@@ -356,8 +415,6 @@ setup and architecture, see [README.md](./README.md).
 
 ## Known gaps / not yet implemented
 
-- **Access-request notifications** — requests appear in the admin panel, but
-  nothing emails or pushes an admin when one arrives; they have to look.
 - **Group-scoped staff** — managers and admins always see the whole library;
   a group restriction applies to viewers only. There is no "manager for these
   videos only" role.
@@ -369,6 +426,29 @@ setup and architecture, see [README.md](./README.md).
   until an admin ticks it. (A collection-based rule would auto-follow, but
   per-video was the deliberate choice.)
 - **Captions/transcripts, comments/ratings** — not implemented.
+- **Chapters are typed by hand** — there is no auto-detection from the audio,
+  no import from a description, and no per-viewer chapter progress.
+- **Scripture references are plain text** — notes are not parsed into
+  structured references, so there is no "all sermons on Philippians" view.
+  Book abbreviations, ranges and translations make that much deeper than it
+  looks; it was deliberately left out of the core feature.
+- **Notes are not full-text indexed** — search is a substring match run in the
+  browser over the notes that ship with the library payload, which is bounded
+  by the admin's homepage video count. It is instant, but it is not a search
+  engine and it does not reach videos beyond that cap.
+- **Podcast episodes are video, not audio** — bunny.net Stream has no
+  audio-only or MP3 rendition (verified against their docs), so episodes are
+  720p MP4s. They play everywhere but are a much larger download than audio.
+  They also need **MP4 Fallback** enabled on the bunny.net library, and
+  bunny.net only generates an MP4 for videos uploaded *after* that was turned
+  on — older recordings need re-uploading.
+- **No per-episode podcast artwork** — the feed uses the site icon for every
+  episode. Per-video thumbnails are signed and time-limited, and podcast apps
+  cache artwork long past that expiry, so using them would break and would
+  leave signed URLs in app caches.
+- **Public videos are one at a time, by hand** — there is no public
+  collection, no public library page, and no bulk publish. That is the
+  intent: one video, one decision, one link.
 - **Recurring or per-group schedules** — a video's publish/expiry window is a
   single window that applies to every viewer; it can't differ per group or
   repeat.
