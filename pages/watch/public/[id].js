@@ -42,6 +42,7 @@ import { formatTimestamp } from "../../../lib/chapters";
 import { notesLines } from "../../../lib/notes";
 import { pageTitle } from "../../../lib/siteName";
 import { getSiteName } from "../../../lib/store";
+import { oneString } from "../../../lib/params";
 import { allowRequest } from "../../../lib/ratelimit";
 import { withMonitorPage } from "../../../lib/monitor";
 
@@ -51,7 +52,9 @@ import { withMonitorPage } from "../../../lib/monitor";
 // outage must not take a working public link down, and the public flag check
 // below is the control that actually matters.
 function clientIp(req) {
-  const forwarded = String(req.headers["x-forwarded-for"] || "");
+  // Node hands back an array when a header repeats; strict-read it rather
+  // than stringifying, for the same reason as every other param here.
+  const forwarded = oneString(req.headers["x-forwarded-for"]) || "";
   return forwarded.split(",")[0].trim() || req.socket?.remoteAddress || "unknown";
 }
 

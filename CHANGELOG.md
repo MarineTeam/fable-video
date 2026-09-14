@@ -183,6 +183,17 @@ notification when someone asks for access.
 - The Groups tab's video picker read `video.guid`, but `/api/admin/videos`
   returns `id` — so no checkbox ever matched and an allowlist couldn't be
   edited. Introduced and fixed within this unreleased set of changes.
+- **Type confusion on an admin request parameter** (CodeQL, Critical). The
+  chapters editor sent the video's duration in a field named `length`, and the
+  route read `req.body?.length`. When a request body is an array or a string
+  rather than an object, `.length` is the built-in size property — so a
+  tampered body produced a number no caller sent. Introduced and fixed within
+  this unreleased set of changes. Fixed at the root: the field is renamed to
+  `durationSeconds` (no built-in to collide with), and every request parameter
+  in the new routes now goes through `lib/params.js`, which **rejects** a
+  wrong-typed value instead of coercing it — `String(["a","b"])` quietly
+  becoming `"a,b"` is the same class of bug, and Next.js hands back `string[]`
+  for any repeated query key.
 - `/api/admin/notify` checked `req.method` **before** its capability guard, so
   an unauthorised caller got `405 Method not allowed` — which confirms the
   route exists and names the verb it wants — instead of a `403`. Every other

@@ -22,6 +22,7 @@ import { pruneVideoFromGroups } from "../../../lib/groups";
 import { getPublicMap, prunePublicVideo } from "../../../lib/publicVideos";
 import { beyondDuration, formatTimestamp, parseChapters } from "../../../lib/chapters";
 import { MAX_NOTES_LENGTH } from "../../../lib/notes";
+import { oneNumber, oneString } from "../../../lib/params";
 import {
   getChaptersMap,
   getNotesMap,
@@ -202,7 +203,9 @@ async function handler(req, res) {
       // Parsing is pure (lib/chapters.js) and happens here rather than in the
       // browser so what gets stored is what the server read, not what a
       // client claims it read.
-      const { chapters, ignored } = parseChapters(req.body?.text || "");
+      // Strict string: an array here would otherwise be stringified into a
+      // chapter list nobody typed (see lib/params.js).
+      const { chapters, ignored } = parseChapters(oneString(req.body?.text) || "");
       let saved;
       try {
         saved = await setChapters(id, chapters);
@@ -210,7 +213,11 @@ async function handler(req, res) {
         console.error("Could not save the video chapters:", err);
         return res.status(502).json({ error: "Could not save the chapters" });
       }
-      const duration = Number(req.body?.length) || 0;
+      // `durationSeconds`, NOT `length`: `req.body.length` reads the built-in
+      // size property when the body is an array or a string rather than an
+      // object, which is the type confusion CodeQL flagged here (Critical).
+      // The name change removes the collision; oneNumber removes the coercion.
+      const duration = oneNumber(req.body?.durationSeconds, 0);
       const late = beyondDuration(saved, duration).map((c) => formatTimestamp(c.t));
       await logAction(admin, "video.chapters", `${id} → ${saved.length} chapter(s)`);
       // Ignored lines are reported, never silently dropped — the admin needs
@@ -219,7 +226,7 @@ async function handler(req, res) {
     }
 
     if (action === "set-notes") {
-      const text = String(req.body?.text || "");
+      const text = oneString(req.body?.text) || "";
       if (text.length > MAX_NOTES_LENGTH * 2) {
         return res
           .status(400)

@@ -16,6 +16,7 @@ import {
   setPublicVideo,
   unsetPublicVideo,
 } from "../../../lib/publicVideos";
+import { isExplicitlyTrue, oneTrimmed } from "../../../lib/params";
 import { logAction } from "../../../lib/audit";
 import { withMonitorApi } from "../../../lib/monitor";
 
@@ -41,12 +42,12 @@ async function handler(req, res) {
   }
 
   if (req.method === "POST") {
-    const id = String(req.body?.id || "").trim();
+    const id = oneTrimmed(req.body?.id);
     if (!id) return res.status(400).json({ error: "Video id is required" });
     // Explicit boolean — never "truthy means publish". Turning this on is the
     // one action in the app that widens access to everyone, so it must be
     // asked for in so many words.
-    const isPublic = req.body?.public === true;
+    const isPublic = isExplicitlyTrue(req.body?.public);
 
     try {
       if (isPublic) await setPublicVideo(id, admin);

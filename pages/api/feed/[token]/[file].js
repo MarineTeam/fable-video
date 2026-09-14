@@ -14,13 +14,16 @@ import { resolveFeedRequest } from "../../../../lib/feedAccess";
 import { scopeAllows } from "../../../../lib/roles";
 import { getSchedule, isLive } from "../../../../lib/schedule";
 import { mediaEnabled, signedMp4Url } from "../../../../lib/bunnyMedia";
+import { oneString } from "../../../../lib/params";
 import { allowRequest } from "../../../../lib/ratelimit";
 import { withMonitorApi } from "../../../../lib/monitor";
 
 // "<guid>.mp4" -> "<guid>". Anything else is refused rather than coerced:
 // this value becomes a CDN path, so it must be exactly what we expect.
 function videoIdFromFile(file) {
-  const name = String(file || "");
+  // Strict string: a repeated query key arrives as an array, and joining one
+  // into a path is exactly the coercion lib/params.js exists to prevent.
+  const name = oneString(file) || "";
   if (!name.endsWith(".mp4")) return null;
   const id = name.slice(0, -4);
   return /^[A-Za-z0-9-]{8,64}$/.test(id) ? id : null;
@@ -32,7 +35,7 @@ async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const token = String(req.query.token || "");
+  const token = oneString(req.query.token) || "";
   const videoId = videoIdFromFile(req.query.file);
   if (!videoId) return res.status(404).json({ error: "Not found" });
 

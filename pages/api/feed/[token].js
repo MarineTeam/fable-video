@@ -20,6 +20,7 @@ import { resolveFeedRequest } from "../../../lib/feedAccess";
 import { buildPodcastFeed } from "../../../lib/podcast";
 import { mediaEnabled } from "../../../lib/bunnyMedia";
 import { getSiteName } from "../../../lib/store";
+import { oneString } from "../../../lib/params";
 import { allowRequest } from "../../../lib/ratelimit";
 import { withMonitorApi } from "../../../lib/monitor";
 
@@ -33,7 +34,9 @@ async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const token = String(req.query.token || "");
+  // Next.js hands back string[] for a repeated query key; a token that isn't
+  // exactly one string is refused rather than joined into one (lib/params.js).
+  const token = oneString(req.query.token) || "";
 
   // Podcast apps poll on their own schedule and several may share one
   // account across devices; this is generous enough never to bite a real

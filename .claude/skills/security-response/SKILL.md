@@ -6,7 +6,7 @@ description: SOP for triaging and resolving CodeQL alerts, Dependabot alerts, an
 # Security response — Marine Video Portal
 
 This repo (currently v1.8.0, private invite-only video portal; first release v1.6.0 on 2026-07-07) has had
-four CodeQL alerts in its history: one real (fixed), three false positives (open, with a
+six CodeQL alerts in its history: two real (both fixed), four false positives (open, with a
 recorded disposition below). This skill is the SOP for handling the next one, plus the
 Dependabot process and the secret-leak runbook. It exists because the owner named security
 findings as the top failure class — do not let an alert sit untriaged, and do not dismiss
@@ -77,17 +77,21 @@ baseline). Re-run the greps below before trusting the line numbers if any time h
 | #2 | Use of password hash with insufficient computational effort (High) | `lib/bunny.js`, inside `signEmbedUrl` (function starts line 147; `crypto.createHash("sha256")` call is lines 149–152, the `.update(...)` line CodeQL points at is line 151) | **FALSE POSITIVE** — open, dismiss with justification below | verify: `grep -n "createHash\|^export function signEmbedUrl" lib/bunny.js` |
 | #3 | Use of password hash with insufficient computational effort (High) | `lib/bunny.js`, inside `signTusUpload` (function starts line 158; `crypto.createHash("sha256")` call is lines 160–163, `.update(...)` at line 162) | **FALSE POSITIVE** — open, dismiss with justification below | verify: `grep -n "createHash\|^export function signTusUpload" lib/bunny.js` |
 | #4 | Use of password hash with insufficient computational effort (High) | `lib/bunny.js`, inside `thumbnailUrl` (function starts line 179; `crypto.createHash("sha256")` call is lines 187–190, `.update(...)` at line 189) | **FALSE POSITIVE** — open, dismiss with justification below | verify: `grep -n "createHash\|^export function thumbnailUrl" lib/bunny.js` |
+| #5 | Use of password hash with insufficient computational effort (High) | `lib/bunnyMedia.js`, inside `signCdnPath` (function starts line 74; `crypto.createHash("sha256")` call is lines 83–86, `.update(...)` at line 85) | **FALSE POSITIVE** — open, dismiss with the same justification (it is the identical bunny.net pull-zone URL-token formula as #4, in the new module the podcast feed uses) | verify: `grep -n "createHash\|^export function signCdnPath" lib/bunnyMedia.js` |
+| #6 | Type confusion through parameter tampering (Critical) | `pages/api/admin/videos.js`, the `set-chapters` branch — was `Number(req.body?.length)` | **REAL — FIXED.** `req.body.length` reads the built-in size property when the body is an array or string rather than an object, so a tampered body yielded a number no caller sent. Fixed by renaming the field to `durationSeconds` (no built-in collision) AND routing every request-param read in the new routes through `lib/params.js`, which rejects wrong types instead of coercing them | PR #31; verify: `grep -rn "req.body?.length" pages/` (expect no output); `npm test -- params` |
 
 Line numbers for #2–#4 match the original CodeQL-reported lines (151, 162, 189) as of this
-verification — they have not drifted since the alerts were raised. If they no longer match
+verification — they have not drifted since the alerts were raised. #5's line 85 was the
+line CodeQL reported when `lib/bunnyMedia.js` was added (2026-09-13). If they no longer match
 when you check, the file changed; re-locate with the grep commands above before citing.
 
 ### Ready-to-paste dismissal justification (alerts #2, #3, #4)
 
 Paste this into the GitHub "Dismiss alert → False positive" comment box, adjusting the
-function name/line for whichever of the three you're dismissing:
+function name/file for whichever of the four you're dismissing (#5 is in
+`lib/bunnyMedia.js`, the other three in `lib/bunny.js`):
 
-> This is not a password hash. `<functionName>` in `lib/bunny.js` computes a short-lived
+> This is not a password hash. `<functionName>` in `<lib/bunny.js | lib/bunnyMedia.js>` computes a short-lived
 > **request signature** over a high-entropy service secret (`BUNNY_TOKEN_AUTH_KEY` /
 > `BUNNY_API_KEY` / `BUNNY_CDN_TOKEN_KEY`, all server-side-only bunny.net account keys),
 > not a hash of a user-chosen password. The algorithm — SHA-256 over
@@ -112,6 +116,8 @@ the calls are chained across lines; use `grep -n "createHash\|randomBytes" lib/*
 | `crypto.createHash("sha256")...digest("hex")` | `lib/bunny.js` : `signEmbedUrl` (~147–154) | Sign a time-limited video embed URL per bunny.net's embed-token spec | Not a password hash — false positive (alert #2) |
 | `crypto.createHash("sha256")...digest("hex")` | `lib/bunny.js` : `signTusUpload` (~158–171) | Sign a TUS resumable-upload auth header per bunny.net's TUS spec | Not a password hash — false positive (alert #3) |
 | `crypto.createHash("sha256")...digest("base64")` (base64url-encoded) | `lib/bunny.js` : `thumbnailUrl` (~179–195) | Sign a CDN thumbnail URL per bunny.net's URL-token spec | Not a password hash — false positive (alert #4) |
+| `crypto.createHash("sha256")...digest("base64")` (base64url-encoded) | `lib/bunnyMedia.js` : `signCdnPath` (~74–92) | Sign a short-lived (15 min) CDN media URL for a podcast enclosure, per the same bunny.net URL-token spec as `thumbnailUrl`. Deliberately duplicated rather than shared with `lib/bunny.js`, whose signing helpers must not be edited | Not a password hash — false positive (alert #5) |
+| `crypto.randomBytes(32).toString("base64url")` | `lib/feedTokens.js` : `generateToken` | Generate an unguessable per-subscriber podcast feed token (256 bits, shape-validated on read by `isFeedToken`'s `^[A-Za-z0-9_-]{43}$`). It is an identity claim only — entitlement is re-resolved per request, see `architecture-contract` (r) | Correct use of a CSPRNG for an unguessable identifier — not a finding |
 | `crypto.randomBytes(16).toString("base64url")` | `lib/shares.js` : `createShare` (line 24) | Generate an unguessable share-link ID (128 bits of entropy, validated on read by `isShareId`'s `^[A-Za-z0-9_-]{16,64}$` pattern, line 13–15) | Correct use of a CSPRNG for an unguessable identifier — not a finding |
 
 **What WOULD be a real finding here** (none currently exist — this is the pattern
@@ -121,6 +127,15 @@ recognition list, not an open item):
   this app stores zero passwords; Auth0 owns the entire credential lifecycle. If a future
   change ever introduces local credential storage, that hash MUST go through a slow KDF
   (bcrypt/scrypt/argon2), and CodeQL would be right to flag SHA-256 for it.
+- **Reading an untrusted request parameter without checking its TYPE** — the alert-#6
+  class. Two shapes to watch for: (a) a field whose name collides with a built-in
+  property (`length`, `name`, `constructor`), which reads that built-in when the body is
+  an array or string rather than an object; and (b) `String(x)`/`Number(x)` on a value
+  that may be an array, since Next.js hands back `string[]` for a repeated query key and
+  `String(["a","b"])` is `"a,b"` — a value nobody sent. Use `lib/params.js`
+  (`oneString`/`oneTrimmed`/`oneNumber`/`isExplicitlyTrue`), which rejects wrong types
+  rather than coercing them. Check: `grep -rnE "String\(req\.|Number\(req\." pages/`
+  — every hit should be justified or converted.
 - A hardcoded secret/API key/token literal in a `.js`/`.ts` file (not `process.env.*`).
   Check: `grep -rnE "(sk_|key-|Bearer )[A-Za-z0-9_-]{20,}" pages/ lib/ components/` should
   return nothing.
@@ -277,6 +292,9 @@ Security tab before assuming section 2's "open, false positive" status still hol
 |---|---|
 | Alert #1 fix still in place | `grep -n "permissions:" .github/workflows/ci.yml` (expect `contents: read`) |
 | Alerts #2–#4 line numbers (151/162/189-ish) | `grep -n "createHash" lib/bunny.js` |
+| Alert #5 still the same formula in the same function | `grep -n "createHash\|^export function signCdnPath" lib/bunnyMedia.js` |
+| Alert #6 fix still in place | `grep -rn "req.body?.length" pages/` (expect no output); `npm test -- params` |
+| Request params read through the strict helpers | `grep -rnE "String\(req\.\|Number\(req\." pages/` |
 | The three bunny signing functions still named the same | `grep -n "^export function sign\|^export function thumbnailUrl" lib/bunny.js` |
 | Share ID generation still 128-bit CSPRNG | `grep -n "randomBytes" lib/shares.js` |
 | No dependabot.yml exists | `find .github -iname "*dependabot*"` (expect no output) |

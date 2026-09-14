@@ -175,7 +175,9 @@ function DetailsEditor({ video, onClose, onSaved }) {
           action: "set-chapters",
           id: video.id,
           text: chapterText,
-          length: video.length || 0,
+          // Named durationSeconds rather than length: see lib/params.js —
+          // `length` collides with the built-in property on the server.
+          durationSeconds: video.length || 0,
         },
       });
       await api("/api/admin/videos", {
