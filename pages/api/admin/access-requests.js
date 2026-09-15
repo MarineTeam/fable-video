@@ -3,7 +3,7 @@
 // person doesn't reappear in the queue), or delete (which lets them ask
 // again).
 //
-// People management, so CAP.PEOPLE — a manager can run the library but never
+// People management, so viewers.read to look and viewers.manage to act —
 // decides who gets into it.
 import { requireCapability } from "../../../lib/guard";
 import { CAP } from "../../../lib/roles";
@@ -19,7 +19,11 @@ import { logAction } from "../../../lib/audit";
 import { withMonitorApi } from "../../../lib/monitor";
 
 async function handler(req, res) {
-  const access = await requireCapability(req, res, CAP.PEOPLE);
+  const access = await requireCapability(
+    req,
+    res,
+    req.method === "GET" ? CAP.VIEWERS_READ : CAP.VIEWERS_MANAGE
+  );
   if (!access) return;
   const admin = access.email;
 

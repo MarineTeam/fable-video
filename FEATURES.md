@@ -316,15 +316,23 @@ setup and architecture, see [README.md](./README.md).
   everywhere, before any approval or role lookup. A missing claim counts as
   unverified. Off by default, and `ADMIN_EMAILS` addresses are exempt so the
   setting can always be undone by the person who turned it on.
-- **Roles** — every person is a **Viewer**, **Manager**, or **Admin**, each a
-  strict superset of the one below. A manager runs the library (upload,
-  organize, share) and reads analytics and the activity log, but cannot touch
-  viewers, roles, groups or site settings. Roles are stored in Redis and
-  changed from the Viewers tab with no redeploy. `ADMIN_EMAILS` addresses stay
-  admins unconditionally and are shown read-only — they are the recovery path
-  if role data is ever lost, and they resolve without any Redis call. An admin
-  cannot change their own role, and removing someone from the viewer list
-  clears any role they held.
+- **Custom roles** — roles are built by an admin, not fixed. A role is a named
+  set drawn from 13 capabilities (view vs. manage vs. upload videos; view vs.
+  manage viewers and shares; analytics, audit log, broadcasts, settings,
+  groups, roles). A person can hold several and gets the union, and holding any
+  capability grants library access on its own. Created and assigned from the
+  **Roles** tab with no redeploy.
+- **You can only hand out what you hold** — creating, editing, deleting or
+  assigning a role is refused if it would grant a capability the actor lacks,
+  and equally if it would *strip* one they could not have granted. That is what
+  makes it safe to delegate role management to someone who is not an owner.
+- **`ADMIN_EMAILS` owners are unconditional** — they hold every capability,
+  resolved without reading Redis, and cannot be demoted by any stored data.
+  They are the recovery path if the role data is ever lost or corrupted, and
+  changing that list still needs an env edit and a redeploy.
+- **Invented capabilities grant nothing** — the catalog lives in code, so a
+  hand-edited Redis record claiming something outside it is ignored rather
+  than honoured.
 - **Viewer groups/tags** — tag approved viewers (e.g. "Team A") from the
   Viewers tab, filter the viewer list by tag, and pull a whole tag's emails
   into the bulk-share or Private list recipient box with one click instead

@@ -1,4 +1,4 @@
-// Group management. Full admins only (CAP.PEOPLE) — a group's allowlist
+// Group management, gated on CAP.GROUPS_MANAGE — a group's allowlist
 // decides who can watch what, so it belongs with people management rather
 // than with the video library a manager runs.
 //
@@ -22,7 +22,7 @@ import { logAction } from "../../../lib/audit";
 import { withMonitorApi } from "../../../lib/monitor";
 
 async function handler(req, res) {
-  const access = await requireCapability(req, res, CAP.PEOPLE);
+  const access = await requireCapability(req, res, CAP.GROUPS_MANAGE);
   if (!access) return;
   const admin = access.email;
 

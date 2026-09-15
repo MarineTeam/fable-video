@@ -45,7 +45,11 @@ import { withMonitorApi } from "../../../lib/monitor";
 const MAX_BULK_IDS = 100;
 
 async function handler(req, res) {
-  const access = await requireCapability(req, res, CAP.VIDEOS);
+  const access = await requireCapability(
+    req,
+    res,
+    req.method === "GET" ? CAP.VIDEOS_READ : CAP.VIDEOS_MANAGE
+  );
   if (!access) return;
   const admin = access.email;
 
@@ -62,7 +66,7 @@ async function handler(req, res) {
           getChaptersMap().catch(() => ({})),
           getNotesMap().catch(() => ({})),
           // Read-only here so the Videos tab can badge which videos are
-          // public. CHANGING the flag is a CAP.SETTINGS action on its own
+          // public. CHANGING the flag is a CAP.SETTINGS_MANAGE action on its own
           // route (pages/api/admin/public-videos.js) — a manager can see
           // that a video is public but cannot make one public.
           getPublicMap().catch(() => ({})),

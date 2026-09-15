@@ -9,7 +9,7 @@ async function handler(req, res) {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ error: "Method not allowed" });
   }
-  const access = await requireCapability(req, res, CAP.INSIGHTS);
+  const access = await requireCapability(req, res, CAP.AUDIT_READ);
   if (!access) return;
   const admin = access.email;
 

@@ -38,7 +38,7 @@ import { withMonitorApi } from "../../../lib/monitor";
 const MAX_EMAILS = 25;
 
 async function handler(req, res) {
-  const access = await requireCapability(req, res, CAP.SHARES);
+  const access = await requireCapability(req, res, CAP.SHARES_READ);
   if (!access) return;
   const admin = access.email;
 

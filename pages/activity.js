@@ -8,7 +8,7 @@ import AppShell from "../components/AppShell";
 import { PlayIcon } from "../components/icons";
 import { auth0 } from "../lib/auth0";
 import { blockedByEmailVerification, normalizeEmail } from "../lib/auth";
-import { isStaffRole, resolveAccess } from "../lib/roles";
+import { resolveAccess } from "../lib/roles";
 import { pageTitle } from "../lib/siteName";
 import { getSiteName } from "../lib/store";
 import { withMonitorPage } from "../lib/monitor";
@@ -27,7 +27,7 @@ async function gssp({ req, resolvedUrl }) {
   const siteName = await getSiteName().catch(() => null);
   const unverified = blockedByEmailVerification(session.user);
   const access = unverified ? null : await resolveAccess(email);
-  const admin = unverified ? false : isStaffRole(access.role);
+  const admin = unverified ? false : access.staff;
   const approved = unverified ? false : access.approved;
 
   return {

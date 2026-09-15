@@ -12,7 +12,7 @@ async function handler(req, res) {
   // method first answered an unauthorised caller with 405 "Method not
   // allowed", which confirms the route exists and names the verb it wants —
   // this was the only route in the repo doing so.
-  const access = await requireCapability(req, res, CAP.SETTINGS);
+  const access = await requireCapability(req, res, CAP.BROADCAST_SEND);
   if (!access) return;
   const admin = access.email;
 

@@ -32,7 +32,7 @@ import { logAction } from "../../../lib/audit";
 import { withMonitorApi } from "../../../lib/monitor";
 
 async function handler(req, res) {
-  const access = await requireCapability(req, res, CAP.SETTINGS);
+  const access = await requireCapability(req, res, CAP.SETTINGS_MANAGE);
   if (!access) return;
   const admin = access.email;
 

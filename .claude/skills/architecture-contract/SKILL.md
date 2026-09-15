@@ -73,14 +73,17 @@ and `grep -rn "user.email ===" pages lib` should return **nothing** (raw compari
 role before any admin HTML ships, but that only protects the *page*. Every route file
 under `pages/api/admin/` starts its handler with an independent, second check —
 `const access = await requireCapability(req, res, CAP.X); if (!access) return;` (or
-`requireAdmin`, which is `requireCapability(..., CAP.PEOPLE)`).
+`requireAdmin`, which is `requireCapability(..., CAP.VIEWERS_MANAGE)`).
 
 Since roles shipped, this is capability-based rather than a single admin bit: a route
-declares what it needs (`CAP.VIDEOS`, `CAP.SHARES`, `CAP.PEOPLE`, `CAP.SETTINGS`,
-`CAP.INSIGHTS`) and never tests for a role name. Which tabs `pages/admin.js` renders is
+declares what it needs (`CAP.VIDEOS_READ`, `CAP.VIDEOS_MANAGE`, `CAP.SHARES_READ`,
+`CAP.VIEWERS_MANAGE`, `CAP.SETTINGS_MANAGE`, `CAP.ROLES_MANAGE`, ...) and never tests
+for a role name — since roles became admin-defined there IS no role name to test for.
+Routes that both list and mutate split by method: `GET` needs the `*_READ` half,
+everything else the `*_MANAGE` half. Which tabs `pages/admin.js` renders is
 driven by the same capability list, but that is a *convenience* — hiding a tab is not
-authorization, and a manager who hand-crafts a request to a `CAP.PEOPLE` route still
-gets a 403 from the route itself.
+authorization, and someone who hand-crafts a request to a `CAP.VIEWERS_MANAGE` route
+without that capability still gets a 403 from the route itself.
 
 **Why:** API routes are reachable directly (curl, browser devtools, a stale bookmark, a
 future UI bug that calls an admin endpoint from a non-admin page) regardless of what the
@@ -94,10 +97,10 @@ table.
 
 **Verify with:** `grep -L "requireCapability\|requireAdmin" pages/api/admin/*.js` (expect
 **no output** — every file matches). Note the one deliberate exception inside
-`viewers.js`: `GET ?scope=recipients` authorizes `CAP.SHARES` instead of `CAP.PEOPLE`,
-returning ONLY `{email, tags}` so a manager can resolve a group into share recipients
+`viewers.js`: `GET ?scope=recipients` authorizes `CAP.SHARES_MANAGE` instead of
+`CAP.VIEWERS_MANAGE`, returning ONLY `{email, tags}` so a share manager can resolve a group into share recipients
 without gaining people-management access. If you widen what that projection returns, it
-must move back behind `CAP.PEOPLE`.
+must move back behind `CAP.VIEWERS_MANAGE`.
 
 ### (c) Viewer approval fails CLOSED; rate limiting fails OPEN — the asymmetry is deliberate
 
@@ -429,7 +432,7 @@ uses `requireUser` (logged in) rather than `requireAccess` (approved) — an una
 person has to be able to call it, or the feature can't work. It compensates in three
 ways that must all stay: the email comes from the **session**, never `req.body`; it is
 rate-limited (5/day); and it only writes a queue record. Granting happens solely in
-`/api/admin/access-requests` behind `CAP.PEOPLE`.
+`/api/admin/access-requests` behind `CAP.VIEWERS_READ` (GET) and `CAP.VIEWERS_MANAGE`.
 
 **Why:** This is the one place the "everything behind approval" rule is relaxed, so it
 is the one place a mistake widens the attack surface. Taking the address from the body
@@ -491,7 +494,7 @@ the house pattern, not a one-off.
 (all storage), `lib/videoList.js` (the `getNotesMap().catch(() => ({}))` line),
 `pages/watch/video/[id].js` (the chapters/notes read is after every access check and
 inside its own try/catch), `pages/api/admin/videos.js` (the `set-chapters` /
-`set-notes` actions, both behind `CAP.VIDEOS`).
+`set-notes` actions, both behind `CAP.VIDEOS_MANAGE`).
 
 **Verify with:** `grep -n "^import" lib/chapters.js lib/notes.js` (expect **no output** —
 both modules import nothing at all; a `redis` mention in a comment is not an import);
@@ -504,7 +507,7 @@ AFTER `scopeAllows` and the schedule check.
 correct only for content everyone is entitled to ("a new video is ready").
 `sendPushToEmails(emails, payload)` (`lib/push.js`) is the addressed sender, and is
 what `lib/accessRequestNotify.js` uses. Recipients there are derived from
-`capabilityHolders(CAP.PEOPLE)` (`lib/roles.js`) — from the role/capability table, not
+`emailsHoldingCapability(CAP.VIEWERS_MANAGE)` (`lib/roles.js`) — from the live role data, not
 a hardcoded "admins" list. The whole notification is best-effort and
 inert-until-configured: no Resend key means no email, no VAPID keys mean no push,
 neither means no errors, and every path is wrapped so a delivery failure cannot fail
@@ -513,7 +516,7 @@ the access request it describes.
 **Why:** Broadcasting an access request would tell every approved viewer that a named
 stranger asked to join — the request, the requester's address, and the fact that they
 are not yet approved, to an audience with no reason to know any of it. Deriving
-recipients from the capability rather than the role name means that if `CAP.PEOPLE`
+recipients from the capability rather than a role name means that if `CAP.VIEWERS_MANAGE`
 ever moves between roles, the recipients move with it instead of silently going to the
 wrong people. And the best-effort wrapping is the same rule as invariant (j): the tail
 must never wag the dog — a person's request for access must be recorded whether or not
@@ -542,7 +545,7 @@ delivery failure is swallowed.
 **Statement:** `pages/watch/public/[id].js` is the only path in the app that returns
 video to a caller with no Auth0 session. A video reaches it only when a row exists for
 it in `k("public")` — written solely by `pages/api/admin/public-videos.js`, which
-authorizes **`CAP.SETTINGS`** (admins), not `CAP.VIDEOS` (which managers hold). The
+authorizes **`CAP.SETTINGS_MANAGE`**, not the `videos.*` capabilities that ordinary library work needs. The
 flag is never inferred: `isPublicVideo` returns true for one reason and returns
 **false on absence, on a blank id, and on any Redis error**.
 
@@ -576,7 +579,7 @@ search results".
 
 **Enforced at:** `lib/publicVideos.js` (the flag and its fail-closed read),
 `pages/watch/public/[id].js` (the only anonymous video path),
-`pages/api/admin/public-videos.js` (`CAP.SETTINGS`), plus the prune alongside the
+`pages/api/admin/public-videos.js` (`CAP.SETTINGS_MANAGE`), plus the prune alongside the
 order/group/schedule/meta prunes in `pages/api/admin/videos.js` — a stale row would
 let a recycled bunny.net id inherit a public grant.
 
@@ -664,6 +667,57 @@ reasoning in its header), `pages/api/feed/[token]/[file].js` (the only caller),
 
 **Verify with:** `grep -rn "signedMp4Url\|signCdnPath" pages lib` — expect the
 definitions plus exactly one caller. `npm test -- feedRoutes podcast`.
+
+---
+
+### (t) An admin-writable permission store may never widen what its holder already has
+
+**Statement:** Roles are admin-defined (`lib/capabilities.js`, `lib/roles.js`) rather
+than a fixed viewer/manager/admin ladder. That moves the permission table out of code
+and into Redis, which an admin can write — so four properties keep it from becoming a
+privilege-escalation surface, and all four have tests:
+
+1. **The catalog is closed.** The 13 capability strings are defined in code. Unknown
+   strings are dropped by `normalizeCapabilities` on write AND on read, so a
+   hand-edited record claiming something that names no enforcement point grants
+   nothing while reading as though it did.
+2. **Owners resolve without Redis.** `ADMIN_EMAILS` holds the whole catalog,
+   short-circuited before any read. Stored data can only ADD privilege to other
+   people, never subtract it from an owner — demoting one is structurally impossible
+   rather than guarded, which is strictly stronger than the old "an admin can't change
+   an ADMIN_EMAILS address's role" check it replaced.
+3. **No self-escalation.** `undelegatableCapabilities` gates every mutating branch of
+   `pages/api/admin/roles.js`: an actor may only create, edit, delete or assign a role
+   whose capabilities are a subset of their own. BOTH directions are checked — the new
+   set (granting upward) and the current one (editing or deleting a role stronger than
+   you), and on assignment the union of what is added and what is removed, because
+   "demote the person above me" is escalation too.
+4. **Resolution fails closed.** A non-owner whose capabilities can't be read resolves
+   to none, matching invariant (c).
+
+**Why:** the fixed-role model needed none of this, because the table was in code and
+the only writable thing was which of three names someone had. Making roles
+admin-defined is what created the surface; property 3 in particular is the whole
+reason `roles.manage` can be delegated at all rather than being equivalent to handing
+over every capability.
+
+**Migration hazard, permanently documented:** `k("roles")` means something different
+before and after this change (`email -> "admin"` vs `roleId -> record`). The shapes
+coexist safely — `parseRole` rejects a bare string and `isValidRoleId` rejects any
+field containing `@` or `.` — but "safely" means "does not corrupt", NOT "keeps
+working". `lib/roleMigration.js` carries them over, in two halves: a read-time
+fallback so nobody is locked out before the migration runs, and an idempotent
+conversion that writes roles and assignments BEFORE deleting legacy rows, so a crash
+leaves someone holding both rather than neither.
+
+**Enforced at:** `lib/capabilities.js` (all four properties, pure),
+`lib/roles.js` (storage + `resolveAccess`), `pages/api/admin/roles.js` (the ceiling on
+every branch), `lib/roleMigration.js` (the upgrade path).
+
+**Verify with:** `npm test -- roles roleMigration routes`;
+`grep -c undelegatableCapabilities pages/api/admin/roles.js` (expect 6 — the import
+plus a call on POST, PUT twice, PATCH and DELETE; a mutating branch without one is the
+bug this invariant exists to catch).
 
 ---
 
@@ -793,6 +847,17 @@ authorization layer (`lib/__tests__/routes.test.js`), so the "no route tests at 
 weak point in section 3 is narrower than it was — pages and business logic are still
 uncovered.
 
+**Updated 2026-09-15 (custom roles):** the fixed viewer/manager/admin model is gone,
+replaced by admin-defined roles over a 13-capability catalog, ported from the sibling
+`fable-video2` repo. Added invariant (t). Invariant (b)'s capability names all changed
+(`CAP.VIDEOS` → `CAP.VIDEOS_READ`/`_MANAGE`, `CAP.PEOPLE` → `CAP.VIEWERS_*`,
+`CAP.INSIGHTS` → `CAP.ANALYTICS_READ`/`CAP.AUDIT_READ`), and routes that both list and
+mutate now split by method. `isStaffRole(role)` is replaced by `access.staff`, which is
+"holds at least one capability". Section 3's "admins are env-var-only" weak point stays
+resolved, and its guardrails are now stronger: owner demotion is impossible rather than
+blocked. Verified by reading every file named above and running the suite (25 files /
+384 tests).
+
 **Updated 2026-09-13 (public links + podcast feed):** added invariants (q) (the single
 anonymous video route, default-deny and fail-CLOSED — the deliberate inversion of the
 schedule's polarity), (r) (a feed token is an identity claim, never an entitlement) and
@@ -834,7 +899,9 @@ that date. Line numbers in (k)/(l) are against those files as of v1.8.0 and will
 | Volatile claim | Re-verify with |
 |---|---|
 | Every `/api/admin/*` route authorizes a capability | `grep -L "requireCapability\|requireAdmin" pages/api/admin/*.js` (expect no output) |
-| Role→capability table and the three roles | `sed -n '1,60p' lib/capabilities.js` |
+| The capability catalog (13, closed, defined in code) | `sed -n '1,70p' lib/capabilities.js` |
+| No-self-escalation ceiling still enforced on every mutating roles branch | `grep -c undelegatableCapabilities pages/api/admin/roles.js` (expect 6: the import plus five call sites — POST, PUT ×2, PATCH, DELETE) |
+| Legacy fixed-role rows still resolve until migrated | `npm test -- roleMigration` |
 | Role resolution fails closed; env admins skip Redis | `npm test -- roles access` and read `resolveAccess` in `lib/roles.js` |
 | Group scoping enforced on the watch page before token signing | `grep -n "scopeAllows" "pages/watch/video/[id].js"` (must precede `signEmbedUrl`) |
 | `requireApproved` fails closed, `allowRequest` fails open | `sed -n '22,39p' lib/guard.js; sed -n '23,30p' lib/ratelimit.js` |
@@ -856,7 +923,7 @@ that date. Line numbers in (k)/(l) are against those files as of v1.8.0 and will
 | SW caches only the `PRECACHE` allowlist, one `respondWith` (k) | `sed -n '83,108p' public/sw.js`; `grep -n "event.respondWith" public/sw.js` (expect exactly one call) |
 | Only ONE caller of `isPublicVideo` (q) | `grep -rn "isPublicVideo" pages lib` (definition + the public page, nothing else) |
 | The public flag fails closed on a Redis error (q) | `npm test -- publicVideos` |
-| Publishing needs CAP.SETTINGS, not CAP.VIDEOS (q) | `grep -n "requireCapability" pages/api/admin/public-videos.js`; `npm test -- publicRoute` |
+| Publishing needs CAP.SETTINGS_MANAGE, not the videos.* caps (q) | `grep -n "requireCapability" pages/api/admin/public-videos.js`; `npm test -- publicRoute` |
 | Feed entitlement is re-resolved per fetch, not cached (r) | `npm test -- feedRoutes` — the same token, two different answers |
 | The feed body never contains a CDN url (s) | `npm test -- feedRoutes` (asserts no `b-cdn.net` in the document) |
 | Only the feed media route builds a CDN media url (s) | `grep -rn "signedMp4Url\|signCdnPath" pages lib` (definitions + one caller) |

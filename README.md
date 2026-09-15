@@ -35,28 +35,73 @@ Every request resolves to one of these states, compared by normalized
 
 ### Roles
 
-Three roles, each a strict superset of the one below it, resolved in
-`lib/roles.js` against a capability table (`lib/capabilities.js`):
+Roles are **admin-defined**. There is no fixed viewer/manager/admin ladder: an
+owner builds roles out of a catalog of 13 capabilities (`lib/capabilities.js`)
+in **`/admin` → Roles**, and assigns any number of them to a person, whose
+permission is the union.
 
-| Capability | Viewer | Manager | Admin |
-| --- | :---: | :---: | :---: |
-| Watch the library | ✅ | ✅ | ✅ |
-| `videos.manage` — upload, rename, delete, reorder, collections | | ✅ | ✅ |
-| `shares.manage` — create, extend, revoke, email share links | | ✅ | ✅ |
-| `insights.view` — analytics and the activity log | | ✅ | ✅ |
-| `people.manage` — viewers, roles, groups, watermark exemptions | | | ✅ |
-| `settings.manage` — settings, palette, cleanup, broadcasts | | | ✅ |
+| Group | Capability | What it allows |
+| --- | --- | --- |
+| Videos | `videos.read` | View the video list |
+| | `videos.manage` | Rename, delete, reorder, schedule, chapters, notes, collections |
+| | `videos.upload` | Upload new videos |
+| Viewers | `viewers.read` | View the approved viewer list and access requests |
+| | `viewers.manage` | Add, remove and tag viewers; approve access requests |
+| Shares | `shares.read` | View share links |
+| | `shares.manage` | Create, resend, extend and revoke shares |
+| Insight | `analytics.read` | Analytics and viewer activity |
+| | `audit.read` | The activity log |
+| | `broadcast.send` | Push broadcasts |
+| Admin | `settings.manage` | Settings, palette, cleanup, public links |
+| | `groups.manage` | Groups and their membership |
+| | `roles.manage` | Roles and who holds them |
 
-Roles are stored in Redis and changed from **`/admin` → Viewers** with no
-redeploy. `ADMIN_EMAILS` still works and is deliberately **not** replaceable
-from the UI: its addresses are admins unconditionally, resolve without any
-Redis call, and cannot be demoted through the panel. That is the recovery
-path — if the role data is ever emptied or corrupted, an `ADMIN_EMAILS`
-address can still sign in and repair it.
+Holding **any** capability grants access to the library, so a role is enough on
+its own — someone need not also be on the viewer list.
 
-An admin cannot change their own role, and removing someone from the viewer
-list also clears any role they held (a role grants access on its own, so
-leaving it behind would silently keep them in).
+Four properties make an admin-writable permission store safe, each pinned by a
+test in `lib/__tests__/roles.test.js`:
+
+1. **The catalog is closed.** Capabilities are defined in code, never in Redis.
+   A hand-edited record claiming a capability that names no enforcement point
+   is dropped on read and on write — it can never grant anything while looking
+   as though it does.
+2. **`ADMIN_EMAILS` holds everything, always**, resolved without touching
+   Redis. Owners are the non-removable bootstrap set; stored data can only add
+   privilege to other people, never subtract it from an owner. Demoting one is
+   not merely blocked, it is structurally impossible. That is the recovery
+   path: if role data is emptied or corrupted, an owner can still sign in and
+   repair it. Changing that set needs an env edit and a redeploy.
+3. **No self-escalation.** You may only create, edit, delete or assign a role
+   whose capabilities you already hold yourself. Both directions are checked —
+   granting upward, and *stripping* a role you could not have granted, since
+   "demote the person above me" is escalation too. This is what makes handing
+   someone `roles.manage` safe rather than equivalent to handing them
+   everything.
+4. **Resolution fails closed.** A non-owner whose capabilities cannot be read
+   resolves to none.
+
+Removing someone from the viewer list also clears their role assignments — a
+role grants access on its own, so leaving one behind would silently keep them
+in.
+
+#### Migrating from the old fixed roles
+
+Earlier versions had three fixed roles stored as `email → "manager" | "admin"`
+in the same Redis hash the role records now use. Both shapes coexist safely,
+and the upgrade is handled for you:
+
+- **Nothing breaks on deploy.** If someone's fixed-role row has not been
+  converted yet, capability resolution falls back to reading it, so they keep
+  exactly the access they had.
+- **Converting is automatic and idempotent.** Loading the Roles tab
+  materializes **Manager** and **Admin** as real, editable roles, assigns them
+  to whoever held them, and clears the legacy rows. The tab reports how many
+  were carried over, and how many remain.
+
+The mapping is deliberately generous: anything someone could do before, they
+can still do after. Rename, re-scope or delete those two roles afterwards like
+any other.
 
 ### Groups
 
@@ -434,8 +479,9 @@ components/
 lib/
   auth0.js                Auth0 v4 client (session handling)
   auth.js                 Email normalization + the ADMIN_EMAILS bootstrap seed (isEnvAdmin)
-  capabilities.js         Role/capability policy — pure, storage-free, client-safe
-  roles.js                Redis-backed roles + resolveAccess (role, approval, video scope)
+  capabilities.js         Capability catalog + pure policy — storage-free, client-safe
+  roles.js                Redis-backed custom roles, assignments, resolveAccess
+  roleMigration.js        Carries fixed-role rows onto the custom-role model
   groups.js               Viewer groups: per-video allowlists over the existing tags
   accessRequests.js       Self-serve access requests (queue only — never grants)
   schedule.js             Per-video publish/expiry windows
@@ -523,6 +569,9 @@ enforce it independently.
   to the same video and person made from the regular Share/Bulk share
   button is separate, isn't shown on the list, and isn't touched by
   Remove.
+- **Roles** _(needs `roles.manage`)_ — create roles from the capability
+  catalog and see who holds each. Capabilities you don't hold yourself are
+  greyed out with a reason: you can only hand out what you have.
 - **Viewers** — a queue of pending **access requests** to approve or deny,
   plus add/remove approved emails, **bulk add** (paste a list), each
   viewer's **last-seen** time, per-viewer **tags** (group membership), and a

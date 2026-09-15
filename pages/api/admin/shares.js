@@ -32,7 +32,11 @@ import { withMonitorApi } from "../../../lib/monitor";
 const MAX_IDS = 100;
 
 async function handler(req, res) {
-  const access = await requireCapability(req, res, CAP.SHARES);
+  const access = await requireCapability(
+    req,
+    res,
+    req.method === "GET" ? CAP.SHARES_READ : CAP.SHARES_MANAGE
+  );
   if (!access) return;
   const admin = access.email;
 

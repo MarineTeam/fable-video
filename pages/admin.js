@@ -25,11 +25,11 @@ import { auth0 } from "../lib/auth0";
 import { blockedByEmailVerification, normalizeEmail } from "../lib/auth";
 // CAP comes from the storage-free policy module: pages/admin.js is a client
 // component, and lib/roles.js reaches into Redis.
-import { CAP } from "../lib/capabilities";
+import { ALL_CAPABILITIES, CAP } from "../lib/capabilities";
 import { pageTitle } from "../lib/siteName";
 import { MAX_NOTES_LENGTH } from "../lib/notes";
 import { formatChapters } from "../lib/chapters";
-import { isStaffRole, resolveAccess } from "../lib/roles";
+import { resolveAccess } from "../lib/roles";
 import { PRESETS } from "../lib/theme";
 import { applyResolvedTheme } from "../lib/theme-client";
 import { getSiteName } from "../lib/store";
@@ -51,7 +51,7 @@ async function gssp({ req, resolvedUrl }) {
     return { redirect: { destination: "/", permanent: false } };
   }
   const access = await resolveAccess(email);
-  if (!isStaffRole(access.role)) {
+  if (!access.staff) {
     return { redirect: { destination: "/", permanent: false } };
   }
   const siteName = await getSiteName().catch(() => null);
@@ -59,7 +59,7 @@ async function gssp({ req, resolvedUrl }) {
     props: {
       user: { email, name: session.user.name || email },
       admin: true,
-      role: access.role,
+      owner: access.owner,
       capabilities: access.capabilities,
       siteName,
     },
@@ -2149,17 +2149,12 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
 /* Viewers tab                                                         */
 /* ------------------------------------------------------------------ */
 
-const ROLE_LABELS = {
-  viewer: "Viewer",
-  manager: "Manager",
-  admin: "Admin",
-};
-
-const ROLE_HINTS = {
-  viewer: "Watches whatever their groups allow.",
-  manager: "Videos, sharing and analytics — but not people or settings.",
-  admin: "Everything, including roles, groups and settings.",
-};
+// Roles are admin-defined now, so there is no fixed label table — names come
+// from the catalog the Viewers route ships alongside the people list.
+function roleNames(roleIds, roles) {
+  const byId = Object.fromEntries((roles || []).map((r) => [r.id, r.name]));
+  return (roleIds || []).map((id) => byId[id]).filter(Boolean);
+}
 
 // The self-serve access-request queue. Lives in the Viewers tab because
 // approving one is just "add this viewer" with provenance attached.
@@ -2292,11 +2287,16 @@ function ViewersTab({ onCount, me }) {
   const [tagInput, setTagInput] = useState("");
   const [tagBusy, setTagBusy] = useState(false);
   const [roleBusy, setRoleBusy] = useState(null);
+  const [roles, setRoles] = useState([]);
+  const [rolesFor, setRolesFor] = useState(null);
 
   const load = useCallback(async () => {
     try {
       const data = await api("/api/admin/viewers");
       setViewers(data.viewers);
+      // The role catalog rides along with the people list so the chips can
+      // show names rather than ids without a second request.
+      setRoles(data.roles || []);
       onCount(data.viewers.length);
     } catch (err) {
       setError(err.message);
@@ -2367,16 +2367,18 @@ function ViewersTab({ onCount, me }) {
     }
   };
 
-  const changeRole = async (email, role) => {
+  const assignRoles = async (email, roleIds) => {
     setRoleBusy(email);
     setError("");
     try {
       await api("/api/admin/roles", {
         method: "PATCH",
-        body: { email, role },
+        body: { email, roleIds },
       });
       load();
     } catch (err) {
+      // A 403 here is the no-escalation ceiling talking: the actor tried to
+      // grant or strip something outside their own set. Show which.
       setError(err.message);
     }
     setRoleBusy(null);
@@ -2509,29 +2511,27 @@ function ViewersTab({ onCount, me }) {
                 {viewer.envAdmin ? (
                   <span
                     className="tag-chip"
-                    title="Admin via the ADMIN_EMAILS environment variable — can't be changed here"
+                    title="Owner via the ADMIN_EMAILS environment variable — holds every capability and can't be changed here"
                   >
-                    Admin (env)
+                    Owner (env)
                   </span>
                 ) : (
-                  <select
-                    className="input input-sm"
-                    value={viewer.role || "viewer"}
-                    disabled={roleBusy === viewer.email || viewer.email === me}
-                    title={
-                      viewer.email === me
-                        ? "You can't change your own role"
-                        : ROLE_HINTS[viewer.role || "viewer"]
-                    }
-                    aria-label={`Role for ${viewer.email}`}
-                    onChange={(e) => changeRole(viewer.email, e.target.value)}
-                  >
-                    {Object.entries(ROLE_LABELS).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
+                  <>
+                    {roleNames(viewer.roleIds, roles).map((name) => (
+                      <span key={name} className="tag-chip">
+                        {name}
+                      </span>
                     ))}
-                  </select>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      disabled={roleBusy === viewer.email}
+                      onClick={() => setRolesFor(viewer)}
+                      title="Assign roles to this person"
+                    >
+                      {viewer.roleIds?.length ? "Edit roles" : "Assign roles"}
+                    </button>
+                  </>
                 )}
                 <button
                   type="button"
@@ -2546,6 +2546,376 @@ function ViewersTab({ onCount, me }) {
           </div>
         )}
       </section>
+      {rolesFor ? (
+        <RoleAssigner
+          viewer={rolesFor}
+          roles={roles}
+          busy={roleBusy === rolesFor.email}
+          onClose={() => setRolesFor(null)}
+          onSave={async (roleIds) => {
+            await assignRoles(rolesFor.email, roleIds);
+            setRolesFor(null);
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+// Assigns any number of roles to one person. A checkbox list rather than a
+// dropdown because capabilities are the union of every role held — the old
+// single-select could not express that.
+function RoleAssigner({ viewer, roles, busy, onClose, onSave }) {
+  const [selected, setSelected] = useState(new Set(viewer.roleIds || []));
+
+  const toggle = (id) => {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose} role="presentation">
+      <div
+        className="modal card"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label="Assign roles"
+      >
+        <div className="modal-head">
+          <h3 className="modal-title">Roles for {viewer.email}</h3>
+          <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
+            <XIcon size={14} />
+          </button>
+        </div>
+        {roles.length === 0 ? (
+          <p className="muted small">
+            No roles exist yet. Create one on the <strong>Roles</strong> tab first.
+          </p>
+        ) : (
+          <>
+            <p className="muted small">
+              Someone holding several roles gets the union of what those roles
+              allow. Holding any role at all grants access to the library.
+            </p>
+            <div className="stack-sm">
+              {roles.map((role) => (
+                <label key={role.id} className="check-row">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(role.id)}
+                    onChange={() => toggle(role.id)}
+                  />
+                  <span>
+                    {role.name}{" "}
+                    <span className="muted small">
+                      ({role.capabilities.length} capabilit
+                      {role.capabilities.length === 1 ? "y" : "ies"})
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+        <div className="row-actions">
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy || roles.length === 0}
+            onClick={() => onSave([...selected])}
+          >
+            Save roles
+          </button>
+          <button type="button" className="btn btn-ghost" disabled={busy} onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Roles tab                                                           */
+/* ------------------------------------------------------------------ */
+
+// Creates and edits roles out of the capability catalog the server ships.
+//
+// The catalog is server-authored on purpose: an admin cannot invent a
+// capability string here, because one that names no enforcement point would
+// read as though it granted something while granting nothing.
+//
+// Checkboxes outside the actor's own capability set are DISABLED rather than
+// hidden, with a reason. The server refuses those edits anyway
+// (undelegatableCapabilities), but a greyed box that explains itself beats a
+// 403 after clicking Save — and hiding them would make a delegated role
+// manager think the catalog is smaller than it is.
+function RolesTab() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [editing, setEditing] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+
+  const load = useCallback(async () => {
+    setError("");
+    try {
+      const result = await api("/api/admin/roles");
+      setData(result);
+      if (result.migrated?.migrated) {
+        setNote(
+          `Carried ${result.migrated.migrated} person(s) over from the old ` +
+            `role system into: ${result.migrated.roles.join(", ")}.`
+        );
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const held = useMemo(
+    () => new Set(data?.actor?.capabilities || []),
+    [data]
+  );
+
+  const save = async (role) => {
+    setBusy(true);
+    setError("");
+    try {
+      await api("/api/admin/roles", {
+        method: role.id ? "PUT" : "POST",
+        body: { id: role.id, name: role.name, capabilities: role.capabilities },
+      });
+      setEditing(null);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
+  };
+
+  const remove = async (role) => {
+    if (!window.confirm(`Delete the role "${role.name}"? Anyone holding it loses it.`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/api/admin/roles?id=${encodeURIComponent(role.id)}`, { method: "DELETE" });
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
+  };
+
+  if (!data) {
+    return (
+      <div className="stack">
+        {error ? <div className="notice notice-error">{error}</div> : null}
+        {!error ? <p className="muted small">Loading…</p> : null}
+      </div>
+    );
+  }
+
+  const holdersOf = (roleId) =>
+    Object.entries(data.assignments || {})
+      .filter(([, ids]) => ids.includes(roleId))
+      .map(([email]) => email);
+
+  return (
+    <div className="stack">
+      <section className="card">
+        <div className="card-head">
+          <h3>Roles</h3>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={busy || data.roles.length >= data.maxRoles}
+            onClick={() => setEditing({ id: null, name: "", capabilities: [] })}
+          >
+            New role
+          </button>
+        </div>
+        <p className="muted small">
+          A role is a named set of capabilities. People can hold several and
+          get the union. Holding any role grants access to the library.{" "}
+          {data.actor.owner ? (
+            <>
+              You are an <strong>owner</strong> (via <code>ADMIN_EMAILS</code>), so you
+              hold every capability and can grant any of them.
+            </>
+          ) : (
+            <>
+              You can only grant capabilities you hold yourself — the rest are
+              greyed out.
+            </>
+          )}
+        </p>
+        {note ? <div className="notice notice-ok">{note}</div> : null}
+        {data.legacyRemaining ? (
+          <div className="notice notice-warn notice-block">
+            {data.legacyRemaining} assignment(s) from the old role system are
+            still stored. They keep working, and reloading this tab converts
+            them.
+          </div>
+        ) : null}
+        {error ? <div className="notice notice-error">{error}</div> : null}
+        {data.roles.length === 0 ? (
+          <p className="muted small">
+            No roles yet. Owners still have full access, so nothing is locked —
+            create a role to delegate part of it.
+          </p>
+        ) : (
+          <div className="row-list">
+            {data.roles.map((role) => {
+              const outside = role.capabilities.some((cap) => !held.has(cap));
+              const holders = holdersOf(role.id);
+              return (
+                <div key={role.id} className="row">
+                  <div className="row-main">
+                    <strong className="row-title">{role.name}</strong>
+                    <span className="muted small">
+                      {role.capabilities.length} capabilit
+                      {role.capabilities.length === 1 ? "y" : "ies"}
+                      {holders.length
+                        ? ` · held by ${holders.length} ${holders.length === 1 ? "person" : "people"}`
+                        : " · held by nobody"}
+                    </span>
+                  </div>
+                  <div className="row-actions">
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      disabled={busy || outside}
+                      title={
+                        outside
+                          ? "This role holds capabilities you don't have, so you can't edit it"
+                          : "Edit this role"
+                      }
+                      onClick={() => setEditing({ ...role })}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn icon-btn-danger"
+                      aria-label={`Delete ${role.name}`}
+                      disabled={busy || outside}
+                      onClick={() => remove(role)}
+                    >
+                      <TrashIcon size={14} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+      {editing ? (
+        <RoleEditor
+          role={editing}
+          catalog={data.catalog}
+          held={held}
+          busy={busy}
+          onClose={() => setEditing(null)}
+          onSave={save}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function RoleEditor({ role, catalog, held, busy, onClose, onSave }) {
+  const [name, setName] = useState(role.name || "");
+  const [selected, setSelected] = useState(new Set(role.capabilities || []));
+
+  const toggle = (cap) => {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(cap)) next.delete(cap);
+      else next.add(cap);
+      return next;
+    });
+  };
+
+  const groups = useMemo(() => {
+    const out = new Map();
+    for (const entry of catalog) {
+      if (!out.has(entry.group)) out.set(entry.group, []);
+      out.get(entry.group).push(entry);
+    }
+    return [...out.entries()];
+  }, [catalog]);
+
+  return (
+    <div className="modal-overlay" onClick={onClose} role="presentation">
+      <div
+        className="modal card"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label={role.id ? "Edit role" : "New role"}
+      >
+        <div className="modal-head">
+          <h3 className="modal-title">{role.id ? "Edit role" : "New role"}</h3>
+          <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
+            <XIcon size={14} />
+          </button>
+        </div>
+        <label className="stack-sm">
+          <span className="muted small">Name</span>
+          <input
+            className="input"
+            value={name}
+            maxLength={60}
+            placeholder="Media team"
+            onChange={(e) => setName(e.target.value)}
+          />
+        </label>
+        {groups.map(([group, entries]) => (
+          <div key={group} className="stack-sm">
+            <span className="muted small">{group}</span>
+            {entries.map((entry) => {
+              const blocked = !held.has(entry.cap);
+              return (
+                <label
+                  key={entry.cap}
+                  className="check-row"
+                  title={blocked ? "You don't hold this capability, so you can't grant it" : undefined}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.has(entry.cap)}
+                    disabled={blocked}
+                    onChange={() => toggle(entry.cap)}
+                  />
+                  <span className={blocked ? "muted" : undefined}>{entry.label}</span>
+                </label>
+              );
+            })}
+          </div>
+        ))}
+        <div className="row-actions">
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy || !name.trim()}
+            onClick={() => onSave({ id: role.id, name, capabilities: [...selected] })}
+          >
+            {role.id ? "Save role" : "Create role"}
+          </button>
+          <button type="button" className="btn btn-ghost" disabled={busy} onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -4046,7 +4416,11 @@ const ACTION_LABELS = {
   "viewer.add": "Viewer added",
   "viewer.remove": "Viewer removed",
   "viewer.tag": "Viewer tags updated",
-  "role.set": "Role changed",
+  "role.create": "Role created",
+  "role.update": "Role changed",
+  "role.delete": "Role deleted",
+  "role.assign": "Roles assigned",
+  "role.migrate": "Legacy roles migrated",
   "access.request": "Access requested",
   "access.approve": "Access request approved",
   "access.deny": "Access request denied",
@@ -4256,16 +4630,17 @@ function AnalyticsTab() {
 // so a manager isn't shown doors they can't open — the authorization itself
 // lives in the /api/admin/* routes behind them.
 const TABS = [
-  ["videos", "Videos", CAP.VIDEOS],
-  ["viewers", "Viewers", CAP.PEOPLE],
-  ["groups", "Groups", CAP.PEOPLE],
-  ["shares", "Shares", CAP.SHARES],
-  ["settings", "Settings", CAP.SETTINGS],
-  ["activity", "Activity", CAP.INSIGHTS],
-  ["analytics", "Analytics", CAP.INSIGHTS],
+  ["videos", "Videos", CAP.VIDEOS_READ],
+  ["viewers", "Viewers", CAP.VIEWERS_READ],
+  ["roles", "Roles", CAP.ROLES_MANAGE],
+  ["groups", "Groups", CAP.GROUPS_MANAGE],
+  ["shares", "Shares", CAP.SHARES_READ],
+  ["settings", "Settings", CAP.SETTINGS_MANAGE],
+  ["activity", "Activity", CAP.AUDIT_READ],
+  ["analytics", "Analytics", CAP.ANALYTICS_READ],
 ];
 
-export default function Admin({ user, role, capabilities, siteName }) {
+export default function Admin({ user, owner, capabilities, siteName }) {
   const can = useCallback(
     (capability) => (capabilities || []).includes(capability),
     [capabilities]
@@ -4304,7 +4679,7 @@ export default function Admin({ user, role, capabilities, siteName }) {
   });
 
   useEffect(() => {
-    if (can(CAP.SETTINGS)) {
+    if (can(CAP.SETTINGS_MANAGE)) {
       api("/api/admin/settings")
         .then((data) =>
           setConfig({
@@ -4328,12 +4703,12 @@ export default function Admin({ user, role, capabilities, siteName }) {
         )
         .catch(() => {});
     }
-    if (can(CAP.PEOPLE)) {
+    if (can(CAP.VIEWERS_READ)) {
       api("/api/admin/viewers")
         .then((data) => setCounts((c) => ({ ...c, viewers: data.viewers.length })))
         .catch(() => {});
     }
-    if (can(CAP.SHARES)) {
+    if (can(CAP.SHARES_READ)) {
       api("/api/admin/shares")
         .then((data) => setCounts((c) => ({ ...c, shares: data.shares.length })))
         .catch(() => {});
@@ -4361,9 +4736,13 @@ export default function Admin({ user, role, capabilities, siteName }) {
       </Head>
       <h1 className="page-title">
         Admin
-        {role && role !== "admin" ? (
-          <span className="tag-chip" style={{ marginLeft: "0.6rem" }}>
-            {role}
+        {!owner ? (
+          <span
+            className="tag-chip"
+            style={{ marginLeft: "0.6rem" }}
+            title="Your access comes from the roles you hold, not from ADMIN_EMAILS"
+          >
+            {(capabilities || []).length} of {ALL_CAPABILITIES.length} capabilities
           </span>
         ) : null}
       </h1>
@@ -4394,14 +4773,15 @@ export default function Admin({ user, role, capabilities, siteName }) {
           onSharesChanged={refreshShareCount}
           // Making a video reachable without a login is a site-policy
           // decision, not library management, so it is admin-only. The route
-          // behind it enforces CAP.SETTINGS independently — hiding the
+          // behind it enforces CAP.SETTINGS_MANAGE independently — hiding the
           // control is a convenience, never the boundary.
-          canPublish={can(CAP.SETTINGS)}
+          canPublish={can(CAP.SETTINGS_MANAGE)}
         />
       ) : null}
       {tab === "viewers" ? (
         <ViewersTab onCount={setViewerCount} me={user.email} />
       ) : null}
+      {tab === "roles" ? <RolesTab /> : null}
       {tab === "groups" ? <GroupsTab /> : null}
       {tab === "shares" ? (
         <SharesTab emailConfigured={config.emailConfigured} onCount={setShareCount} />

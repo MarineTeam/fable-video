@@ -12,7 +12,7 @@ import AppShell from "../components/AppShell";
 import { PlayIcon, SearchIcon } from "../components/icons";
 import { auth0 } from "../lib/auth0";
 import { blockedByEmailVerification, normalizeEmail } from "../lib/auth";
-import { isStaffRole, resolveAccess } from "../lib/roles";
+import { resolveAccess } from "../lib/roles";
 import { getAccessRequest } from "../lib/accessRequests";
 import { pageTitle } from "../lib/siteName";
 import { getSiteName } from "../lib/store";
@@ -57,7 +57,7 @@ async function gssp({ req, resolvedUrl }) {
   // resolveAccess fails closed internally — a Redis error yields an
   // unapproved, unprivileged result rather than leaking the library.
   const access = await resolveAccess(email);
-  const admin = isStaffRole(access.role);
+  const admin = access.staff;
   const approved = access.approved;
 
   // An unapproved visitor's panel needs to know whether they already asked,
