@@ -5,6 +5,51 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed — roles are now admin-defined
+
+The three fixed roles (Viewer / Manager / Admin) are replaced by **custom
+roles**, matching the model in the sibling `fable-video2` repository. An owner
+now builds roles out of a catalog of **13 granular capabilities** and assigns
+any number of them to a person, whose permission is the union.
+
+- **Finer capabilities.** `videos.read` / `videos.manage` / `videos.upload`,
+  `viewers.read` / `viewers.manage`, `shares.read` / `shares.manage`,
+  `analytics.read`, `audit.read`, `broadcast.send`, `settings.manage`,
+  `groups.manage`, `roles.manage`. Routes that only list now need only the
+  read half, so "can see the share list but cannot revoke" is expressible for
+  the first time.
+- **No self-escalation.** An actor may only create, edit, delete or assign a
+  role whose capabilities are a subset of their own (`canDelegate`). Both
+  directions are checked: granting upward, and *stripping* a role you could
+  not have granted — "demote the person above me" is escalation too. This is
+  what makes delegating `roles.manage` safe, and it had no equivalent under
+  fixed roles because there was nothing to delegate.
+- **The catalog is closed.** Capabilities are defined in code, never in Redis.
+  A hand-edited record claiming `god.mode` is dropped on read and on write, so
+  an admin-writable permission store cannot widen what the code enforces.
+- **`ADMIN_EMAILS` is unchanged, and now stronger.** Owners hold the whole
+  catalog, resolved without touching Redis. Demoting one is no longer merely
+  *guarded against* — it is structurally impossible, because an owner's
+  capabilities never come from stored data at all.
+- **New Roles tab**, and the Viewers tab's role dropdown becomes a
+  multi-role picker. Capabilities the actor does not hold are greyed out with
+  a reason rather than hidden, so a delegated role manager can see the whole
+  catalog and understand why a box is disabled.
+
+**Migration — nobody loses access.** Both models use `k("roles")`, with
+incompatible contents (`email → "admin"` before, `roleId → record` after).
+Deploying without handling that would silently demote every Redis-promoted
+admin, with no error anywhere. So there are two halves, both shipped:
+`resolveCapabilities` falls back to reading an un-migrated fixed-role row, so
+nobody is locked out however long the window lasts; and an idempotent
+migration — run automatically when the Roles tab loads — materializes
+**Manager** and **Admin** as real, editable roles, assigns them to whoever
+held them, and clears the legacy rows. The mapping is deliberately generous:
+anything someone could do yesterday they can still do today. The conversion
+writes roles and assignments *before* deleting anything, so a crash mid-way
+leaves someone holding both rather than neither.
+
+
 Role-based access control and content-scoped viewer groups — the first change
 to the portal's identity model since it shipped — plus the first features
 aimed squarely at long-form recordings: chapters, sermon notes, and a

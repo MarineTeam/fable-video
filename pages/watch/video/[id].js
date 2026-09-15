@@ -8,7 +8,7 @@ import AppShell from "../../../components/AppShell";
 import ResumablePlayer from "../../../components/ResumablePlayer";
 import { auth0 } from "../../../lib/auth0";
 import { blockedByEmailVerification, normalizeEmail } from "../../../lib/auth";
-import { isStaffRole, resolveAccess, scopeAllows } from "../../../lib/roles";
+import { resolveAccess, scopeAllows } from "../../../lib/roles";
 import {
   getVideoWatermarkOverride,
   getWatermarkSettings,
@@ -38,7 +38,7 @@ async function gssp({ req, params, resolvedUrl }) {
     return { redirect: { destination: "/", permanent: false } };
   }
   const access = await resolveAccess(email);
-  const admin = isStaffRole(access.role);
+  const admin = access.staff;
   if (!access.approved) {
     return { redirect: { destination: "/", permanent: false } };
   }

@@ -1,9 +1,10 @@
 // Turns a single video's public (no-login) link on or off.
 //
 // Its OWN route rather than another action on pages/api/admin/videos.js, for
-// two reasons. First, that route authorizes CAP.VIDEOS, which a manager
+// two reasons. First, that route authorizes videos.read/videos.manage, which
 // holds; publishing a video to the open internet is a site-policy decision,
-// not library management, so it is gated on CAP.SETTINGS — admins only. A
+// is ordinary library work; publishing is not, so it is gated on
+// CAP.SETTINGS_MANAGE instead. A
 // capability check that has to be *re-tightened* halfway down a long handler
 // is the kind that eventually gets missed. Second, the whole point of the
 // public feature is that it is auditable in isolation: one flag, two files
@@ -22,7 +23,7 @@ import { withMonitorApi } from "../../../lib/monitor";
 
 async function handler(req, res) {
   // Guard first, before the method check — see change-control rule 1.
-  const access = await requireCapability(req, res, CAP.SETTINGS);
+  const access = await requireCapability(req, res, CAP.SETTINGS_MANAGE);
   if (!access) return;
   const admin = access.email;
 

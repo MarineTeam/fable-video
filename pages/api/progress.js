@@ -30,7 +30,7 @@ async function handler(req, res) {
 
     let target = email;
     if (requestedEmail && requestedEmail !== email) {
-      if (!hasCapability(access, CAP.INSIGHTS)) {
+      if (!hasCapability(access, CAP.ANALYTICS_READ)) {
         return res.status(403).json({ error: "You don't have permission to do that" });
       }
       let targetApproved = false;
@@ -72,7 +72,7 @@ async function handler(req, res) {
         getScheduleMap().catch(() => ({})),
       ]);
       const byId = new Map(videos.map((v) => [v.guid, v]));
-      const staff = hasCapability(access, CAP.VIDEOS);
+      const staff = access.staff;
       const now = Date.now();
       const items = entries
         // Group scoping applies to the caller's own history: progress

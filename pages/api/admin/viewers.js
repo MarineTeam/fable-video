@@ -1,6 +1,8 @@
-// Approved viewer management: list (with last-seen and effective role), add
+// Approved viewer management: list (with last-seen and assigned roles), add
 // (single or bulk paste — validated and deduped), tag (group membership),
-// and remove. Roles themselves are assigned through /api/admin/roles.
+// and remove. Roles are DEFINED and ASSIGNED through /api/admin/roles; this
+// route only reports which ones a person holds, so the Viewers tab can show
+// one list of people rather than two that can disagree.
 import { requireCapability } from "../../../lib/guard";
 import { isEnvAdmin, normalizeEmail, parseEmailList } from "../../../lib/auth";
 import {
@@ -9,7 +11,13 @@ import {
   removeViewer,
   setViewerTags,
 } from "../../../lib/store";
-import { CAP, DEFAULT_ROLE, listRoles, removeRole } from "../../../lib/roles";
+import {
+  CAP,
+  clearRolesForEmail,
+  loadRoleAssignments,
+  loadRoles,
+  sortedRoles,
+} from "../../../lib/roles";
 import { deleteFeedToken } from "../../../lib/feedTokens";
 import { logAction } from "../../../lib/audit";
 import { withMonitorApi } from "../../../lib/monitor";
@@ -27,7 +35,7 @@ async function handler(req, res) {
   const access = await requireCapability(
     req,
     res,
-    recipientsOnly ? CAP.SHARES : CAP.PEOPLE
+    recipientsOnly ? CAP.SHARES_MANAGE : CAP.VIEWERS_MANAGE
   );
   if (!access) return;
   const admin = access.email;
@@ -40,32 +48,37 @@ async function handler(req, res) {
           viewers: viewers.map((v) => ({ email: v.email, tags: v.tags })),
         });
       }
-      // Roles are merged in here so the Viewers tab is one list rather than
-      // two that can disagree. Staff who hold a role without being on the
-      // viewer list are appended — they have access, so hiding them from the
-      // people list would be misleading.
-      const [viewers, roles] = await Promise.all([listViewers(), listRoles()]);
+      // Role assignments are merged in here so the Viewers tab is one list
+      // rather than two that can disagree. Staff who hold a role without
+      // being on the viewer list are appended — a role grants library access
+      // on its own, so hiding them from the people list would be misleading.
+      const [viewers, assignments, rolesById] = await Promise.all([
+        listViewers(),
+        loadRoleAssignments(),
+        loadRoles(),
+      ]);
       const listed = new Set(viewers.map((v) => v.email));
       const withRoles = viewers.map((viewer) => ({
         ...viewer,
-        role: roles[viewer.email] || DEFAULT_ROLE,
+        roleIds: assignments[viewer.email] || [],
         envAdmin: isEnvAdmin(viewer.email),
       }));
-      for (const [email, role] of Object.entries(roles)) {
-        if (listed.has(email) || role === DEFAULT_ROLE) continue;
+      for (const [email, roleIds] of Object.entries(assignments)) {
+        if (listed.has(email) || !roleIds.length) continue;
         withRoles.push({
           email,
           addedAt: null,
           addedBy: null,
           lastSeen: null,
           tags: [],
-          role,
+          roleIds,
           envAdmin: isEnvAdmin(email),
           onViewerList: false,
         });
       }
       withRoles.sort((a, b) => a.email.localeCompare(b.email));
-      return res.json({ viewers: withRoles });
+      // The role catalog rides along so the tab can render names, not ids.
+      return res.json({ viewers: withRoles, roles: sortedRoles(rolesById) });
     } catch (err) {
       console.error("Could not load viewers:", err);
       return res.status(502).json({ error: "Could not load viewers" });
@@ -135,10 +148,10 @@ async function handler(req, res) {
     }
     try {
       await removeViewer(email);
-      // A stored role grants access on its own (staff are implicitly
-      // approved), so removing someone has to clear it too — otherwise
-      // "remove" would silently leave a manager with a way back in.
-      await removeRole(email);
+      // A role grants library access on its own (anyone holding a capability
+      // is implicitly approved), so removing someone has to clear their
+      // assignments too — otherwise "remove" would leave a way back in.
+      await clearRolesForEmail(email);
       // Best-effort: their feed would deny on its next poll regardless,
       // because entitlement is re-resolved per fetch (lib/feedAccess.js).
       // Deleting the token anyway keeps that fact obvious rather than

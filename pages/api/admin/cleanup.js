@@ -38,7 +38,7 @@ async function findStaleBundles() {
 }
 
 async function handler(req, res) {
-  const access = await requireCapability(req, res, CAP.SETTINGS);
+  const access = await requireCapability(req, res, CAP.SETTINGS_MANAGE);
   if (!access) return;
   const admin = access.email;
 

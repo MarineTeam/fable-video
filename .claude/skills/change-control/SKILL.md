@@ -101,15 +101,13 @@ npm test
 Expected output ends with (as of 2026-09-13):
 
 ```
- Test Files  23 passed (23)
-      Tests  323 passed (323)
+ Test Files  25 passed (25)
+      Tests  384 passed (384)
 ```
 
-The counts `23` and `323` are the current baseline. (It was 18/240 before the
-public-links + podcast-feed change added `publicVideos.test.js`,
-`publicRoute.test.js`, `feedTokens.test.js`, `feedRoutes.test.js` and
-`podcast.test.js`; and 15/182 before the chapters/notes/notification change
-before that.) **If your change adds tests, these
+The counts `25` and `384` are the current baseline. (It was 23/323 before the
+custom-roles change added `roleMigration.test.js` and rewrote `roles.test.js`,
+`access.test.js` and the roles block of `routes.test.js`.) **If your change adds tests, these
 numbers go UP — update this file's counts in the same PR.** If they go DOWN or anything
 reports `failed`, the gate failed. Tests live only in `lib/__tests__/`. Mostly pure logic, plus two kinds of integration
 test: `access.test.js` stubs `lib/redis` to exercise `resolveAccess`'s fail-closed
@@ -176,7 +174,7 @@ Break none of these. Each row: the rule, why it exists, and where to verify it.
 | 10 | Rate-limit expensive or abusable endpoints with `allowRequest(name, id, tokens, window)` following the existing pattern | Uploads, share creation, and the video list all hit external paid APIs or send email; unlimited calls = cost/abuse. The limiter fails OPEN (infra hiccup never locks users out) — do not change that semantic | `pages/api/admin/share.js:20` (30/h), `pages/api/admin/upload.js:15` (30/h), `pages/api/videos.js:18` (60/m); `lib/ratelimit.js:1-2` |
 | 11 | Every admin mutation calls `logAction(admin, "noun.verb", detail)` after it succeeds | The Activity tab is the audit trail for a multi-admin portal. Logging is best-effort by design (never breaks the action) — but omitting the call breaks the trail | `lib/audit.js:1-2`; call sites in every mutating `pages/api/admin/*` route (e.g. `viewers.js:39,61`, `share.js:80`) |
 | 12 | Failure semantics are asymmetric on purpose: viewer approval, role resolution, and group scoping fail CLOSED, rate limiting fails OPEN — never flip any of them | Approval failing open leaks video data on an infra error; rate limiting failing closed locks out all real users on an infra error. For group scope specifically, `videoScope === null` means unrestricted and `[]` means nothing permitted — never normalize the empty case to null | `lib/roles.js` (`resolveAccess`); `lib/ratelimit.js:1-2,27-29`; see `architecture-contract` (c) and (m) |
-| 13 | `ADMIN_EMAILS` stays an un-demotable bootstrap seed that resolves without a Redis call, and an admin can never change their own role | It is the only way back into a portal whose Redis role data is lost or corrupted, and the only admin path that survives a Redis outage. Self-demotion is the easiest way to lock out the last admin | `lib/roles.js` (`resolveAccess` short-circuit); `pages/api/admin/roles.js` (both guard clauses); `architecture-contract` section 3 |
+| 13 | `ADMIN_EMAILS` stays an un-demotable bootstrap owner set that resolves without a Redis call, and no actor may create, edit, delete or assign a role carrying a capability they do not themselves hold | It is the only way back into a portal whose Redis role data is lost or corrupted, and the only admin path that survives a Redis outage. Since roles became admin-defined, the permission table itself is admin-writable, so the no-escalation ceiling is what keeps delegating `roles.manage` from being equivalent to handing over every capability | `lib/roles.js` (`resolveAccess` short-circuit); `pages/api/admin/roles.js` (`undelegatableCapabilities` on POST, PUT, PATCH and DELETE); `architecture-contract` (t) |
 | 14 | A viewer-facing path that can reach a video consults `access.videoScope` server-side — omission from a list is not access control | `pages/watch/video/[id].js` must 404 an out-of-scope id BEFORE `signEmbedUrl` mints a 3-hour token, or group restrictions are bypassable by anyone who knows an id | `pages/watch/video/[id].js`; `lib/videoList.js`; `pages/api/{videos,collections,progress}.js`; `architecture-contract` (m) |
 
 ## 4. Self-review before opening a PR
@@ -196,7 +194,8 @@ Walk this checklist against your diff. Every "yes" required.
 - [ ] New expensive/abusable endpoint rate-limited? (rule 10)
 - [ ] New admin mutation calls `logAction`? (rule 11)
 - [ ] Fail-open/fail-closed semantics unchanged, including role/scope resolution? (rule 12)
-- [ ] `ADMIN_EMAILS` still un-demotable and Redis-free; self-role-change still blocked? (rule 13)
+- [ ] `ADMIN_EMAILS` still un-demotable and Redis-free; every mutating roles branch still calls `undelegatableCapabilities`? (rule 13)
+- [ ] Any new capability added to the catalog also added to `CAPABILITY_INFO`, so it reaches the Roles tab with a label? (`architecture-contract` (t))
 - [ ] Any new path to a video checks `videoScope` server-side? (rule 14)
 - [ ] Any new session-less path to content is default-deny, fails CLOSED, and is its own file rather than a branch in an existing gate? (`architecture-contract` (q))
 - [ ] Any new bearer-token auth identifies an account only, re-resolving entitlement per request, with uniform denials? (`architecture-contract` (r))
@@ -233,7 +232,7 @@ re-verify before relying on them; update this file when a check's expected outpu
 | Volatile claim | Re-verify with |
 |---|---|
 | Lint passes clean, banner-only output | `npm run lint; echo $?` (expect exit 0) |
-| Test baseline is 23 files / 323 tests | `npm test 2>&1 \| grep -E "Test Files\|Tests"` |
+| Test baseline is 25 files / 384 tests | `npm test 2>&1 \| grep -E "Test Files\|Tests"` |
 | Build env block matches CI | `sed -n '33,46p' .github/workflows/ci.yml` |
 | ESLint still pinned to ^9.x | `grep '"eslint"' package.json` |
 | All admin routes guarded by a capability | `grep -L "requireCapability\|requireAdmin" pages/api/admin/*.js` (expect no output) |
