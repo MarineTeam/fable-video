@@ -315,7 +315,12 @@ setup and architecture, see [README.md](./README.md).
   a session whose Auth0 `email_verified` claim isn't true is refused
   everywhere, before any approval or role lookup. A missing claim counts as
   unverified. Off by default, and `ADMIN_EMAILS` addresses are exempt so the
-  setting can always be undone by the person who turned it on.
+  setting can always be undone by the person who turned it on. "Everywhere"
+  includes the share and bundle watch pages: recipients are the users least
+  likely to hold a verified address, which is exactly why exempting them would
+  leave a forged unverified session able to match a link's recipient. They see
+  the same "verify your email" notice rather than a login redirect, which would
+  loop for someone already signed in.
 - **Custom roles** — roles are built by an admin, not fixed. A role is a named
   set drawn from 13 capabilities (view vs. manage vs. upload videos; view vs.
   manage viewers and shares; analytics, audit log, broadcasts, settings,

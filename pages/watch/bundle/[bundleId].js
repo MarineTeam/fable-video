@@ -11,7 +11,7 @@
 // reflected here instantly with no write to the bundle.
 import Head from "next/head";
 import { auth0 } from "../../../lib/auth0";
-import { normalizeEmail } from "../../../lib/auth";
+import { blockedByEmailVerification, normalizeEmail } from "../../../lib/auth";
 import { getBundle, liveBundleItems } from "../../../lib/bundles";
 import { shareUrl } from "../../../lib/shares";
 import ShareGateMessage from "../../../components/ShareGateMessage";
@@ -30,10 +30,27 @@ async function gssp({ req, params, resolvedUrl }) {
       },
     };
   }
-  const user = { email, name: session.user.name || email };
   // Global setting, resolved before the gone/mismatch branches — see the
   // matching comment in pages/watch/[shareId].js.
   const siteName = await getSiteName().catch(() => null);
+
+  const user = { email, name: session.user.name || email };
+  // Email verification, when REQUIRE_VERIFIED_EMAIL is on. Checked HERE, before
+  // the link is looked up, so an unverified session cannot use the
+  // gone-vs-mismatch distinction as an oracle for whether a link is live.
+  //
+  // Share recipients are enforced like everyone else, deliberately. They are
+  // the users least likely to have a verified address, which is exactly why
+  // exempting them would leave a forged unverified session able to match a
+  // link's recipient and watch it — the whole attack the toggle exists to stop.
+  // ADMIN_EMAILS accounts stay exempt (lib/auth.js), so the recovery path into
+  // /admin to switch the toggle back off is never blocked.
+  //
+  // A notice, not a login redirect: the user IS signed in, so redirecting to
+  // /auth/login would bounce them straight back here in a loop.
+  if (blockedByEmailVerification(session.user)) {
+    return { props: { state: "unverified", user, siteName } };
+  }
 
   let bundle = null;
   try {
@@ -90,6 +107,22 @@ export default function SharedBundle({ state, user, items, siteName }) {
         </Head>
         <ShareGateMessage title="This page isn&apos;t available" user={user}>
           <p>This shared collection has expired or doesn&apos;t exist.</p>
+        </ShareGateMessage>
+      </>
+    );
+  }
+
+  if (state === "unverified") {
+    return (
+      <>
+        <Head>
+          <title>{pageTitle("Verify your email", siteName)}</title>
+        </Head>
+        <ShareGateMessage title="Verify your email address" user={user}>
+          <p>
+            This portal requires a verified email address. Check your inbox for
+            the verification link, then sign in again to open this page.
+          </p>
         </ShareGateMessage>
       </>
     );

@@ -30,6 +30,8 @@ import {
   setRolesForEmail,
   sortedRoles,
   undelegatableCapabilities,
+  assignmentNeedsViewerManage,
+  resolveAccess,
 } from "../../../lib/roles";
 import { findLegacyAssignments, migrateLegacyRoles } from "../../../lib/roleMigration";
 import { isValidEmail, normalizeEmail } from "../../../lib/auth";
@@ -176,6 +178,35 @@ async function handler(req, res) {
         return res
           .status(403)
           .json({ error: "That assignment is outside your own capabilities", refused });
+      }
+      // Assigning a role also grants library access (see
+      // assignmentNeedsViewerManage) — a widening the subset rule above cannot
+      // see. Only resolve the target's current access when it could matter, so
+      // the common cases cost no extra reads.
+      const granted = capsOf(requested);
+      if (granted.length && !actor.owner) {
+        let targetApproved = false;
+        try {
+          targetApproved = (await resolveAccess(email)).approved;
+        } catch (err) {
+          // Access decision — fail closed.
+          console.error("Could not resolve the target's access:", err);
+          targetApproved = false;
+        }
+        if (
+          assignmentNeedsViewerManage({
+            owner: actor.owner,
+            actorCaps: actor.capabilities,
+            grantedCaps: granted,
+            targetApproved,
+          })
+        ) {
+          return res.status(403).json({
+            error:
+              "Granting a role to someone who cannot already view the library needs the viewers.manage capability",
+            refused: [CAP.VIEWERS_MANAGE],
+          });
+        }
       }
       const result = await setRolesForEmail(email, requested, rolesById);
       if (!result.ok) return res.status(400).json({ error: result.error });

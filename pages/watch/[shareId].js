@@ -6,7 +6,7 @@
 // comment). Every open stamps the share's view count (preserving TTL).
 import Head from "next/head";
 import { auth0 } from "../../lib/auth0";
-import { normalizeEmail } from "../../lib/auth";
+import { blockedByEmailVerification, normalizeEmail } from "../../lib/auth";
 import { getShare, isShareLive, shareViewPatch, updateShare } from "../../lib/shares";
 import { signEmbedUrl } from "../../lib/bunny";
 import {
@@ -32,11 +32,28 @@ async function gssp({ req, params, resolvedUrl }) {
       },
     };
   }
-  const user = { email, name: session.user.name || email };
   // Resolved before the gone/mismatch branches so every state renders the
   // same name. It is a global setting, not recipient data, so including it
   // here can't leak who a link was for (invariant (g)).
   const siteName = await getSiteName().catch(() => null);
+
+  const user = { email, name: session.user.name || email };
+  // Email verification, when REQUIRE_VERIFIED_EMAIL is on. Checked HERE, before
+  // the link is looked up, so an unverified session cannot use the
+  // gone-vs-mismatch distinction as an oracle for whether a link is live.
+  //
+  // Share recipients are enforced like everyone else, deliberately. They are
+  // the users least likely to have a verified address, which is exactly why
+  // exempting them would leave a forged unverified session able to match a
+  // link's recipient and watch it — the whole attack the toggle exists to stop.
+  // ADMIN_EMAILS accounts stay exempt (lib/auth.js), so the recovery path into
+  // /admin to switch the toggle back off is never blocked.
+  //
+  // A notice, not a login redirect: the user IS signed in, so redirecting to
+  // /auth/login would bounce them straight back here in a loop.
+  if (blockedByEmailVerification(session.user)) {
+    return { props: { state: "unverified", user, siteName } };
+  }
 
   let share = null;
   try {
@@ -109,6 +126,22 @@ export default function SharedWatch({
         </Head>
         <ShareGateMessage title="This link isn&apos;t available" user={user}>
           <p>This private link has expired or doesn&apos;t exist.</p>
+        </ShareGateMessage>
+      </>
+    );
+  }
+
+  if (state === "unverified") {
+    return (
+      <>
+        <Head>
+          <title>{pageTitle("Verify your email", siteName)}</title>
+        </Head>
+        <ShareGateMessage title="Verify your email address" user={user}>
+          <p>
+            This portal requires a verified email address. Check your inbox for
+            the verification link, then sign in again to open this link.
+          </p>
         </ShareGateMessage>
       </>
     );
