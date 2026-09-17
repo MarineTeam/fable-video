@@ -5,6 +5,52 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Security
+
+- **The share and bundle watch pages now honour `REQUIRE_VERIFIED_EMAIL`.**
+  Every other page gate called `blockedByEmailVerification`; `pages/watch/[shareId].js`
+  and `pages/watch/bundle/[bundleId].js` did not, so with the toggle on an
+  unverified session claiming a recipient's address could still play the video.
+  The companion `/api/share-track` route already enforced it, so the page was
+  laxer than its own tracking endpoint, and README/FEATURES already claimed the
+  check applied "everywhere". The check runs *before* the link lookup, so it
+  cannot be used to probe whether a link is live, and it renders the shared
+  gate card rather than redirecting — an already-signed-in user would loop
+  through `/auth/login` forever. `ADMIN_EMAILS` stays exempt, so the route back
+  into `/admin` to switch the toggle off is never blocked.
+- **Role assignment no longer widens who can watch.** `lib/roles.js`
+  `resolveAccess()` derives viewer approval from holding any capability, so
+  assigning a role also handed the target the private library — the outcome
+  `viewers.manage` gates. The subset rule could not catch it, because the actor
+  really does hold the capability being passed on. `assignmentNeedsViewerManage()`
+  now additionally requires `viewers.manage` to give a first role to someone who
+  cannot already see the library. Owners, role removal, and re-assignment to an
+  already-approved person are unaffected. 6 new tests.
+- **Baseline security headers** (`next.config.js`): `X-Frame-Options: DENY` and
+  CSP `frame-ancestors 'none'` — `/admin` has one-click destructive actions and
+  was framable by any origin — plus `nosniff`, `Referrer-Policy` and a
+  `Permissions-Policy`. Not a full script CSP: the pre-paint theme script and
+  Next's bootstrap are inline and would need nonces. `Referrer-Policy` is
+  `strict-origin-when-cross-origin`, not `no-referrer`, because bunny.net
+  thumbnail hotlink protection reads the Referer. No HSTS — Vercel sets it, and
+  a wrong one is cached by browsers.
+- **`isValidEmail` is linear-time** (`lib/auth.js`). It was
+  `/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/`, whose two `[^\s@]` runs both match dots,
+  leaving the split around the literal dot ambiguous — the polynomial-backtracking
+  shape CodeQL flags, reached from `parseEmailList()` over pasted bulk address
+  lists. The replacement is a `indexOf`/`slice` parser proven to accept exactly
+  the same set over 500k generated inputs; note that neither `lastIndexOf` nor a
+  plain `indexOf` reproduces the regex (it accepted `a@b.b.c` and `b@..bb.`),
+  and both traps are now pinned by tests. Honest caveat: the old pattern was
+  measured and did **not** show super-linear time on V8 at 32k characters, so
+  this is a defensive rewrite matching the sibling repo and satisfying static
+  analysis, not a fix for a demonstrated DoS.
+- **`no-undef` is now an error for `lib/**` and `pages/api/**`**
+  (`eslint.config.mjs`). `eslint-config-next` leaves it off for plain JS, so a
+  call to an unimported function lints clean and only fails at runtime — the
+  sibling repo shipped exactly that in an API route. It caught a missing
+  `resolveAccess` import in this very change.
+
 ### Changed — roles are now admin-defined
 
 The three fixed roles (Viewer / Manager / Admin) are replaced by **custom

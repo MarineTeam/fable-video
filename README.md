@@ -720,7 +720,8 @@ address, or an account that lost access — returns an identical `404`.
   bootstrap admin out.
 - **Optional `email_verified` enforcement** (`REQUIRE_VERIFIED_EMAIL`) refuses
   unverified sessions before any approval or role lookup. A missing claim counts
-  as unverified.
+  as unverified. Share and bundle pages are included — the check runs before the
+  link is looked up, so it cannot be used to probe whether a link is live.
 - **Access requests grant nothing.** The request endpoint takes the address from
   the session (never the body), is rate-limited to 5/day, and only queues a
   record for an admin to act on.
