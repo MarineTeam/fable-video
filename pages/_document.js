@@ -3,6 +3,22 @@ import { getSiteName } from "../lib/store";
 import { shortSiteName } from "../lib/siteName";
 import { THEME_CACHE_KEY } from "../lib/theme-client";
 
+// Embedding a value in a <script> is not the same as serializing it.
+// JSON.stringify leaves "<" alone, so a value containing "</script>" would
+// close the tag early, and it passes U+2028/U+2029 through, which older
+// parsers read as line terminators inside a string literal. Escaping those
+// three is what makes the output safe to paste into code — CodeQL flags the
+// bare JSON.stringify as improper sanitization (js/bad-code-sanitization),
+// and it is right to: the key below is a constant we control today, but the
+// call site is what has to stay safe, not the value that happens to flow
+// through it.
+function jsLiteral(value) {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003C")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
 // Applies the cached palette before first paint so returning visitors never
 // see a color flicker.
 //
@@ -18,7 +34,7 @@ import { THEME_CACHE_KEY } from "../lib/theme-client";
 // 2. The storage key was hardcoded here while lib/theme-client.js exported its
 //    own copy, under a comment telling the reader to keep the two in sync by
 //    hand. It now imports THEME_CACHE_KEY, so they cannot drift.
-const themeBoot = `(function(){try{var h=/^#[0-9a-fA-F]{6}$/,raw=localStorage.getItem(${JSON.stringify(
+const themeBoot = `(function(){try{var h=/^#[0-9a-fA-F]{6}$/,raw=localStorage.getItem(${jsLiteral(
   THEME_CACHE_KEY
 )});if(!raw)return;var t=JSON.parse(raw);if(t&&h.test(t.accent)&&h.test(t.accent2)){var s=document.documentElement.style;s.setProperty("--accent",t.accent);s.setProperty("--accent-2",t.accent2);}}catch(e){}})();`;
 
