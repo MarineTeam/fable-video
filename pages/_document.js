@@ -1,10 +1,26 @@
 import Document, { Html, Head, Main, NextScript } from "next/document";
 import { getSiteName } from "../lib/store";
 import { shortSiteName } from "../lib/siteName";
+import { THEME_CACHE_KEY } from "../lib/theme-client";
 
 // Applies the cached palette before first paint so returning visitors never
-// see a color flicker. Must stay in sync with lib/theme-client.js.
-const themeBoot = `(function(){try{var raw=localStorage.getItem("fablevideo:theme");if(!raw)return;var t=JSON.parse(raw);if(t&&t.accent&&t.accent2){var s=document.documentElement.style;s.setProperty("--accent",t.accent);s.setProperty("--accent-2",t.accent2);}}catch(e){}})();`;
+// see a color flicker.
+//
+// Two things this used to get wrong, both now fixed:
+//
+// 1. It only checked that accent/accent2 were PRESENT, then handed them
+//    straight to setProperty. They come from localStorage, which this script
+//    cannot vouch for, so an unchecked string could be written into a CSS
+//    custom property by whatever wrote that cache. Both values are now tested
+//    against the same 6-digit hex shape lib/theme.js's isValidHex() enforces
+//    on write; one bad value drops the cached palette entirely and the page
+//    renders the default, exactly as a missing cache already did.
+// 2. The storage key was hardcoded here while lib/theme-client.js exported its
+//    own copy, under a comment telling the reader to keep the two in sync by
+//    hand. It now imports THEME_CACHE_KEY, so they cannot drift.
+const themeBoot = `(function(){try{var h=/^#[0-9a-fA-F]{6}$/,raw=localStorage.getItem(${JSON.stringify(
+  THEME_CACHE_KEY
+)});if(!raw)return;var t=JSON.parse(raw);if(t&&h.test(t.accent)&&h.test(t.accent2)){var s=document.documentElement.style;s.setProperty("--accent",t.accent);s.setProperty("--accent-2",t.accent2);}}catch(e){}})();`;
 
 const favicon =
   "data:image/svg+xml," +
