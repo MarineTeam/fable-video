@@ -278,8 +278,15 @@ setup and architecture, see [README.md](./README.md).
   the control rather than left to be discovered on an invoice. Two clicks, not
   one, because bunny's transcription is asynchronous: *Transcribe* queues it,
   and *Fetch captions* pulls the result in a few minutes later. Deliberately
-  does not let bunny generate titles, descriptions or chapters — those are
+  does not let bunny generate titles or descriptions — those are
   admin-authored here, and a transcription job must never rewrite them.
+- **Suggest chapters** — optionally, the same transcription job asks bunny to
+  propose chapters (no extra charge; it is a tick-box on the transcribe
+  control, off by default). The proposal is only ever a proposal: *Suggest
+  chapters* loads it **into the chapters box** for the admin to edit and save,
+  and replacing text already typed there asks first. Nothing about
+  transcription writes to the stored chapter list — the AI proposes and a
+  person accepts, through the same save a hand-typed list goes through.
 - **Public link** _(admin only)_ — makes **one** video watchable by anyone
   with the address, with no account and no sign-in, on its own separate page.
   Everything else stays private: that page shows one video and reveals
@@ -466,9 +473,9 @@ setup and architecture, see [README.md](./README.md).
   per-video was the deliberate choice.)
 - **Comments/ratings** — not implemented.
 - **Transcripts are one language, and the admin fetches them by hand** — bunny can translate captions into 56 languages, but only one track is ingested (English when present, otherwise the first bunny produced). And because transcription is asynchronous with no webhook wired up, “Transcribe” and “Fetch captions” are two separate clicks minutes apart rather than one.
-- **AI chapters are not accepted automatically** — bunny can generate chapters from the transcript, and the transcribe call deliberately turns that off. Chapters here are admin-authored (`lib/chapters.js`), and a second writer for the same field is how hand-written ones get silently replaced. Accepting a suggested set is a separate, unbuilt feature.
-- **Chapters are typed by hand** — there is no auto-detection from the audio,
-  no import from a description, and no per-viewer chapter progress.
+- **AI chapters are suggestions, and staying that way is the design** — bunny can generate chapters from the transcript, but nothing on that path writes to the stored list: suggestions are read back read-only (`lib/aiChapters.js`) and land in the admin's textarea, where a person accepts them. A background write would be a second writer for the same field, which is how hand-written chapters get silently replaced. **The field names bunny returns (`title`/`start`) are read from its docs, not from a live job** — this has never run against a real transcription, so the reader accepts a few spellings and reports anything it cannot read rather than returning an empty list.
+- **Chapters are typed, or accepted** — there is no import from a description
+  and no per-viewer chapter progress.
 - **Scripture references are plain text** — notes are not parsed into
   structured references, so there is no "all sermons on Philippians" view.
   Book abbreviations, ranges and translations make that much deeper than it

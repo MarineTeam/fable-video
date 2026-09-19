@@ -1,7 +1,10 @@
 // Queues bunny.net Transcribe AI for one video, and ingests the result.
 //
-//   POST { guid }          -> queue transcription (COSTS MONEY, see below)
-//   POST { guid, ingest }  -> pull the finished captions into Redis
+//   POST { guid }               -> queue transcription (COSTS MONEY, see below)
+//   POST { guid, chapters }     -> ...and ask bunny for chapter suggestions
+//   POST { guid, ingest }       -> pull the finished captions into Redis
+//   POST { guid, suggestions }  -> read back the suggested chapters (writes
+//                                  NOTHING — see lib/aiChapters.js)
 //
 // THIS ROUTE SPENDS MONEY. bunny bills transcription at $0.10 per minute of
 // video, per language — a 90-minute service in three languages is $27 from one
@@ -20,6 +23,7 @@ import { isExplicitlyTrue, oneTrimmed } from "../../../lib/params";
 import { allowRequest } from "../../../lib/ratelimit";
 import { fetchCaptionVtt, getVideo, transcribeVideo } from "../../../lib/bunny";
 import { parseVtt } from "../../../lib/captions";
+import { suggestedChapters } from "../../../lib/aiChapters";
 import { setTranscript } from "../../../lib/captionsStore";
 import { logAction } from "../../../lib/audit";
 import { withMonitorApi } from "../../../lib/monitor";
@@ -45,6 +49,12 @@ async function handler(req, res) {
     return ingest(req, res, admin, guid);
   }
 
+  // Reading back suggestions is cheaper still: one GET, no write anywhere, so
+  // it sits in front of the money limiter too.
+  if (isExplicitlyTrue(req.body?.suggestions)) {
+    return suggestions(res, guid);
+  }
+
   if (!(await allowRequest("transcribe", admin, 10, "1 h"))) {
     return res.status(429).json({ error: "Too many transcription requests — try again shortly" });
   }
@@ -58,15 +68,47 @@ async function handler(req, res) {
     return res.status(400).json({ error: "Bad source language" });
   }
 
+  // Chapter suggestions ride along with the same job — no extra per-minute
+  // charge — but they are opt-in all the same, because a video whose chapters
+  // an admin has already typed has no use for a second opinion, and asking
+  // keeps "what did this job produce" a question with an answer.
+  const chapters = isExplicitlyTrue(req.body?.chapters);
+
   try {
-    await transcribeVideo(guid, { sourceLanguage, force });
+    await transcribeVideo(guid, { sourceLanguage, force, generateChapters: chapters });
   } catch (err) {
     console.error("Could not queue transcription:", err);
     return res.status(502).json({ error: "Could not queue transcription" });
   }
 
-  await logAction(admin, force ? "video.retranscribe" : "video.transcribe", guid);
-  return res.json({ ok: true, queued: true });
+  await logAction(
+    admin,
+    force ? "video.retranscribe" : "video.transcribe",
+    chapters ? `${guid} (with chapter suggestions)` : guid
+  );
+  return res.json({ ok: true, queued: true, chapters });
+}
+
+// Reads bunny's generated chapters back as a proposal. READ-ONLY on purpose:
+// this route never touches `fablevideo:chapters`, so a transcription job can
+// never replace a list an admin typed. The admin accepts a proposal by loading
+// it into the chapters textarea and saving it through `set-chapters`, which is
+// the same path a hand-typed list takes.
+//
+// Not audit-logged: nothing changed. The acceptance is what gets logged, by
+// set-chapters, exactly as if the admin had typed the lines.
+async function suggestions(res, guid) {
+  let video;
+  try {
+    video = await getVideo(guid);
+  } catch (err) {
+    if (err?.status === 404) return res.status(404).json({ error: "Video not found" });
+    console.error("Could not read the video for chapter suggestions:", err);
+    return res.status(502).json({ error: "Could not read the video" });
+  }
+
+  const { chapters, ignored } = suggestedChapters(video);
+  return res.json({ ok: true, chapters, ignored });
 }
 
 // Pulls the finished captions off bunny's CDN and stores the parsed cues.

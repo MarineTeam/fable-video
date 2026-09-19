@@ -28,7 +28,8 @@ import { blockedByEmailVerification, normalizeEmail } from "../lib/auth";
 import { ALL_CAPABILITIES, CAP } from "../lib/capabilities";
 import { pageTitle } from "../lib/siteName";
 import { MAX_NOTES_LENGTH } from "../lib/notes";
-import { formatChapters } from "../lib/chapters";
+import { formatChapters, parseChapters } from "../lib/chapters";
+import { sameChapters } from "../lib/aiChapters";
 import { resolveAccess } from "../lib/roles";
 import { PRESETS } from "../lib/theme";
 import { applyResolvedTheme } from "../lib/theme-client";
@@ -166,6 +167,10 @@ function TranscriptControls({ video }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  // Opt-in, and unticked by default: chapter suggestions ride along with the
+  // same job at no extra charge, but a video whose chapters are already typed
+  // has no use for them. Nothing they produce is ever saved automatically.
+  const [wantChapters, setWantChapters] = useState(false);
 
   const post = async (body, pending) => {
     setBusy(true);
@@ -177,7 +182,11 @@ function TranscriptControls({ video }) {
         body: { guid: video.id, ...body },
       });
       if (result?.queued) {
-        setStatus("Queued. bunny takes a few minutes; then press Fetch.");
+        setStatus(
+          result.chapters
+            ? "Queued with chapter suggestions. bunny takes a few minutes; then press Fetch, and Suggest chapters above."
+            : "Queued. bunny takes a few minutes; then press Fetch."
+        );
       } else if (result?.ready) {
         setStatus(`Fetched ${result.cues} lines (${result.language}).`);
       } else {
@@ -203,7 +212,7 @@ function TranscriptControls({ video }) {
           type="button"
           className="btn btn-ghost"
           disabled={busy}
-          onClick={() => post({}, "Queueing…")}
+          onClick={() => post({ chapters: wantChapters }, "Queueing…")}
         >
           Transcribe
         </button>
@@ -216,6 +225,18 @@ function TranscriptControls({ video }) {
           Fetch captions
         </button>
       </div>
+      <label className="row-check">
+        <input
+          type="checkbox"
+          checked={wantChapters}
+          disabled={busy}
+          onChange={(e) => setWantChapters(e.target.checked)}
+        />
+        <span className="muted small">
+          Also suggest chapters from the transcript. Suggestions are never saved
+          for you — they load into the box above for you to accept or edit.
+        </span>
+      </label>
       {status ? <div className="notice notice-ok">{status}</div> : null}
       {error ? <div className="notice notice-error">{error}</div> : null}
     </div>
@@ -235,6 +256,57 @@ function DetailsEditor({ video, onClose, onSaved }) {
   const [ignored, setIgnored] = useState([]);
   const [late, setLate] = useState([]);
   const [saved, setSaved] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestion, setSuggestion] = useState("");
+
+  // Loads bunny's generated chapters INTO THE TEXTAREA. This is the accept
+  // step, and it is deliberately only half of one: the suggestions sit in the
+  // box until the admin presses Save, so the stored list is still something a
+  // person chose. Replacing text the admin typed asks first — the AI is not
+  // allowed to overwrite someone's work on a single click.
+  const suggest = async () => {
+    setSuggesting(true);
+    setError("");
+    setSuggestion("");
+    try {
+      const result = await api("/api/admin/transcribe", {
+        method: "POST",
+        body: { guid: video.id, suggestions: true },
+      });
+      const proposed = result?.chapters || [];
+      const skipped = result?.ignored || [];
+      if (!proposed.length) {
+        setSuggestion(
+          skipped.length
+            ? `bunny returned ${skipped.length} chapter(s) that could not be read. Nothing to load.`
+            : "bunny has not generated chapters for this video. Transcribe again with the chapters box ticked."
+        );
+        return;
+      }
+      if (sameChapters(parseChapters(chapterText).chapters, proposed)) {
+        setSuggestion("The suggestions match what is already here — nothing to change.");
+        return;
+      }
+      if (
+        chapterText.trim() &&
+        !window.confirm(
+          `Replace the ${parseChapters(chapterText).chapters.length} chapter(s) in the box with ${proposed.length} suggested one(s)? Nothing is saved until you press Save.`
+        )
+      ) {
+        return;
+      }
+      setChapterText(formatChapters(proposed));
+      setSuggestion(
+        `Loaded ${proposed.length} suggestion(s)${
+          skipped.length ? `, skipped ${skipped.length}` : ""
+        }. Edit what you like, then press Save — nothing is stored until you do.`
+      );
+    } catch (err) {
+      setError(err?.message || "Could not read the suggestions.");
+    } finally {
+      setSuggesting(false);
+    }
+  };
 
   const save = async () => {
     setBusy(true);
@@ -298,6 +370,21 @@ function DetailsEditor({ video, onClose, onSaved }) {
             placeholder={"0:00 Worship\n18:30 Announcements\n24:15 Sermon"}
           />
         </label>
+        <div className="row-actions">
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={suggesting || busy}
+            onClick={suggest}
+          >
+            {suggesting ? "Reading…" : "Suggest chapters"}
+          </button>
+          <span className="muted small">
+            From the transcript, if one was generated with chapters. Loads into
+            the box above — never saved for you.
+          </span>
+        </div>
+        {suggestion ? <div className="notice notice-ok">{suggestion}</div> : null}
         <label className="stack-sm">
           <span className="muted small">
             Notes — an outline or the passage covered. Searchable from the

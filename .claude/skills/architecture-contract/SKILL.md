@@ -719,6 +719,44 @@ every branch), `lib/roleMigration.js` (the upgrade path).
 plus a call on POST, PUT twice, PATCH and DELETE; a mutating branch without one is the
 bug this invariant exists to catch).
 
+### (u) A generated suggestion is never a stored value — the AI proposes, a person accepts
+
+**Statement:** bunny's Transcribe AI can generate titles, descriptions, chapters and
+moments. Three of those are off at the call site and one — `generateChapters` — is
+opt-in (`lib/bunny.js`, `transcribeVideo`). Whatever it generates lands on **bunny's**
+video object and is read back READ-ONLY: `lib/aiChapters.js` is pure (no store import
+at all), and the `suggestions` branch of `pages/api/admin/transcribe.js` writes
+nothing — not `fablevideo:chapters`, not the transcript, not even the audit log,
+because nothing changed. A suggestion becomes a chapter only when an admin loads it
+into the chapters textarea and saves, which goes through `set-chapters` and
+`parseChapters` exactly as a hand-typed list does.
+
+**Why:** two writers for one field is how hand-written work gets silently replaced.
+The admin who typed "24:15 Sermon" would have no way to tell that a transcription job
+run for the captions had overwritten it, and no way to get it back. Keeping the
+acceptance in the admin's hands costs one click and removes the whole class of
+failure. The same reasoning is why titles and descriptions stay off entirely: nothing
+here reads a generated title, so generating one is a write with no reader.
+
+**The corollary for anything new:** if a future integration generates content that
+overlaps something a person authors here, the generated copy goes somewhere the
+person's copy is not, and a person moves it across. Do not add a second writer.
+
+**Field-name caveat, deliberately recorded:** `title`/`start` come from bunny's docs,
+not from a live job — this path has never run against a real transcription. The reader
+accepts a few spellings and REPORTS what it could not read, so a docs/reality mismatch
+shows up as "3 suggestions could not be read" rather than as silence.
+
+**Enforced at:** `lib/aiChapters.js` (pure reader), `lib/bunny.js` (the generate flags),
+`pages/api/admin/transcribe.js` (the read-only `suggestions` branch),
+`pages/admin.js` (`DetailsEditor` — loads into the textarea, confirms before replacing
+text already typed, saves nothing by itself).
+
+**Verify with:** `npm test -- aiChapters transcribeRoute` (the route test asserts the
+suggestions branch calls neither `setTranscript` nor `logAction`, and never reaches the
+paid call even with the rate limit exhausted); `grep -n "Store\|redis" lib/aiChapters.js`
+(expect no output).
+
 ---
 
 ## 2. Load-bearing decisions (don't undo these without a deliberate call)
@@ -928,6 +966,7 @@ that date. Line numbers in (k)/(l) are against those files as of v1.8.0 and will
 | The feed body never contains a CDN url (s) | `npm test -- feedRoutes` (asserts no `b-cdn.net` in the document) |
 | Only the feed media route builds a CDN media url (s) | `grep -rn "signedMp4Url\|signCdnPath" pages lib` (definitions + one caller) |
 | `lib/bunny.js` signing helpers still untouched (s) | `git log --oneline -- lib/bunny.js` |
+| AI suggestions write nothing, anywhere (u) | `npm test -- aiChapters transcribeRoute`; `grep -n "Store\|redis" lib/aiChapters.js` (expect no output) |
 | Chapters/notes modules import no Redis (o) | `grep -n "^import" lib/chapters.js lib/notes.js` (expect no output) |
 | Chapters/notes are read only AFTER every access check (o) | `grep -n "scopeAllows\|getSchedule\|getChapters" "pages/watch/video/[id].js"` (the first two must precede the third) |
 | Access-request notification is addressed, not broadcast (p) | `grep -n "sendPushTo" lib/accessRequestNotify.js` (expect only `sendPushToEmails`) |
