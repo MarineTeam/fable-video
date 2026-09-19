@@ -22,7 +22,7 @@ import { pruneVideoFromGroups } from "../../../lib/groups";
 import { getPublicMap, prunePublicVideo } from "../../../lib/publicVideos";
 import { beyondDuration, formatTimestamp, parseChapters } from "../../../lib/chapters";
 import { MAX_NOTES_LENGTH } from "../../../lib/notes";
-import { oneNumber, oneString } from "../../../lib/params";
+import { oneNumber, oneString, oneTrimmed } from "../../../lib/params";
 import {
   getChaptersMap,
   getNotesMap,
@@ -146,7 +146,7 @@ async function handler(req, res) {
       const ids = Array.isArray(req.body?.ids)
         ? [...new Set(req.body.ids.filter((v) => typeof v === "string" && v))]
         : [];
-      const collectionId = String(req.body?.collectionId || "");
+      const collectionId = oneTrimmed(req.body?.collectionId) || "";
       if (!ids.length) {
         return res.status(400).json({ error: "Select at least one video" });
       }
@@ -260,7 +260,7 @@ async function handler(req, res) {
     }
 
     if (action === "rename") {
-      const title = String(req.body?.title || "").trim();
+      const title = oneTrimmed(req.body?.title) || "";
       if (!title || title.length > 200) {
         return res.status(400).json({ error: "Title must be 1-200 characters" });
       }
@@ -275,7 +275,7 @@ async function handler(req, res) {
     }
 
     if (action === "set-collection") {
-      const collectionId = String(req.body?.collectionId || "");
+      const collectionId = oneTrimmed(req.body?.collectionId) || "";
       try {
         await updateVideo(id, { collectionId });
       } catch (err) {
@@ -294,7 +294,7 @@ async function handler(req, res) {
   }
 
   if (req.method === "DELETE") {
-    const id = String(req.query.id || "");
+    const id = oneTrimmed(req.query.id);
     if (!id) return res.status(400).json({ error: "Video id is required" });
     try {
       await deleteVideo(id);

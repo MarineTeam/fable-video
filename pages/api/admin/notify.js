@@ -1,6 +1,7 @@
 // Manual admin broadcast: send a Web Push notification to every currently
 // approved viewer (and admins). Rate-limited and audit-logged.
 import { requireCapability } from "../../../lib/guard";
+import { oneString, oneTrimmed } from "../../../lib/params";
 import { CAP } from "../../../lib/roles";
 import { allowRequest } from "../../../lib/ratelimit";
 import { pushEnabled, sendPushToApproved } from "../../../lib/push";
@@ -29,9 +30,9 @@ async function handler(req, res) {
     return res.status(429).json({ error: "Too many broadcasts — try again shortly" });
   }
 
-  const title = String(req.body?.title || "").trim();
-  const message = String(req.body?.body || "").trim();
-  const rawUrl = String(req.body?.url || "/").trim();
+  const title = oneTrimmed(req.body?.title) || "";
+  const message = oneTrimmed(req.body?.body) || "";
+  const rawUrl = oneTrimmed(req.body?.url) || "/";
   // Only allow same-origin paths as the click target — never an external URL.
   const url = rawUrl.startsWith("/") ? rawUrl : "/";
 

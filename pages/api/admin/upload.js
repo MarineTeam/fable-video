@@ -7,6 +7,7 @@ import { allowRequest } from "../../../lib/ratelimit";
 import { createVideo, deleteVideo, signTusUpload } from "../../../lib/bunny";
 import { pruneFromOrder } from "../../../lib/store";
 import { logAction } from "../../../lib/audit";
+import { oneTrimmed } from "../../../lib/params";
 import { withMonitorApi } from "../../../lib/monitor";
 
 async function handler(req, res) {
@@ -20,9 +21,9 @@ async function handler(req, res) {
         .status(429)
         .json({ error: "Too many uploads started — try again shortly" });
     }
-    const title = String(req.body?.title || "").trim().slice(0, 200);
+    const title = (oneTrimmed(req.body?.title) || "").slice(0, 200);
     if (!title) return res.status(400).json({ error: "A title is required" });
-    const collectionId = String(req.body?.collectionId || "") || undefined;
+    const collectionId = oneTrimmed(req.body?.collectionId) || undefined;
 
     let video;
     try {
@@ -39,7 +40,7 @@ async function handler(req, res) {
   }
 
   if (req.method === "DELETE") {
-    const id = String(req.query.id || "");
+    const id = oneTrimmed(req.query.id);
     if (!id) return res.status(400).json({ error: "Video id is required" });
     try {
       await deleteVideo(id);

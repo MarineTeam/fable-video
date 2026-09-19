@@ -17,6 +17,7 @@
 // (lib/shares.js) — this route adds no new stored data of its own, just one
 // extra field on the records it creates.
 import { requireCapability } from "../../../lib/guard";
+import { oneTrimmed } from "../../../lib/params";
 import { CAP } from "../../../lib/roles";
 import { allowRequest } from "../../../lib/ratelimit";
 import { getVideo } from "../../../lib/bunny";
@@ -42,7 +43,7 @@ async function handler(req, res) {
   if (!access) return;
   const admin = access.email;
 
-  const videoId = String(req.query.videoId || req.body?.videoId || "");
+  const videoId = oneTrimmed(req.query.videoId) || oneTrimmed(req.body?.videoId) || "";
   if (!videoId) {
     return res.status(400).json({ error: "videoId is required" });
   }
