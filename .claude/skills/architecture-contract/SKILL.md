@@ -719,6 +719,36 @@ every branch), `lib/roleMigration.js` (the upgrade path).
 plus a call on POST, PUT twice, PATCH and DELETE; a mutating branch without one is the
 bug this invariant exists to catch).
 
+### (w) A route that reveals or edits PEOPLE requires the people capability, whatever else it manages
+
+**Statement:** `/api/admin/groups` is gated on `groups.manage`, but its membership
+surface — the member addresses in `GET`, and the whole of `PATCH` — additionally
+requires `viewers.read`. A groups-only manager sees the group record and a member
+COUNT, exactly as before membership editing existed.
+
+**Why:** membership is a tag on a viewer, so editing it is editing viewer records, and
+listing it is handing out addresses. Less obviously, the per-address *result* of a
+change ("not an approved viewer") answers the same question the viewer list does, so
+returning it to a caller who may not read that list would make the endpoint an
+enumeration oracle. Both halves go behind the same capability.
+
+**Why the WRITE needs nothing more than `groups.manage`:** a `groups.manage` holder can
+already change what every member of a group can watch — widen the allowlist, clear
+`restricted`, or delete the record entirely. Moving a viewer between groups grants no
+power they did not have. What it adds is visibility of *people*, which is exactly what
+the `viewers.read` requirement covers. This is the same reasoning as
+`assignmentNeedsViewerManage` in `lib/capabilities.js`: ask what the action actually
+widens, and gate that, rather than gating on which noun the route is named after.
+
+**Enforced at:** `pages/api/admin/groups.js` (the `hasCapability(access, CAP.VIEWERS_READ)`
+check on `PATCH` and on the `members` field of `GET`), `lib/groups.js`
+(`planMembershipChange` is pure and decides nothing about who may call it).
+
+**Verify with:** `npm test -- groupRoute groupMembership` — the route suite fails if a
+groups-only manager can reach the membership branch at all.
+
+---
+
 ### (v) Per-viewer data is keyed by the viewer, so removing them removes it
 
 **Statement:** anything recorded about a person — progress, saved list, ratings — is
@@ -1000,6 +1030,7 @@ that date. Line numbers in (k)/(l) are against those files as of v1.8.0 and will
 | The feed body never contains a CDN url (s) | `npm test -- feedRoutes` (asserts no `b-cdn.net` in the document) |
 | Only the feed media route builds a CDN media url (s) | `grep -rn "signedMp4Url\|signCdnPath" pages lib` (definitions + one caller) |
 | `lib/bunny.js` signing helpers still untouched (s) | `git log --oneline -- lib/bunny.js` |
+| Group membership needs viewers.read, not just groups.manage (w) | `npm test -- groupRoute groupMembership` |
 | Per-viewer data is keyed by the viewer; aggregates hold no identity (v) | `npm test -- ratings ratingRoute`; `grep -n "ratings\|rating_counts" lib/store.js` |
 | AI suggestions write nothing, anywhere (u) | `npm test -- aiChapters transcribeRoute`; `grep -n "Store\|redis" lib/aiChapters.js` (expect no output) |
 | Chapters/notes modules import no Redis (o) | `grep -n "^import" lib/chapters.js lib/notes.js` (expect no output) |

@@ -4294,11 +4294,19 @@ function GroupsTab() {
   const [draft, setDraft] = useState({ restricted: false, videoIds: [] });
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
+  // Membership editing is a separate capability from managing the group
+  // record (see pages/api/admin/groups.js). The server decides; this only
+  // hides an editor that would 403 anyway.
+  const [canEditMembers, setCanEditMembers] = useState(false);
+  const [membersFor, setMembersFor] = useState(null); // group id
+  const [memberDraft, setMemberDraft] = useState("");
+  const [memberNote, setMemberNote] = useState("");
 
   const load = useCallback(async () => {
     try {
       const data = await api("/api/admin/groups");
       setGroups(data.groups);
+      setCanEditMembers(Boolean(data.canEditMembers));
       setUntracked(data.untrackedTags || []);
     } catch (err) {
       setError(err.message);
@@ -4321,6 +4329,45 @@ function GroupsTab() {
     setSearch("");
     setError("");
     setNote("");
+  };
+
+  const openMembers = (group) => {
+    setMemberNote("");
+    setMemberDraft("");
+    setMembersFor(membersFor === group.id ? null : group.id);
+  };
+
+  // Adds or removes several people at once. The server answers with what
+  // actually happened to each address, and ALL of it is shown — an admin who
+  // pastes twelve addresses and gets "saved" has no way to discover that three
+  // were typos until someone complains they cannot see anything.
+  const changeMembers = async (group, { add = [], remove = [] }) => {
+    setBusy(true);
+    setError("");
+    setMemberNote("");
+    try {
+      const result = await api("/api/admin/groups", {
+        method: "PATCH",
+        body: { name: group.name, add, remove },
+      });
+      const parts = [];
+      if (result.added?.length) parts.push(`added ${result.added.length}`);
+      if (result.removed?.length) parts.push(`removed ${result.removed.length}`);
+      if (result.noop?.length) parts.push(`${result.noop.length} already as asked`);
+      if (result.unknown?.length) {
+        parts.push(`not approved viewers: ${result.unknown.join(", ")}`);
+      }
+      if (result.overflow?.length) {
+        parts.push(`at the tag limit: ${result.overflow.join(", ")}`);
+      }
+      if (result.failed?.length) parts.push(`could not change: ${result.failed.join(", ")}`);
+      setMemberNote(parts.length ? parts.join(" · ") : "Nothing changed.");
+      setMemberDraft("");
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
   };
 
   const toggleVideo = (id) => {
@@ -4490,6 +4537,15 @@ function GroupsTab() {
                     >
                       Edit access
                     </button>
+                    {canEditMembers ? (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => openMembers(group)}
+                      >
+                        {membersFor === group.id ? "Hide members" : "Members"}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className="icon-btn icon-btn-danger"
@@ -4500,6 +4556,60 @@ function GroupsTab() {
                     </button>
                   </>
                 )}
+
+                {canEditMembers && membersFor === group.id && editing !== group.id ? (
+                  <div className="stack" style={{ width: "100%" }}>
+                    <span className="muted small">
+                      Membership is a tag on each viewer — the same tag the
+                      Viewers tab sets, edited here for a whole group at once.
+                      Only people already on the viewer list can be added;
+                      tagging does not approve anybody.
+                    </span>
+                    {(group.members || []).length ? (
+                      <div className="chip-row">
+                        {(group.members || []).map((email) => (
+                          <span key={email} className="chip">
+                            {email}
+                            <button
+                              type="button"
+                              className="icon-btn"
+                              aria-label={`Remove ${email} from ${group.name}`}
+                              disabled={busy}
+                              onClick={() => changeMembers(group, { remove: [email] })}
+                            >
+                              <XIcon size={11} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="muted small">Nobody is in this group yet.</span>
+                    )}
+                    <textarea
+                      className="input textarea"
+                      rows={3}
+                      placeholder={"one@example.com\ntwo@example.com"}
+                      value={memberDraft}
+                      onChange={(e) => setMemberDraft(e.target.value)}
+                      aria-label={`Add viewers to ${group.name}`}
+                    />
+                    <div className="row-actions">
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        disabled={busy || !memberDraft.trim()}
+                        onClick={() =>
+                          changeMembers(group, {
+                            add: memberDraft.split(/[\s,;]+/).filter(Boolean),
+                          })
+                        }
+                      >
+                        Add to group
+                      </button>
+                    </div>
+                    {memberNote ? <div className="notice notice-ok">{memberNote}</div> : null}
+                  </div>
+                ) : null}
 
                 {editing === group.id ? (
                   <div className="stack" style={{ width: "100%" }}>

@@ -396,6 +396,16 @@ setup and architecture, see [README.md](./README.md).
   restricted one. Managers and admins are never group-scoped. Enforcement is
   server-side throughout: an out-of-scope video 404s before any playback token
   is minted, rather than merely being hidden from a list.
+- **Group membership editor** — add or remove people from a group **on the
+  Groups tab**, one at a time or by pasting a list, instead of tagging each
+  viewer individually. It reports what happened to every address you named:
+  added, removed, already as you asked, not an approved viewer, at the 20-tag
+  limit, or failed. Tagging never approves anybody — an address that is not
+  already on the viewer list is reported, not created. Membership matches
+  across spelling ("team a" and "Team A" are one group), so adding someone
+  cannot leave them carrying two tags for it and removing them cannot leave a
+  variant behind that still restricts what they see. Needs `viewers.read` as
+  well as `groups.manage`, since it names people.
 - **Viewer last-seen** — each viewer's most recent activity time.
 - **Activity / audit log** — the most recent admin actions (viewer
   add/remove/**tag**, **role change**, **group save/delete**, **access
@@ -475,9 +485,11 @@ setup and architecture, see [README.md](./README.md).
 - **Group-scoped staff** — managers and admins always see the whole library;
   a group restriction applies to viewers only. There is no "manager for these
   videos only" role.
-- **Group membership is edited per person** — you tag viewers one at a time
-  from the Viewers tab; there is no bulk add-to-group or membership editor on
-  the Groups tab itself.
+- **Group membership needs both capabilities** — the editor on the Groups tab
+  (below) requires `viewers.read` on top of `groups.manage`, because naming a
+  group's members hands out addresses. A groups-only manager still sees the
+  record and a member count, and still edits what the group may watch; they
+  just cannot see or change who is in it.
 - **Group allowlists are per-video and manual** — a new upload is not added to
   any restricted group automatically, so a restricted viewer won't see it
   until an admin ticks it. (A collection-based rule would auto-follow, but

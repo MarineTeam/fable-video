@@ -18,11 +18,13 @@ import {
   loadRoles,
   sortedRoles,
 } from "../../../lib/roles";
+import { MAX_TAGS_PER_VIEWER } from "../../../lib/groups";
 import { deleteFeedToken } from "../../../lib/feedTokens";
 import { logAction } from "../../../lib/audit";
 import { withMonitorApi } from "../../../lib/monitor";
 
-const MAX_TAGS = 20;
+// One definition, shared with /api/admin/groups' membership editor.
+const MAX_TAGS = MAX_TAGS_PER_VIEWER;
 const MAX_TAG_LENGTH = 30;
 
 async function handler(req, res) {
