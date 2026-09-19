@@ -2077,6 +2077,17 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
                     Public
                   </span>
                 ) : null}
+                {/* Totals only, and staff-only. The counters hold no
+                    identities, so this cannot say who rated what — see
+                    lib/ratings.js for why that is the design. */}
+                {video.rating ? (
+                  <span
+                    className="badge"
+                    title={`${video.rating.up} up, ${video.rating.down} down, from ${video.rating.total} viewer(s)`}
+                  >
+                    👍 {video.rating.up} · 👎 {video.rating.down}
+                  </span>
+                ) : null}
                 <select
                   className="input input-sm collection-select"
                   value={video.collectionId}

@@ -7,8 +7,10 @@ import Link from "next/link";
 import AppShell from "../../../components/AppShell";
 import ResumablePlayer from "../../../components/ResumablePlayer";
 import SaveToListButton from "../../../components/SaveToListButton";
-import { getMyList } from "../../../lib/store";
+import RatingButtons from "../../../components/RatingButtons";
+import { getMyList, getRatings } from "../../../lib/store";
 import { isSaved } from "../../../lib/mylist";
+import { ratingOf } from "../../../lib/ratings";
 import { auth0 } from "../../../lib/auth0";
 import { blockedByEmailVerification, normalizeEmail } from "../../../lib/auth";
 import { resolveAccess, scopeAllows } from "../../../lib/roles";
@@ -118,6 +120,15 @@ async function gssp({ req, params, resolvedUrl }) {
     console.error("Could not read the viewer's saved list:", err);
   }
 
+  // Same posture: an unreadable rating starts the buttons unpressed, which one
+  // click corrects, rather than failing a page the viewer is entitled to.
+  let vote = null;
+  try {
+    vote = ratingOf(await getRatings(email), video.guid);
+  } catch (err) {
+    console.error("Could not read the viewer's rating:", err);
+  }
+
   const siteName = await getSiteName().catch(() => null);
 
   return {
@@ -135,6 +146,7 @@ async function gssp({ req, params, resolvedUrl }) {
       chapters,
       notes,
       saved,
+      vote,
     },
   };
 }
@@ -151,6 +163,7 @@ export default function WatchVideo({
   chapters,
   notes,
   saved,
+  vote,
 }) {
   return (
     <AppShell user={user} admin={admin} canNotify siteName={siteName}>
@@ -163,6 +176,7 @@ export default function WatchVideo({
         </Link>
         <h1 className="page-title">{video.title}</h1>
         <SaveToListButton videoId={video.id} initialSaved={saved} />
+        <RatingButtons videoId={video.id} initialVote={vote} />
       </div>
       <ResumablePlayer
         src={embedSrc}

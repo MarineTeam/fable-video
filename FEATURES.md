@@ -95,6 +95,17 @@ setup and architecture, see [README.md](./README.md).
   video that later leaves your access simply drops out of the row rather than
   sitting there unopenable. Capped at 200, which refuses politely rather than
   dropping the oldest silently.
+- **Rate a video** — 👍 or 👎 beside the title on the watch page. Pressing the
+  vote you already hold clears it, which is the only way to take one back.
+  **A viewer sees their own vote and nobody else's** — the totals go to staff,
+  on the admin Videos tab, and never to viewers. In a library watched by a few
+  dozen people a visible "2 down" on someone's teaching is a social problem
+  the product does not need, and at that size a public counter is close to
+  attributable anyway. The vote is stored under the viewer's own key, so
+  removing a viewer removes their votes with them; the totals are plain
+  integers holding no address at all. Rating obeys group access the same way
+  saving does, and answers 404 rather than 403 for a video out of scope, so it
+  cannot be used to find out which ids exist.
 - **Transcript** — the spoken text of a recording, under the player, collapsed
   by default. Every line carries the timestamp it was said at and clicking one
   seeks there, like a chapter but at the resolution of a sentence. A search box
@@ -471,9 +482,19 @@ setup and architecture, see [README.md](./README.md).
   any restricted group automatically, so a restricted viewer won't see it
   until an admin ticks it. (A collection-based rule would auto-follow, but
   per-video was the deliberate choice.)
-- **Comments/ratings** — not implemented.
+- **Comments are not implemented** — ratings are (below), but there is no
+  free-text discussion anywhere in the portal. That is a deliberate stop: text
+  other viewers can read needs moderation, reporting and a notion of who may
+  delete whose words, none of which exists here.
 - **Transcripts are one language, and the admin fetches them by hand** — bunny can translate captions into 56 languages, but only one track is ingested (English when present, otherwise the first bunny produced). And because transcription is asynchronous with no webhook wired up, “Transcribe” and “Fetch captions” are two separate clicks minutes apart rather than one.
 - **AI chapters are suggestions, and staying that way is the design** — bunny can generate chapters from the transcript, but nothing on that path writes to the stored list: suggestions are read back read-only (`lib/aiChapters.js`) and land in the admin's textarea, where a person accepts them. A background write would be a second writer for the same field, which is how hand-written chapters get silently replaced. **The field names bunny returns (`title`/`start`) are read from its docs, not from a live job** — this has never run against a real transcription, so the reader accepts a few spellings and reports anything it cannot read rather than returning an empty list.
+- **Rating totals can drift by one against the votes** — a vote and its
+  counter are two writes, not one. The vote is authoritative and written
+  first; the counter is incremented after, best-effort, so an Upstash blip
+  between them leaves the total one short. It is never *corrected*, because
+  recomputing it would mean scanning every viewer's ratings hash, which this
+  repo does not do anywhere. Totals are read as approximate; a negative one is
+  clamped to zero rather than displayed. The votes themselves are exact.
 - **Chapters are typed, or accepted** — there is no import from a description
   and no per-viewer chapter progress.
 - **Scripture references are plain text** — notes are not parsed into

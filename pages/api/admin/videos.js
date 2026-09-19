@@ -13,11 +13,14 @@ import {
 } from "../../../lib/bunny";
 import { applyOrder } from "../../../lib/order";
 import {
+  clearVideoRatingCounts,
   getOrder,
+  getRatingCounts,
   getVideoWatermarkOverrides,
   pruneFromOrder,
   setVideoWatermarkOverride,
 } from "../../../lib/store";
+import { countsByVideo, countsFor, summarize } from "../../../lib/ratings";
 import { pruneVideoFromGroups } from "../../../lib/groups";
 import { getPublicMap, prunePublicVideo } from "../../../lib/publicVideos";
 import { beyondDuration, formatTimestamp, parseChapters } from "../../../lib/chapters";
@@ -55,7 +58,7 @@ async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
-      const [all, order, watermarkOverrides, schedules, chapters, notes, publicMap] =
+      const [all, order, watermarkOverrides, schedules, chapters, notes, publicMap, ratingRaw] =
         await Promise.all([
           listAllVideos(),
           getOrder().catch(() => []),
@@ -70,7 +73,11 @@ async function handler(req, res) {
           // route (pages/api/admin/public-videos.js) — a manager can see
           // that a video is public but cannot make one public.
           getPublicMap().catch(() => ({})),
+          // Totals only — the counters hold no identity, so this cannot tell
+          // an admin WHO rated anything. See lib/ratings.js.
+          getRatingCounts().catch(() => ({})),
         ]);
+      const ratings = countsByVideo(ratingRaw);
       const now = Date.now();
       const videos = applyOrder(all, order).map((video) => ({
         id: video.guid,
@@ -90,6 +97,9 @@ async function handler(req, res) {
         chapters: chapters[video.guid] || [],
         notes: notes[video.guid] || "",
         public: Boolean(publicMap[video.guid]),
+        // null when nobody has voted, so the UI shows nothing rather than a
+        // row of zeroes that reads like a bad score.
+        rating: summarize(countsFor(ratings, video.guid)),
       }));
       // Best-effort: announce any newly-ready video to subscribers. Never let
       // a push failure break the admin video list.
@@ -128,6 +138,7 @@ async function handler(req, res) {
             await clearSchedule(videoId).catch(() => {});
             await pruneVideoMeta(videoId).catch(() => {});
             await prunePublicVideo(videoId).catch(() => {});
+            await clearVideoRatingCounts(videoId).catch(() => {});
             results[videoId] = { ok: true };
           } catch (err) {
             console.error("Bulk delete failed on bunny.net:", err);
@@ -311,6 +322,8 @@ async function handler(req, res) {
     // A stale public row on a recycled bunny.net id would inherit a public
     // grant — the worst direction for this flag to leak.
     await prunePublicVideo(id).catch(() => {});
+    // A recycled bunny.net id must not inherit another video's score.
+    await clearVideoRatingCounts(id).catch(() => {});
     await logAction(admin, "video.delete", id);
     return res.json({ ok: true });
   }

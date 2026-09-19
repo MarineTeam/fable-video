@@ -1679,6 +1679,19 @@ code {
   color: var(--accent);
 }
 
+.rating-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* A pressed vote, matching .btn.is-saved next to it. */
+.btn.is-rated {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .save-error {
   color: var(--danger, #f87171);
   font-size: 0.85rem;
