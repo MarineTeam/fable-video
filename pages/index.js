@@ -309,6 +309,34 @@ export default function Home({
       .catch(() => {});
   }, [approved]);
 
+  // Video ids whose TRANSCRIPT matches the current query. Titles and notes are
+  // searched in the browser against the list already in hand; transcripts
+  // cannot be, because they are tens of kilobytes each and would put megabytes
+  // into every page load to serve a search most visits never run. So this one
+  // dimension asks the server, and only for ids.
+  const [spokenIds, setSpokenIds] = useState(null);
+
+  useEffect(() => {
+    if (!debouncedQuery) {
+      setSpokenIds(null);
+      return undefined;
+    }
+    let cancelled = false;
+    fetch(`/api/transcript-search?q=${encodeURIComponent(debouncedQuery)}`)
+      .then((res) => (res.ok ? res.json() : { ids: [] }))
+      .then((data) => {
+        if (!cancelled) setSpokenIds(new Set(data?.ids || []));
+      })
+      // Transcript matches are extra results, not the search itself — a
+      // failure quietly leaves the title/notes search working.
+      .catch(() => {
+        if (!cancelled) setSpokenIds(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedQuery]);
+
   const loading = allVideos === null;
 
   const filtered = useMemo(() => {
@@ -317,11 +345,16 @@ export default function Home({
       // Matches titles AND sermon notes. This narrows an already-authorized
       // list — the server decided what is in it (group scope, schedule) — so
       // searching can never surface a video the viewer may not see.
-      if (!videoMatchesQuery(video, debouncedQuery)) return false;
+      // A video qualifies on its title/notes OR on its transcript. The
+      // transcript half is still a narrowing of THIS list: spokenIds can only
+      // ever match something allVideos already contains, so the guarantee
+      // above survives even if the server answered wrongly.
+      const spoken = spokenIds?.has(video.id) || false;
+      if (!spoken && !videoMatchesQuery(video, debouncedQuery)) return false;
       if (collection && video.collectionId !== collection) return false;
       return true;
     });
-  }, [allVideos, debouncedQuery, collection, loading]);
+  }, [allVideos, debouncedQuery, collection, loading, spokenIds]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
   const safePage = Math.min(page, totalPages);

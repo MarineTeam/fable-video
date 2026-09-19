@@ -150,6 +150,78 @@ function fromLocalInput(value) {
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
+// Transcription for one video, inside the details modal because a transcript
+// is the third per-video text feature alongside chapters and notes.
+//
+// THE PRICE IS ON THE BUTTON, deliberately. bunny bills $0.10 per minute of
+// video, so a 90-minute service is $9 — the kind of number an admin should
+// read before clicking, not discover on an invoice. Re-transcribing is a
+// second charge for the same minutes, so it is a separate, explicitly
+// labelled action rather than the same button pressed twice.
+//
+// Two steps, not one, because bunny's transcription is asynchronous: queueing
+// returns immediately and the captions appear minutes later, so "Fetch" is
+// what pulls them in. Hiding that behind a poller would hide the timing too.
+function TranscriptControls({ video }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
+
+  const post = async (body, pending) => {
+    setBusy(true);
+    setError("");
+    setStatus(pending);
+    try {
+      const result = await api("/api/admin/transcribe", {
+        method: "POST",
+        body: { guid: video.id, ...body },
+      });
+      if (result?.queued) {
+        setStatus("Queued. bunny takes a few minutes; then press Fetch.");
+      } else if (result?.ready) {
+        setStatus(`Fetched ${result.cues} lines (${result.language}).`);
+      } else {
+        setStatus("Not ready yet — give it another minute, then press Fetch.");
+      }
+    } catch (err) {
+      setError(err?.message || "That did not work.");
+      setStatus("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="stack-sm">
+      <span className="muted small">
+        Transcript — bunny.net transcribes the audio, then viewers get a
+        searchable transcript under the player. Costs about{" "}
+        <strong>$0.10 per minute</strong> of video, charged by bunny.
+      </span>
+      <div className="row-actions">
+        <button
+          type="button"
+          className="btn btn-ghost"
+          disabled={busy}
+          onClick={() => post({}, "Queueing…")}
+        >
+          Transcribe
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          disabled={busy}
+          onClick={() => post({ ingest: true }, "Fetching…")}
+        >
+          Fetch captions
+        </button>
+      </div>
+      {status ? <div className="notice notice-ok">{status}</div> : null}
+      {error ? <div className="notice notice-error">{error}</div> : null}
+    </div>
+  );
+}
+
 // Chapters and sermon notes for one video. Both are stored per video and are
 // additive — a video with neither behaves exactly as it did before these
 // existed. The textarea is the source of truth; the SERVER parses it
@@ -240,6 +312,7 @@ function DetailsEditor({ video, onClose, onSaved }) {
             placeholder="Philippians 4:10-20 — contentment and provision."
           />
         </label>
+        <TranscriptControls video={video} />
         {error ? <div className="notice notice-error">{error}</div> : null}
         {ignored.length ? (
           <div className="notice notice-warn notice-block">
