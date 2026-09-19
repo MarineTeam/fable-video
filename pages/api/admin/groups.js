@@ -7,6 +7,7 @@
 // (/api/admin/viewers PATCH). This route owns the group RECORD — its display
 // name, whether it restricts, and which videos it allows.
 import { requireCapability } from "../../../lib/guard";
+import { oneTrimmed } from "../../../lib/params";
 import { CAP } from "../../../lib/roles";
 import {
   MAX_GROUP_NAME_LENGTH,
@@ -56,7 +57,7 @@ async function handler(req, res) {
   }
 
   if (req.method === "PUT") {
-    const name = String(req.body?.name || "");
+    const name = oneTrimmed(req.body?.name) || "";
     if (!isValidGroupName(name)) {
       return res.status(400).json({
         error: `Group names must be 1-${MAX_GROUP_NAME_LENGTH} characters`,
@@ -95,7 +96,7 @@ async function handler(req, res) {
   }
 
   if (req.method === "DELETE") {
-    const name = String(req.query.name || "");
+    const name = oneTrimmed(req.query.name) || "";
     if (!groupId(name)) {
       return res.status(400).json({ error: "Group name is required" });
     }

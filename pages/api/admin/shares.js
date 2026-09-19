@@ -27,6 +27,7 @@ import {
   unrevokeShares,
 } from "../../../lib/shares";
 import { logAction } from "../../../lib/audit";
+import { oneTrimmed } from "../../../lib/params";
 import { withMonitorApi } from "../../../lib/monitor";
 
 const MAX_IDS = 100;
@@ -60,7 +61,7 @@ async function handler(req, res) {
   }
 
   if (req.method === "DELETE") {
-    const singleId = String(req.query.id || "");
+    const singleId = oneTrimmed(req.query.id);
     const bulkIds = Array.isArray(req.body?.ids)
       ? [...new Set(req.body.ids.filter((v) => typeof v === "string" && v))]
       : [];
@@ -120,7 +121,7 @@ async function handler(req, res) {
 
   if (req.method === "PATCH") {
     // Un-revoke — restores a soft-revoked link in place (same id/URL).
-    const singleId = String(req.query.id || "");
+    const singleId = oneTrimmed(req.query.id);
     const bulkIds = Array.isArray(req.body?.ids)
       ? [...new Set(req.body.ids.filter((v) => typeof v === "string" && v))]
       : [];

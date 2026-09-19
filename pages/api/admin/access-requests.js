@@ -6,6 +6,7 @@
 // People management, so viewers.read to look and viewers.manage to act —
 // decides who gets into it.
 import { requireCapability } from "../../../lib/guard";
+import { oneString } from "../../../lib/params";
 import { CAP } from "../../../lib/roles";
 import { isValidEmail, normalizeEmail } from "../../../lib/auth";
 import {
@@ -38,7 +39,7 @@ async function handler(req, res) {
 
   if (req.method === "POST") {
     const email = normalizeEmail(req.body?.email);
-    const decision = String(req.body?.decision || "");
+    const decision = oneString(req.body?.decision) || "";
     if (!email || !isValidEmail(email)) {
       return res.status(400).json({ error: "A valid email address is required" });
     }

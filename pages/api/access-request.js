@@ -9,6 +9,7 @@
 // name the address they're requesting for would turn this into a way to spam
 // the admin queue with other people's addresses.
 import { requireUser } from "../../lib/guard";
+import { oneString } from "../../lib/params";
 import { allowRequest } from "../../lib/ratelimit";
 import { resolveAccess } from "../../lib/roles";
 import {
@@ -36,7 +37,7 @@ async function handler(req, res) {
       .json({ error: "Too many access requests — try again tomorrow" });
   }
 
-  const message = String(req.body?.message || "");
+  const message = oneString(req.body?.message) || "";
   if (message.length > MAX_MESSAGE_LENGTH) {
     return res
       .status(400)

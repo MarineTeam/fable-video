@@ -4,6 +4,7 @@ import { requireCapability } from "../../../lib/guard";
 import { CAP } from "../../../lib/roles";
 import { createCollection, deleteCollection, listCollections } from "../../../lib/bunny";
 import { logAction } from "../../../lib/audit";
+import { oneTrimmed } from "../../../lib/params";
 import { withMonitorApi } from "../../../lib/monitor";
 
 async function handler(req, res) {
@@ -32,7 +33,7 @@ async function handler(req, res) {
   }
 
   if (req.method === "POST") {
-    const name = String(req.body?.name || "").trim();
+    const name = oneTrimmed(req.body?.name) || "";
     if (!name || name.length > 100) {
       return res.status(400).json({ error: "Name must be 1-100 characters" });
     }
@@ -48,7 +49,7 @@ async function handler(req, res) {
   }
 
   if (req.method === "DELETE") {
-    const id = String(req.query.id || "");
+    const id = oneTrimmed(req.query.id);
     if (!id) return res.status(400).json({ error: "Collection id is required" });
     try {
       await deleteCollection(id);

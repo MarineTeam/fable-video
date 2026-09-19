@@ -9,6 +9,7 @@
 //                        target must itself be an approved viewer or admin)
 //   POST              -> save progress { videoId, t, d }
 import { requireAccess } from "../../lib/guard";
+import { oneTrimmed } from "../../lib/params";
 import { normalizeEmail } from "../../lib/auth";
 import { CAP, hasCapability, resolveAccess, scopeAllows } from "../../lib/roles";
 import { getProgress, saveProgress } from "../../lib/store";
@@ -24,7 +25,7 @@ async function handler(req, res) {
   const email = access.email;
 
   if (req.method === "GET") {
-    const videoId = String(req.query.videoId || "").trim();
+    const videoId = oneTrimmed(req.query.videoId) || "";
     const all = req.query.all === "1" || req.query.all === "true";
     const requestedEmail = req.query.email ? normalizeEmail(req.query.email) : null;
 
