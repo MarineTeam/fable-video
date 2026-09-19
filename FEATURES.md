@@ -86,6 +86,15 @@ setup and architecture, see [README.md](./README.md).
 - **Sermon notes** — free text under the player: an outline, the passage
   covered, who spoke. Rendered as plain text with line breaks preserved
   (never as markup), and searchable from the library.
+- **My list** — save a video to come back to. A toggle beside the title on the
+  watch page, and a "My list" row at the top of the library, newest saved
+  first. Distinct from continue-watching, and deliberately shown above it:
+  this is what you **chose**, that is what you happened to **start**. A saved
+  video you never opened appears here and nowhere else. Saving respects group
+  access both ways — you cannot save a video you are not allowed to see, and a
+  video that later leaves your access simply drops out of the row rather than
+  sitting there unopenable. Capped at 200, which refuses politely rather than
+  dropping the oldest silently.
 - **Transcript** — the spoken text of a recording, under the player, collapsed
   by default. Every line carries the timestamp it was said at and clicking one
   seeks there, like a chapter but at the resolution of a sentence. A search box

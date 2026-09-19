@@ -209,6 +209,35 @@ function NotApproved({ user, requestStatus }) {
   );
 }
 
+// Saved videos, newest saved first. Shaped like ContinueWatching below but
+// deliberately WITHOUT its progress bar: most saved videos have never been
+// opened, and an empty track reads as "0% watched" rather than "not started".
+function MyList({ items, thumbnails }) {
+  if (!items.length) return null;
+  return (
+    <section className="cw-section">
+      <h2 className="section-title">My list</h2>
+      <div className="cw-strip">
+        {items.map((item) => (
+          <Link key={item.id} href={`/watch/video/${item.id}`} className="cw-card">
+            {thumbnails && item.thumbnail ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={item.thumbnail} alt="" className="cw-thumb" />
+            ) : (
+              <div className="cw-thumb cw-thumb-fallback">
+                <PlayIcon size={20} />
+              </div>
+            )}
+            <div className="cw-meta">
+              <span className="cw-title">{item.title}</span>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ContinueWatching({ items, thumbnails }) {
   if (!items.length) return null;
   return (
@@ -265,6 +294,7 @@ export default function Home({
   const [collection, setCollection] = useState("");
   const [collections, setCollections] = useState([]);
   const [continueItems, setContinueItems] = useState([]);
+  const [savedItems, setSavedItems] = useState([]);
   const [page, setPage] = useState(1);
   const [error, setError] = useState("");
 
@@ -306,6 +336,10 @@ export default function Home({
     fetch("/api/progress")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => setContinueItems(data?.items || []))
+      .catch(() => {});
+    fetch("/api/mylist")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setSavedItems(data?.videos || []))
       .catch(() => {});
   }, [approved]);
 
@@ -421,7 +455,12 @@ export default function Home({
       ) : null}
 
       {!debouncedQuery && !collection ? (
-        <ContinueWatching items={continueItems} thumbnails={thumbnails} />
+        <>
+          {/* Above continue-watching: this is what the viewer CHOSE, that is
+              what they happened to start. */}
+          <MyList items={savedItems} thumbnails={thumbnails} />
+          <ContinueWatching items={continueItems} thumbnails={thumbnails} />
+        </>
       ) : null}
 
       {error ? <div className="notice notice-error">{error}</div> : null}

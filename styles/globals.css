@@ -1664,3 +1664,22 @@ code {
   white-space: nowrap;
   border: 0;
 }
+
+/* Save-to-my-list toggle on the watch page. Sits beside the title, so it
+   wraps rather than pushing a long title off the line. */
+.save-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.btn.is-saved {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.save-error {
+  color: var(--danger, #f87171);
+  font-size: 0.85rem;
+}
