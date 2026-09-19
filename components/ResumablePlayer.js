@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import WatermarkOverlay from "./WatermarkOverlay";
+import TranscriptPanel from "./TranscriptPanel";
 import { formatTimestamp } from "../lib/chapters";
 
 // Wraps the tokenized bunny.net embed with player.js to remember playback
@@ -130,6 +131,10 @@ export default function ResumablePlayer({ src, videoId, watermark, chapters }) {
           </ol>
         </div>
       ) : null}
+      {/* Same seek and the same degradation as the chapter list above — the
+          transcript fetches itself lazily, so an untranscribed video costs
+          nothing here. */}
+      <TranscriptPanel videoId={videoId} seekable={seekable} onSeek={seek} />
     </>
   );
 }

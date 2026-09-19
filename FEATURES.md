@@ -86,6 +86,15 @@ setup and architecture, see [README.md](./README.md).
 - **Sermon notes** — free text under the player: an outline, the passage
   covered, who spoke. Rendered as plain text with line breaks preserved
   (never as markup), and searchable from the library.
+- **Transcript** — the spoken text of a recording, under the player, collapsed
+  by default. Every line carries the timestamp it was said at and clicking one
+  seeks there, like a chapter but at the resolution of a sentence. A search box
+  inside the panel filters to the lines that mention a word, and the library
+  search above matches videos by **what was said in them**, not just their
+  title and notes — so a half-remembered phrase finds the sermon that contains
+  it. Transcription is bunny.net's, produced from the audio; a video that has
+  not been transcribed shows no panel at all. Degrades the way chapters do: no
+  player protocol means plain text instead of buttons that would do nothing.
 - **Continue-watching** — the homepage shows a strip of in-progress videos with
   progress bars, newest first. Finished and barely-started videos are excluded.
 - **My activity** — a full watch-history page (`/activity`, linked from the
@@ -254,6 +263,14 @@ setup and architecture, see [README.md](./README.md).
   timestamps fall past the end of the recording — nothing is dropped
   silently. Notes are a second field in the same dialog. Both are additive: a
   video with neither behaves exactly as it did before they existed.
+- **Transcribe** — in the same dialog. bunny.net transcribes the audio and the
+  viewer-facing transcript appears under the player. **This one costs money**
+  (bunny bills roughly $0.10 per minute of video), and the price is printed on
+  the control rather than left to be discovered on an invoice. Two clicks, not
+  one, because bunny's transcription is asynchronous: *Transcribe* queues it,
+  and *Fetch captions* pulls the result in a few minutes later. Deliberately
+  does not let bunny generate titles, descriptions or chapters — those are
+  admin-authored here, and a transcription job must never rewrite them.
 - **Public link** _(admin only)_ — makes **one** video watchable by anyone
   with the address, with no account and no sign-in, on its own separate page.
   Everything else stays private: that page shows one video and reveals
@@ -438,7 +455,9 @@ setup and architecture, see [README.md](./README.md).
   any restricted group automatically, so a restricted viewer won't see it
   until an admin ticks it. (A collection-based rule would auto-follow, but
   per-video was the deliberate choice.)
-- **Captions/transcripts, comments/ratings** — not implemented.
+- **Comments/ratings** — not implemented.
+- **Transcripts are one language, and the admin fetches them by hand** — bunny can translate captions into 56 languages, but only one track is ingested (English when present, otherwise the first bunny produced). And because transcription is asynchronous with no webhook wired up, “Transcribe” and “Fetch captions” are two separate clicks minutes apart rather than one.
+- **AI chapters are not accepted automatically** — bunny can generate chapters from the transcript, and the transcribe call deliberately turns that off. Chapters here are admin-authored (`lib/chapters.js`), and a second writer for the same field is how hand-written ones get silently replaced. Accepting a suggested set is a separate, unbuilt feature.
 - **Chapters are typed by hand** — there is no auto-detection from the audio,
   no import from a description, and no per-viewer chapter progress.
 - **Scripture references are plain text** — notes are not parsed into
