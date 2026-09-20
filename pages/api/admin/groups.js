@@ -23,6 +23,7 @@ import { hasCapability } from "../../../lib/capabilities";
 import { oneTrimmed } from "../../../lib/params";
 import { CAP } from "../../../lib/roles";
 import {
+  MAX_COLLECTIONS_PER_GROUP,
   MAX_GROUP_NAME_LENGTH,
   MAX_MEMBERSHIP_CHANGES,
   MAX_TAGS_PER_VIEWER,
@@ -183,7 +184,17 @@ async function handler(req, res) {
       return res.status(400).json({ error: "Invalid video id in the allowlist" });
     }
 
-    const patch = { name: name.trim(), videoIds: rawVideoIds };
+    const rawCollectionIds = Array.isArray(req.body?.collectionIds) ? req.body.collectionIds : [];
+    if (rawCollectionIds.length > MAX_COLLECTIONS_PER_GROUP) {
+      return res
+        .status(400)
+        .json({ error: `At most ${MAX_COLLECTIONS_PER_GROUP} collections per group` });
+    }
+    if (rawCollectionIds.some((id) => typeof id !== "string" || id.length > 100)) {
+      return res.status(400).json({ error: "Invalid collection id in the allowlist" });
+    }
+
+    const patch = { name: name.trim(), videoIds: rawVideoIds, collectionIds: rawCollectionIds };
     if (req.body?.restricted !== undefined) {
       patch.restricted = req.body.restricted === true;
     }
@@ -199,7 +210,7 @@ async function handler(req, res) {
       admin,
       "group.save",
       saved.restricted
-        ? `${saved.name} (${saved.videoIds.length} videos)`
+        ? `${saved.name} (${saved.videoIds.length} videos, ${saved.collectionIds.length} collections)`
         : `${saved.name} (unrestricted)`
     );
     return res.json({ ok: true, group: saved });

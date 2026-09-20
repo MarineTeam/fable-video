@@ -4298,6 +4298,7 @@ function GroupsTab() {
   // record (see pages/api/admin/groups.js). The server decides; this only
   // hides an editor that would 403 anyway.
   const [canEditMembers, setCanEditMembers] = useState(false);
+  const [collections, setCollections] = useState([]);
   const [membersFor, setMembersFor] = useState(null); // group id
   const [memberDraft, setMemberDraft] = useState("");
   const [memberNote, setMemberNote] = useState("");
@@ -4318,6 +4319,9 @@ function GroupsTab() {
     api("/api/admin/videos")
       .then((data) => setVideos(data.videos || []))
       .catch(() => {});
+    api("/api/admin/collections")
+      .then((data) => setCollections(data.collections || []))
+      .catch(() => {});
   }, [load]);
 
   const startEdit = (group) => {
@@ -4325,6 +4329,7 @@ function GroupsTab() {
     setDraft({
       restricted: group.restricted,
       videoIds: [...(group.videoIds || [])],
+      collectionIds: [...(group.collectionIds || [])],
     });
     setSearch("");
     setError("");
@@ -4370,6 +4375,15 @@ function GroupsTab() {
     setBusy(false);
   };
 
+  const toggleCollection = (id) => {
+    setDraft((d) => ({
+      ...d,
+      collectionIds: d.collectionIds.includes(id)
+        ? d.collectionIds.filter((c) => c !== id)
+        : [...d.collectionIds, id],
+    }));
+  };
+
   const toggleVideo = (id) => {
     setDraft((d) => ({
       ...d,
@@ -4389,6 +4403,7 @@ function GroupsTab() {
           name,
           restricted: draft.restricted,
           videoIds: draft.videoIds,
+          collectionIds: draft.collectionIds,
         },
       });
       setEditing(null);
@@ -4518,10 +4533,18 @@ function GroupsTab() {
                     {group.restricted
                       ? `restricted to ${group.videoIds.length} video${
                           group.videoIds.length === 1 ? "" : "s"
+                        }${
+                          group.collectionIds?.length
+                            ? ` and ${group.collectionIds.length} collection${
+                                group.collectionIds.length === 1 ? "" : "s"
+                              }`
+                            : ""
                         }`
                       : "unrestricted (label only)"}
                   </span>
-                  {group.restricted && group.videoIds.length === 0 ? (
+                  {group.restricted &&
+                  group.videoIds.length === 0 &&
+                  (group.collectionIds?.length || 0) === 0 ? (
                     <span className="notice notice-error">
                       Restricted with an empty allowlist — members of this group
                       currently see nothing.
@@ -4633,6 +4656,39 @@ function GroupsTab() {
 
                     {draft.restricted ? (
                       <>
+                        {/* Collections first: granting one is the cheaper
+                            answer, because it FOLLOWS — a video uploaded into
+                            it later is visible without anyone editing this
+                            group. Ticking videos is the exception for a
+                            one-off, not the default. */}
+                        {collections.length ? (
+                          <>
+                            <span className="muted small">
+                              Collections — everything in a ticked collection is
+                              granted, including videos added to it later.
+                            </span>
+                            <div className="scroll-list">
+                              {collections.map((c) => (
+                                <label key={c.id} className="check-row">
+                                  <input
+                                    type="checkbox"
+                                    checked={draft.collectionIds.includes(c.id)}
+                                    onChange={() => toggleCollection(c.id)}
+                                  />
+                                  <span>{c.name}</span>
+                                </label>
+                              ))}
+                            </div>
+                            <span className="muted small">
+                              {draft.collectionIds.length} collection
+                              {draft.collectionIds.length === 1 ? "" : "s"} selected
+                            </span>
+                          </>
+                        ) : null}
+
+                        <span className="muted small">
+                          Individual videos — added on top of any collections above.
+                        </span>
                         <input
                           className="input input-sm"
                           placeholder="Search videos…"

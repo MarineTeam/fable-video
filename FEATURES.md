@@ -397,13 +397,19 @@ setup and architecture, see [README.md](./README.md).
   into the bulk-share or Private list recipient box with one click instead
   of pasting each address by hand.
 - **Group content restrictions** — a group can optionally be **restricted** to
-  an explicit list of videos (Groups tab), so its members see only those in
+  an explicit list of videos **and/or whole collections** (Groups tab), so its
+  members see only those in
   the library, in search, in continue-watching, and on the watch page itself.
   A tag with no group record, or an unrestricted group, stays a plain label
   that grants and restricts nothing — so every tag that existed before this
   shipped behaves exactly as it did. Belonging to several groups means the
   union of the restricted ones; an unrestricted group never widens a
-  restricted one. Managers and admins are never group-scoped. Enforcement is
+  restricted one, and its collections are ignored for the same reason its
+  videos are. **A collection grant auto-follows**: a video uploaded into a
+  granted collection is visible to that group on the next request with nobody
+  editing anything, which is the answer to ticking every new upload by hand.
+  Deleting a collection prunes it from every group that granted it, so a grant
+  never names something that no longer exists. Managers and admins are never group-scoped. Enforcement is
   server-side throughout: an out-of-scope video 404s before any playback token
   is minted, rather than merely being hidden from a list.
 - **Group membership editor** — add or remove people from a group **on the
@@ -500,10 +506,11 @@ setup and architecture, see [README.md](./README.md).
   group's members hands out addresses. A groups-only manager still sees the
   record and a member count, and still edits what the group may watch; they
   just cannot see or change who is in it.
-- **Group allowlists are per-video and manual** — a new upload is not added to
-  any restricted group automatically, so a restricted viewer won't see it
-  until an admin ticks it. (A collection-based rule would auto-follow, but
-  per-video was the deliberate choice.)
+- **A collection grant follows the collection, not the video** — moving a
+  video out of a granted collection removes it from that group's scope on the
+  next request, with no warning to whoever moved it. That is the auto-follow
+  working as intended, but it means collection membership is now an access
+  decision as well as an organisational one.
 - **Comments are not implemented** — ratings are (below), but there is no
   free-text discussion anywhere in the portal. That is a deliberate stop: text
   other viewers can read needs moderation, reporting and a notion of who may
