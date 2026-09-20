@@ -719,6 +719,108 @@ every branch), `lib/roleMigration.js` (the upgrade path).
 plus a call on POST, PUT twice, PATCH and DELETE; a mutating branch without one is the
 bug this invariant exists to catch).
 
+### (w) A route that reveals or edits PEOPLE requires the people capability, whatever else it manages
+
+**Statement:** `/api/admin/groups` is gated on `groups.manage`, but its membership
+surface — the member addresses in `GET`, and the whole of `PATCH` — additionally
+requires `viewers.read`. A groups-only manager sees the group record and a member
+COUNT, exactly as before membership editing existed.
+
+**Why:** membership is a tag on a viewer, so editing it is editing viewer records, and
+listing it is handing out addresses. Less obviously, the per-address *result* of a
+change ("not an approved viewer") answers the same question the viewer list does, so
+returning it to a caller who may not read that list would make the endpoint an
+enumeration oracle. Both halves go behind the same capability.
+
+**Why the WRITE needs nothing more than `groups.manage`:** a `groups.manage` holder can
+already change what every member of a group can watch — widen the allowlist, clear
+`restricted`, or delete the record entirely. Moving a viewer between groups grants no
+power they did not have. What it adds is visibility of *people*, which is exactly what
+the `viewers.read` requirement covers. This is the same reasoning as
+`assignmentNeedsViewerManage` in `lib/capabilities.js`: ask what the action actually
+widens, and gate that, rather than gating on which noun the route is named after.
+
+**Enforced at:** `pages/api/admin/groups.js` (the `hasCapability(access, CAP.VIEWERS_READ)`
+check on `PATCH` and on the `members` field of `GET`), `lib/groups.js`
+(`planMembershipChange` is pure and decides nothing about who may call it).
+
+**Verify with:** `npm test -- groupRoute groupMembership` — the route suite fails if a
+groups-only manager can reach the membership branch at all.
+
+---
+
+### (v) Per-viewer data is keyed by the viewer, so removing them removes it
+
+**Statement:** anything recorded about a person — progress, saved list, ratings — is
+stored under a key that carries their email (`fablevideo:progress:<email>`,
+`mylist:<email>`, `ratings:<email>`), never as a field under the thing it is about.
+Aggregates derived from that data (`fablevideo:rating_counts`) hold plain integers and
+no identity at all.
+
+**Why:** the obvious shape for ratings is a hash per video, field = email. It reads
+better and makes the admin's totals a single `HGETALL`. It also leaves a removed
+viewer's address sitting in a row that nothing cleans — there is no sweep over video
+keys, and adding one would mean scanning every video on every viewer removal. Keying
+by viewer means "remove this person" is already the whole deletion story, for every
+per-viewer feature at once, including ones not written yet.
+
+**The cost, accepted deliberately:** totals cannot be recomputed from the votes without
+a scan, so they are maintained by incrementing a delta and can drift by one against the
+votes (a vote written, then a counter write that failed). The vote is authoritative and
+is written first; the counter is best-effort and afterwards, at the call site as well as
+inside the store, so a counter failure can never report a successful vote as failed.
+Drift is documented in FEATURES.md rather than papered over, and a negative counter
+reads as 0.
+
+**Enforced at:** `lib/ratings.js` (pure; `voteDelta` is the whole arithmetic),
+`lib/store.js` (`getRatings`/`setRating`/`clearRating` under the viewer's key;
+`applyRatingCounts` best-effort; `clearVideoRatingCounts` on delete),
+`pages/api/rating.js` (no email parameter; scope-gated; the counter update is outside
+the error path that answers the viewer).
+
+**Verify with:** `npm test -- ratings ratingRoute`; `grep -n "ratings\|rating_counts" lib/store.js`
+(the vote keys take an email, the counter key does not).
+
+---
+
+### (u) A generated suggestion is never a stored value — the AI proposes, a person accepts
+
+**Statement:** bunny's Transcribe AI can generate titles, descriptions, chapters and
+moments. Three of those are off at the call site and one — `generateChapters` — is
+opt-in (`lib/bunny.js`, `transcribeVideo`). Whatever it generates lands on **bunny's**
+video object and is read back READ-ONLY: `lib/aiChapters.js` is pure (no store import
+at all), and the `suggestions` branch of `pages/api/admin/transcribe.js` writes
+nothing — not `fablevideo:chapters`, not the transcript, not even the audit log,
+because nothing changed. A suggestion becomes a chapter only when an admin loads it
+into the chapters textarea and saves, which goes through `set-chapters` and
+`parseChapters` exactly as a hand-typed list does.
+
+**Why:** two writers for one field is how hand-written work gets silently replaced.
+The admin who typed "24:15 Sermon" would have no way to tell that a transcription job
+run for the captions had overwritten it, and no way to get it back. Keeping the
+acceptance in the admin's hands costs one click and removes the whole class of
+failure. The same reasoning is why titles and descriptions stay off entirely: nothing
+here reads a generated title, so generating one is a write with no reader.
+
+**The corollary for anything new:** if a future integration generates content that
+overlaps something a person authors here, the generated copy goes somewhere the
+person's copy is not, and a person moves it across. Do not add a second writer.
+
+**Field-name caveat, deliberately recorded:** `title`/`start` come from bunny's docs,
+not from a live job — this path has never run against a real transcription. The reader
+accepts a few spellings and REPORTS what it could not read, so a docs/reality mismatch
+shows up as "3 suggestions could not be read" rather than as silence.
+
+**Enforced at:** `lib/aiChapters.js` (pure reader), `lib/bunny.js` (the generate flags),
+`pages/api/admin/transcribe.js` (the read-only `suggestions` branch),
+`pages/admin.js` (`DetailsEditor` — loads into the textarea, confirms before replacing
+text already typed, saves nothing by itself).
+
+**Verify with:** `npm test -- aiChapters transcribeRoute` (the route test asserts the
+suggestions branch calls neither `setTranscript` nor `logAction`, and never reaches the
+paid call even with the rate limit exhausted); `grep -n "Store\|redis" lib/aiChapters.js`
+(expect no output).
+
 ---
 
 ## 2. Load-bearing decisions (don't undo these without a deliberate call)
@@ -928,6 +1030,9 @@ that date. Line numbers in (k)/(l) are against those files as of v1.8.0 and will
 | The feed body never contains a CDN url (s) | `npm test -- feedRoutes` (asserts no `b-cdn.net` in the document) |
 | Only the feed media route builds a CDN media url (s) | `grep -rn "signedMp4Url\|signCdnPath" pages lib` (definitions + one caller) |
 | `lib/bunny.js` signing helpers still untouched (s) | `git log --oneline -- lib/bunny.js` |
+| Group membership needs viewers.read, not just groups.manage (w) | `npm test -- groupRoute groupMembership` |
+| Per-viewer data is keyed by the viewer; aggregates hold no identity (v) | `npm test -- ratings ratingRoute`; `grep -n "ratings\|rating_counts" lib/store.js` |
+| AI suggestions write nothing, anywhere (u) | `npm test -- aiChapters transcribeRoute`; `grep -n "Store\|redis" lib/aiChapters.js` (expect no output) |
 | Chapters/notes modules import no Redis (o) | `grep -n "^import" lib/chapters.js lib/notes.js` (expect no output) |
 | Chapters/notes are read only AFTER every access check (o) | `grep -n "scopeAllows\|getSchedule\|getChapters" "pages/watch/video/[id].js"` (the first two must precede the third) |
 | Access-request notification is addressed, not broadcast (p) | `grep -n "sendPushTo" lib/accessRequestNotify.js` (expect only `sendPushToEmails`) |

@@ -28,7 +28,8 @@ import { blockedByEmailVerification, normalizeEmail } from "../lib/auth";
 import { ALL_CAPABILITIES, CAP } from "../lib/capabilities";
 import { pageTitle } from "../lib/siteName";
 import { MAX_NOTES_LENGTH } from "../lib/notes";
-import { formatChapters } from "../lib/chapters";
+import { formatChapters, parseChapters } from "../lib/chapters";
+import { sameChapters } from "../lib/aiChapters";
 import { resolveAccess } from "../lib/roles";
 import { PRESETS } from "../lib/theme";
 import { applyResolvedTheme } from "../lib/theme-client";
@@ -150,6 +151,98 @@ function fromLocalInput(value) {
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
+// Transcription for one video, inside the details modal because a transcript
+// is the third per-video text feature alongside chapters and notes.
+//
+// THE PRICE IS ON THE BUTTON, deliberately. bunny bills $0.10 per minute of
+// video, so a 90-minute service is $9 — the kind of number an admin should
+// read before clicking, not discover on an invoice. Re-transcribing is a
+// second charge for the same minutes, so it is a separate, explicitly
+// labelled action rather than the same button pressed twice.
+//
+// Two steps, not one, because bunny's transcription is asynchronous: queueing
+// returns immediately and the captions appear minutes later, so "Fetch" is
+// what pulls them in. Hiding that behind a poller would hide the timing too.
+function TranscriptControls({ video }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
+  // Opt-in, and unticked by default: chapter suggestions ride along with the
+  // same job at no extra charge, but a video whose chapters are already typed
+  // has no use for them. Nothing they produce is ever saved automatically.
+  const [wantChapters, setWantChapters] = useState(false);
+
+  const post = async (body, pending) => {
+    setBusy(true);
+    setError("");
+    setStatus(pending);
+    try {
+      const result = await api("/api/admin/transcribe", {
+        method: "POST",
+        body: { guid: video.id, ...body },
+      });
+      if (result?.queued) {
+        setStatus(
+          result.chapters
+            ? "Queued with chapter suggestions. bunny takes a few minutes; then press Fetch, and Suggest chapters above."
+            : "Queued. bunny takes a few minutes; then press Fetch."
+        );
+      } else if (result?.ready) {
+        setStatus(`Fetched ${result.cues} lines (${result.language}).`);
+      } else {
+        setStatus("Not ready yet — give it another minute, then press Fetch.");
+      }
+    } catch (err) {
+      setError(err?.message || "That did not work.");
+      setStatus("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="stack-sm">
+      <span className="muted small">
+        Transcript — bunny.net transcribes the audio, then viewers get a
+        searchable transcript under the player. Costs about{" "}
+        <strong>$0.10 per minute</strong> of video, charged by bunny.
+      </span>
+      <div className="row-actions">
+        <button
+          type="button"
+          className="btn btn-ghost"
+          disabled={busy}
+          onClick={() => post({ chapters: wantChapters }, "Queueing…")}
+        >
+          Transcribe
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          disabled={busy}
+          onClick={() => post({ ingest: true }, "Fetching…")}
+        >
+          Fetch captions
+        </button>
+      </div>
+      <label className="row-check">
+        <input
+          type="checkbox"
+          checked={wantChapters}
+          disabled={busy}
+          onChange={(e) => setWantChapters(e.target.checked)}
+        />
+        <span className="muted small">
+          Also suggest chapters from the transcript. Suggestions are never saved
+          for you — they load into the box above for you to accept or edit.
+        </span>
+      </label>
+      {status ? <div className="notice notice-ok">{status}</div> : null}
+      {error ? <div className="notice notice-error">{error}</div> : null}
+    </div>
+  );
+}
+
 // Chapters and sermon notes for one video. Both are stored per video and are
 // additive — a video with neither behaves exactly as it did before these
 // existed. The textarea is the source of truth; the SERVER parses it
@@ -163,6 +256,57 @@ function DetailsEditor({ video, onClose, onSaved }) {
   const [ignored, setIgnored] = useState([]);
   const [late, setLate] = useState([]);
   const [saved, setSaved] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestion, setSuggestion] = useState("");
+
+  // Loads bunny's generated chapters INTO THE TEXTAREA. This is the accept
+  // step, and it is deliberately only half of one: the suggestions sit in the
+  // box until the admin presses Save, so the stored list is still something a
+  // person chose. Replacing text the admin typed asks first — the AI is not
+  // allowed to overwrite someone's work on a single click.
+  const suggest = async () => {
+    setSuggesting(true);
+    setError("");
+    setSuggestion("");
+    try {
+      const result = await api("/api/admin/transcribe", {
+        method: "POST",
+        body: { guid: video.id, suggestions: true },
+      });
+      const proposed = result?.chapters || [];
+      const skipped = result?.ignored || [];
+      if (!proposed.length) {
+        setSuggestion(
+          skipped.length
+            ? `bunny returned ${skipped.length} chapter(s) that could not be read. Nothing to load.`
+            : "bunny has not generated chapters for this video. Transcribe again with the chapters box ticked."
+        );
+        return;
+      }
+      if (sameChapters(parseChapters(chapterText).chapters, proposed)) {
+        setSuggestion("The suggestions match what is already here — nothing to change.");
+        return;
+      }
+      if (
+        chapterText.trim() &&
+        !window.confirm(
+          `Replace the ${parseChapters(chapterText).chapters.length} chapter(s) in the box with ${proposed.length} suggested one(s)? Nothing is saved until you press Save.`
+        )
+      ) {
+        return;
+      }
+      setChapterText(formatChapters(proposed));
+      setSuggestion(
+        `Loaded ${proposed.length} suggestion(s)${
+          skipped.length ? `, skipped ${skipped.length}` : ""
+        }. Edit what you like, then press Save — nothing is stored until you do.`
+      );
+    } catch (err) {
+      setError(err?.message || "Could not read the suggestions.");
+    } finally {
+      setSuggesting(false);
+    }
+  };
 
   const save = async () => {
     setBusy(true);
@@ -226,6 +370,21 @@ function DetailsEditor({ video, onClose, onSaved }) {
             placeholder={"0:00 Worship\n18:30 Announcements\n24:15 Sermon"}
           />
         </label>
+        <div className="row-actions">
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={suggesting || busy}
+            onClick={suggest}
+          >
+            {suggesting ? "Reading…" : "Suggest chapters"}
+          </button>
+          <span className="muted small">
+            From the transcript, if one was generated with chapters. Loads into
+            the box above — never saved for you.
+          </span>
+        </div>
+        {suggestion ? <div className="notice notice-ok">{suggestion}</div> : null}
         <label className="stack-sm">
           <span className="muted small">
             Notes — an outline or the passage covered. Searchable from the
@@ -240,6 +399,7 @@ function DetailsEditor({ video, onClose, onSaved }) {
             placeholder="Philippians 4:10-20 — contentment and provision."
           />
         </label>
+        <TranscriptControls video={video} />
         {error ? <div className="notice notice-error">{error}</div> : null}
         {ignored.length ? (
           <div className="notice notice-warn notice-block">
@@ -1915,6 +2075,17 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
                     title="Anyone with the link can watch this without signing in"
                   >
                     Public
+                  </span>
+                ) : null}
+                {/* Totals only, and staff-only. The counters hold no
+                    identities, so this cannot say who rated what — see
+                    lib/ratings.js for why that is the design. */}
+                {video.rating ? (
+                  <span
+                    className="badge"
+                    title={`${video.rating.up} up, ${video.rating.down} down, from ${video.rating.total} viewer(s)`}
+                  >
+                    👍 {video.rating.up} · 👎 {video.rating.down}
                   </span>
                 ) : null}
                 <select
@@ -4123,11 +4294,19 @@ function GroupsTab() {
   const [draft, setDraft] = useState({ restricted: false, videoIds: [] });
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
+  // Membership editing is a separate capability from managing the group
+  // record (see pages/api/admin/groups.js). The server decides; this only
+  // hides an editor that would 403 anyway.
+  const [canEditMembers, setCanEditMembers] = useState(false);
+  const [membersFor, setMembersFor] = useState(null); // group id
+  const [memberDraft, setMemberDraft] = useState("");
+  const [memberNote, setMemberNote] = useState("");
 
   const load = useCallback(async () => {
     try {
       const data = await api("/api/admin/groups");
       setGroups(data.groups);
+      setCanEditMembers(Boolean(data.canEditMembers));
       setUntracked(data.untrackedTags || []);
     } catch (err) {
       setError(err.message);
@@ -4150,6 +4329,45 @@ function GroupsTab() {
     setSearch("");
     setError("");
     setNote("");
+  };
+
+  const openMembers = (group) => {
+    setMemberNote("");
+    setMemberDraft("");
+    setMembersFor(membersFor === group.id ? null : group.id);
+  };
+
+  // Adds or removes several people at once. The server answers with what
+  // actually happened to each address, and ALL of it is shown — an admin who
+  // pastes twelve addresses and gets "saved" has no way to discover that three
+  // were typos until someone complains they cannot see anything.
+  const changeMembers = async (group, { add = [], remove = [] }) => {
+    setBusy(true);
+    setError("");
+    setMemberNote("");
+    try {
+      const result = await api("/api/admin/groups", {
+        method: "PATCH",
+        body: { name: group.name, add, remove },
+      });
+      const parts = [];
+      if (result.added?.length) parts.push(`added ${result.added.length}`);
+      if (result.removed?.length) parts.push(`removed ${result.removed.length}`);
+      if (result.noop?.length) parts.push(`${result.noop.length} already as asked`);
+      if (result.unknown?.length) {
+        parts.push(`not approved viewers: ${result.unknown.join(", ")}`);
+      }
+      if (result.overflow?.length) {
+        parts.push(`at the tag limit: ${result.overflow.join(", ")}`);
+      }
+      if (result.failed?.length) parts.push(`could not change: ${result.failed.join(", ")}`);
+      setMemberNote(parts.length ? parts.join(" · ") : "Nothing changed.");
+      setMemberDraft("");
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
   };
 
   const toggleVideo = (id) => {
@@ -4319,6 +4537,15 @@ function GroupsTab() {
                     >
                       Edit access
                     </button>
+                    {canEditMembers ? (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => openMembers(group)}
+                      >
+                        {membersFor === group.id ? "Hide members" : "Members"}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className="icon-btn icon-btn-danger"
@@ -4329,6 +4556,60 @@ function GroupsTab() {
                     </button>
                   </>
                 )}
+
+                {canEditMembers && membersFor === group.id && editing !== group.id ? (
+                  <div className="stack" style={{ width: "100%" }}>
+                    <span className="muted small">
+                      Membership is a tag on each viewer — the same tag the
+                      Viewers tab sets, edited here for a whole group at once.
+                      Only people already on the viewer list can be added;
+                      tagging does not approve anybody.
+                    </span>
+                    {(group.members || []).length ? (
+                      <div className="chip-row">
+                        {(group.members || []).map((email) => (
+                          <span key={email} className="chip">
+                            {email}
+                            <button
+                              type="button"
+                              className="icon-btn"
+                              aria-label={`Remove ${email} from ${group.name}`}
+                              disabled={busy}
+                              onClick={() => changeMembers(group, { remove: [email] })}
+                            >
+                              <XIcon size={11} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="muted small">Nobody is in this group yet.</span>
+                    )}
+                    <textarea
+                      className="input textarea"
+                      rows={3}
+                      placeholder={"one@example.com\ntwo@example.com"}
+                      value={memberDraft}
+                      onChange={(e) => setMemberDraft(e.target.value)}
+                      aria-label={`Add viewers to ${group.name}`}
+                    />
+                    <div className="row-actions">
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        disabled={busy || !memberDraft.trim()}
+                        onClick={() =>
+                          changeMembers(group, {
+                            add: memberDraft.split(/[\s,;]+/).filter(Boolean),
+                          })
+                        }
+                      >
+                        Add to group
+                      </button>
+                    </div>
+                    {memberNote ? <div className="notice notice-ok">{memberNote}</div> : null}
+                  </div>
+                ) : null}
 
                 {editing === group.id ? (
                   <div className="stack" style={{ width: "100%" }}>

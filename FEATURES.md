@@ -86,6 +86,35 @@ setup and architecture, see [README.md](./README.md).
 - **Sermon notes** — free text under the player: an outline, the passage
   covered, who spoke. Rendered as plain text with line breaks preserved
   (never as markup), and searchable from the library.
+- **My list** — save a video to come back to. A toggle beside the title on the
+  watch page, and a "My list" row at the top of the library, newest saved
+  first. Distinct from continue-watching, and deliberately shown above it:
+  this is what you **chose**, that is what you happened to **start**. A saved
+  video you never opened appears here and nowhere else. Saving respects group
+  access both ways — you cannot save a video you are not allowed to see, and a
+  video that later leaves your access simply drops out of the row rather than
+  sitting there unopenable. Capped at 200, which refuses politely rather than
+  dropping the oldest silently.
+- **Rate a video** — 👍 or 👎 beside the title on the watch page. Pressing the
+  vote you already hold clears it, which is the only way to take one back.
+  **A viewer sees their own vote and nobody else's** — the totals go to staff,
+  on the admin Videos tab, and never to viewers. In a library watched by a few
+  dozen people a visible "2 down" on someone's teaching is a social problem
+  the product does not need, and at that size a public counter is close to
+  attributable anyway. The vote is stored under the viewer's own key, so
+  removing a viewer removes their votes with them; the totals are plain
+  integers holding no address at all. Rating obeys group access the same way
+  saving does, and answers 404 rather than 403 for a video out of scope, so it
+  cannot be used to find out which ids exist.
+- **Transcript** — the spoken text of a recording, under the player, collapsed
+  by default. Every line carries the timestamp it was said at and clicking one
+  seeks there, like a chapter but at the resolution of a sentence. A search box
+  inside the panel filters to the lines that mention a word, and the library
+  search above matches videos by **what was said in them**, not just their
+  title and notes — so a half-remembered phrase finds the sermon that contains
+  it. Transcription is bunny.net's, produced from the audio; a video that has
+  not been transcribed shows no panel at all. Degrades the way chapters do: no
+  player protocol means plain text instead of buttons that would do nothing.
 - **Continue-watching** — the homepage shows a strip of in-progress videos with
   progress bars, newest first. Finished and barely-started videos are excluded.
 - **My activity** — a full watch-history page (`/activity`, linked from the
@@ -254,6 +283,21 @@ setup and architecture, see [README.md](./README.md).
   timestamps fall past the end of the recording — nothing is dropped
   silently. Notes are a second field in the same dialog. Both are additive: a
   video with neither behaves exactly as it did before they existed.
+- **Transcribe** — in the same dialog. bunny.net transcribes the audio and the
+  viewer-facing transcript appears under the player. **This one costs money**
+  (bunny bills roughly $0.10 per minute of video), and the price is printed on
+  the control rather than left to be discovered on an invoice. Two clicks, not
+  one, because bunny's transcription is asynchronous: *Transcribe* queues it,
+  and *Fetch captions* pulls the result in a few minutes later. Deliberately
+  does not let bunny generate titles or descriptions — those are
+  admin-authored here, and a transcription job must never rewrite them.
+- **Suggest chapters** — optionally, the same transcription job asks bunny to
+  propose chapters (no extra charge; it is a tick-box on the transcribe
+  control, off by default). The proposal is only ever a proposal: *Suggest
+  chapters* loads it **into the chapters box** for the admin to edit and save,
+  and replacing text already typed there asks first. Nothing about
+  transcription writes to the stored chapter list — the AI proposes and a
+  person accepts, through the same save a hand-typed list goes through.
 - **Public link** _(admin only)_ — makes **one** video watchable by anyone
   with the address, with no account and no sign-in, on its own separate page.
   Everything else stays private: that page shows one video and reveals
@@ -352,6 +396,16 @@ setup and architecture, see [README.md](./README.md).
   restricted one. Managers and admins are never group-scoped. Enforcement is
   server-side throughout: an out-of-scope video 404s before any playback token
   is minted, rather than merely being hidden from a list.
+- **Group membership editor** — add or remove people from a group **on the
+  Groups tab**, one at a time or by pasting a list, instead of tagging each
+  viewer individually. It reports what happened to every address you named:
+  added, removed, already as you asked, not an approved viewer, at the 20-tag
+  limit, or failed. Tagging never approves anybody — an address that is not
+  already on the viewer list is reported, not created. Membership matches
+  across spelling ("team a" and "Team A" are one group), so adding someone
+  cannot leave them carrying two tags for it and removing them cannot leave a
+  variant behind that still restricts what they see. Needs `viewers.read` as
+  well as `groups.manage`, since it names people.
 - **Viewer last-seen** — each viewer's most recent activity time.
 - **Activity / audit log** — the most recent admin actions (viewer
   add/remove/**tag**, **role change**, **group save/delete**, **access
@@ -431,16 +485,30 @@ setup and architecture, see [README.md](./README.md).
 - **Group-scoped staff** — managers and admins always see the whole library;
   a group restriction applies to viewers only. There is no "manager for these
   videos only" role.
-- **Group membership is edited per person** — you tag viewers one at a time
-  from the Viewers tab; there is no bulk add-to-group or membership editor on
-  the Groups tab itself.
+- **Group membership needs both capabilities** — the editor on the Groups tab
+  (below) requires `viewers.read` on top of `groups.manage`, because naming a
+  group's members hands out addresses. A groups-only manager still sees the
+  record and a member count, and still edits what the group may watch; they
+  just cannot see or change who is in it.
 - **Group allowlists are per-video and manual** — a new upload is not added to
   any restricted group automatically, so a restricted viewer won't see it
   until an admin ticks it. (A collection-based rule would auto-follow, but
   per-video was the deliberate choice.)
-- **Captions/transcripts, comments/ratings** — not implemented.
-- **Chapters are typed by hand** — there is no auto-detection from the audio,
-  no import from a description, and no per-viewer chapter progress.
+- **Comments are not implemented** — ratings are (below), but there is no
+  free-text discussion anywhere in the portal. That is a deliberate stop: text
+  other viewers can read needs moderation, reporting and a notion of who may
+  delete whose words, none of which exists here.
+- **Transcripts are one language, and the admin fetches them by hand** — bunny can translate captions into 56 languages, but only one track is ingested (English when present, otherwise the first bunny produced). And because transcription is asynchronous with no webhook wired up, “Transcribe” and “Fetch captions” are two separate clicks minutes apart rather than one.
+- **AI chapters are suggestions, and staying that way is the design** — bunny can generate chapters from the transcript, but nothing on that path writes to the stored list: suggestions are read back read-only (`lib/aiChapters.js`) and land in the admin's textarea, where a person accepts them. A background write would be a second writer for the same field, which is how hand-written chapters get silently replaced. **The field names bunny returns (`title`/`start`) are read from its docs, not from a live job** — this has never run against a real transcription, so the reader accepts a few spellings and reports anything it cannot read rather than returning an empty list.
+- **Rating totals can drift by one against the votes** — a vote and its
+  counter are two writes, not one. The vote is authoritative and written
+  first; the counter is incremented after, best-effort, so an Upstash blip
+  between them leaves the total one short. It is never *corrected*, because
+  recomputing it would mean scanning every viewer's ratings hash, which this
+  repo does not do anywhere. Totals are read as approximate; a negative one is
+  clamped to zero rather than displayed. The votes themselves are exact.
+- **Chapters are typed, or accepted** — there is no import from a description
+  and no per-viewer chapter progress.
 - **Scripture references are plain text** — notes are not parsed into
   structured references, so there is no "all sermons on Philippians" view.
   Book abbreviations, ranges and translations make that much deeper than it

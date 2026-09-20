@@ -209,6 +209,35 @@ function NotApproved({ user, requestStatus }) {
   );
 }
 
+// Saved videos, newest saved first. Shaped like ContinueWatching below but
+// deliberately WITHOUT its progress bar: most saved videos have never been
+// opened, and an empty track reads as "0% watched" rather than "not started".
+function MyList({ items, thumbnails }) {
+  if (!items.length) return null;
+  return (
+    <section className="cw-section">
+      <h2 className="section-title">My list</h2>
+      <div className="cw-strip">
+        {items.map((item) => (
+          <Link key={item.id} href={`/watch/video/${item.id}`} className="cw-card">
+            {thumbnails && item.thumbnail ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={item.thumbnail} alt="" className="cw-thumb" />
+            ) : (
+              <div className="cw-thumb cw-thumb-fallback">
+                <PlayIcon size={20} />
+              </div>
+            )}
+            <div className="cw-meta">
+              <span className="cw-title">{item.title}</span>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ContinueWatching({ items, thumbnails }) {
   if (!items.length) return null;
   return (
@@ -265,6 +294,7 @@ export default function Home({
   const [collection, setCollection] = useState("");
   const [collections, setCollections] = useState([]);
   const [continueItems, setContinueItems] = useState([]);
+  const [savedItems, setSavedItems] = useState([]);
   const [page, setPage] = useState(1);
   const [error, setError] = useState("");
 
@@ -307,7 +337,39 @@ export default function Home({
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => setContinueItems(data?.items || []))
       .catch(() => {});
+    fetch("/api/mylist")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setSavedItems(data?.videos || []))
+      .catch(() => {});
   }, [approved]);
+
+  // Video ids whose TRANSCRIPT matches the current query. Titles and notes are
+  // searched in the browser against the list already in hand; transcripts
+  // cannot be, because they are tens of kilobytes each and would put megabytes
+  // into every page load to serve a search most visits never run. So this one
+  // dimension asks the server, and only for ids.
+  const [spokenIds, setSpokenIds] = useState(null);
+
+  useEffect(() => {
+    if (!debouncedQuery) {
+      setSpokenIds(null);
+      return undefined;
+    }
+    let cancelled = false;
+    fetch(`/api/transcript-search?q=${encodeURIComponent(debouncedQuery)}`)
+      .then((res) => (res.ok ? res.json() : { ids: [] }))
+      .then((data) => {
+        if (!cancelled) setSpokenIds(new Set(data?.ids || []));
+      })
+      // Transcript matches are extra results, not the search itself — a
+      // failure quietly leaves the title/notes search working.
+      .catch(() => {
+        if (!cancelled) setSpokenIds(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedQuery]);
 
   const loading = allVideos === null;
 
@@ -317,11 +379,16 @@ export default function Home({
       // Matches titles AND sermon notes. This narrows an already-authorized
       // list — the server decided what is in it (group scope, schedule) — so
       // searching can never surface a video the viewer may not see.
-      if (!videoMatchesQuery(video, debouncedQuery)) return false;
+      // A video qualifies on its title/notes OR on its transcript. The
+      // transcript half is still a narrowing of THIS list: spokenIds can only
+      // ever match something allVideos already contains, so the guarantee
+      // above survives even if the server answered wrongly.
+      const spoken = spokenIds?.has(video.id) || false;
+      if (!spoken && !videoMatchesQuery(video, debouncedQuery)) return false;
       if (collection && video.collectionId !== collection) return false;
       return true;
     });
-  }, [allVideos, debouncedQuery, collection, loading]);
+  }, [allVideos, debouncedQuery, collection, loading, spokenIds]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
   const safePage = Math.min(page, totalPages);
@@ -388,7 +455,12 @@ export default function Home({
       ) : null}
 
       {!debouncedQuery && !collection ? (
-        <ContinueWatching items={continueItems} thumbnails={thumbnails} />
+        <>
+          {/* Above continue-watching: this is what the viewer CHOSE, that is
+              what they happened to start. */}
+          <MyList items={savedItems} thumbnails={thumbnails} />
+          <ContinueWatching items={continueItems} thumbnails={thumbnails} />
+        </>
       ) : null}
 
       {error ? <div className="notice notice-error">{error}</div> : null}

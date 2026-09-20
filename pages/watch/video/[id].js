@@ -6,6 +6,11 @@ import Head from "next/head";
 import Link from "next/link";
 import AppShell from "../../../components/AppShell";
 import ResumablePlayer from "../../../components/ResumablePlayer";
+import SaveToListButton from "../../../components/SaveToListButton";
+import RatingButtons from "../../../components/RatingButtons";
+import { getMyList, getRatings } from "../../../lib/store";
+import { isSaved } from "../../../lib/mylist";
+import { ratingOf } from "../../../lib/ratings";
 import { auth0 } from "../../../lib/auth0";
 import { blockedByEmailVerification, normalizeEmail } from "../../../lib/auth";
 import { resolveAccess, scopeAllows } from "../../../lib/roles";
@@ -105,6 +110,25 @@ async function gssp({ req, params, resolvedUrl }) {
     console.error("Could not read the video's chapters or notes:", err);
   }
 
+  // Read server-side so the button never paints "Save" on a video that is
+  // already saved. Best-effort: an unreadable list means the button starts
+  // unsaved, which one click corrects, rather than breaking the page.
+  let saved = false;
+  try {
+    saved = isSaved(await getMyList(email), video.guid);
+  } catch (err) {
+    console.error("Could not read the viewer's saved list:", err);
+  }
+
+  // Same posture: an unreadable rating starts the buttons unpressed, which one
+  // click corrects, rather than failing a page the viewer is entitled to.
+  let vote = null;
+  try {
+    vote = ratingOf(await getRatings(email), video.guid);
+  } catch (err) {
+    console.error("Could not read the viewer's rating:", err);
+  }
+
   const siteName = await getSiteName().catch(() => null);
 
   return {
@@ -121,6 +145,8 @@ async function gssp({ req, params, resolvedUrl }) {
       watermarkText,
       chapters,
       notes,
+      saved,
+      vote,
     },
   };
 }
@@ -136,6 +162,8 @@ export default function WatchVideo({
   siteName,
   chapters,
   notes,
+  saved,
+  vote,
 }) {
   return (
     <AppShell user={user} admin={admin} canNotify siteName={siteName}>
@@ -147,6 +175,8 @@ export default function WatchVideo({
           ← Back to library
         </Link>
         <h1 className="page-title">{video.title}</h1>
+        <SaveToListButton videoId={video.id} initialSaved={saved} />
+        <RatingButtons videoId={video.id} initialVote={vote} />
       </div>
       <ResumablePlayer
         src={embedSrc}
