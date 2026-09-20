@@ -130,6 +130,14 @@ setup and architecture, see [README.md](./README.md).
   of 143" — rather than letting the viewer conclude that is all there is. The
   server half is extra reach, not the search itself: if it fails, the instant
   local search still answers.
+- **Link to a moment** — a *Copy link at 24:15* button under the player copies
+  the page address with the current position on it, and opening a link with
+  `?t=` starts there. An explicit timestamp **beats the saved resume
+  position**: the viewer followed a link to a point, and sending them to where
+  they last stopped instead would quietly ignore what they clicked. A value
+  that is not a timestamp is ignored rather than treated as 0:00, so a mangled
+  link leaves resume alone instead of dropping them at the start. Reads plain
+  seconds, `1:30`, `1:02:03` and `1h2m3s`, because people hand-edit these.
 - **Continue-watching** — the homepage shows a strip of in-progress videos with
   progress bars, newest first. Finished and barely-started videos are excluded.
 - **My activity** — a full watch-history page (`/activity`, linked from the

@@ -11,6 +11,7 @@ import RatingButtons from "../../../components/RatingButtons";
 import { getMyList, getRatings } from "../../../lib/store";
 import { isSaved } from "../../../lib/mylist";
 import { ratingOf } from "../../../lib/ratings";
+import { parseTimeParam } from "../../../lib/timestampLink";
 import { auth0 } from "../../../lib/auth0";
 import { blockedByEmailVerification, normalizeEmail } from "../../../lib/auth";
 import { resolveAccess, scopeAllows } from "../../../lib/roles";
@@ -28,7 +29,7 @@ import { pageTitle } from "../../../lib/siteName";
 import { getSiteName } from "../../../lib/store";
 import { withMonitorPage } from "../../../lib/monitor";
 
-async function gssp({ req, params, resolvedUrl }) {
+async function gssp({ req, params, query, resolvedUrl }) {
   const session = await auth0.getSession(req);
   const email = session?.user?.email ? normalizeEmail(session.user.email) : null;
   if (!email) {
@@ -147,6 +148,11 @@ async function gssp({ req, params, resolvedUrl }) {
       notes,
       saved,
       vote,
+      // Null when there is no ?t=, or when it is not a timestamp we accept.
+      // Null rather than 0 on purpose: an unparseable value must leave the
+      // saved resume position alone rather than silently sending the viewer
+      // back to the start.
+      startAt: parseTimeParam(query?.t),
     },
   };
 }
@@ -164,6 +170,7 @@ export default function WatchVideo({
   notes,
   saved,
   vote,
+  startAt,
 }) {
   return (
     <AppShell user={user} admin={admin} canNotify siteName={siteName}>
@@ -183,6 +190,7 @@ export default function WatchVideo({
         videoId={video.id}
         watermark={watermarkText}
         chapters={chapters}
+        startAt={startAt}
       />
       {notes ? (
         <section className="notes card">
