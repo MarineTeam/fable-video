@@ -113,7 +113,12 @@ setup and architecture, see [README.md](./README.md).
   search above matches videos by **what was said in them**, not just their
   title and notes — so a half-remembered phrase finds the sermon that contains
   it. Transcription is bunny.net's, produced from the audio; a video that has
-  not been transcribed shows no panel at all. Degrades the way chapters do: no
+  not been transcribed shows no panel at all. **One click, not two**:
+  transcription is asynchronous, so queueing records the video and the admin
+  Videos tab collects whatever bunny has finished since — no webhook, no
+  poller, and the *Fetch captions* button still works for anyone who wants it
+  now. Before this, forgetting the second click left a video that had really
+  been transcribed and paid for, with no transcript and nothing saying why. Degrades the way chapters do: no
   player protocol means plain text instead of buttons that would do nothing.
 - **Search reaches the whole library** — typing in the search box matches the
   loaded page instantly in the browser, as it always has, and the server
@@ -515,7 +520,8 @@ setup and architecture, see [README.md](./README.md).
   free-text discussion anywhere in the portal. That is a deliberate stop: text
   other viewers can read needs moderation, reporting and a notion of who may
   delete whose words, none of which exists here.
-- **Transcripts are one language, and the admin fetches them by hand** — bunny can translate captions into 56 languages, but only one track is ingested (English when present, otherwise the first bunny produced). And because transcription is asynchronous with no webhook wired up, “Transcribe” and “Fetch captions” are two separate clicks minutes apart rather than one.
+- **Transcripts are one language** — bunny can translate captions into 56 languages, but only one track is ingested (English when present, otherwise the first bunny produced). There is no language picker.
+- **Collection rides on an admin visiting the Videos tab** — there is no webhook and no background worker, so a finished transcription is collected the next time an admin loads that list (see Transcript below). If nobody opens it for a day the marker expires and the transcript has to be fetched with the button. That is a deliberate trade: no new infrastructure, bounded work, and the manual button still there.
 - **AI chapters are suggestions, and staying that way is the design** — bunny can generate chapters from the transcript, but nothing on that path writes to the stored list: suggestions are read back read-only (`lib/aiChapters.js`) and land in the admin's textarea, where a person accepts them. A background write would be a second writer for the same field, which is how hand-written chapters get silently replaced. **The field names bunny returns (`title`/`start`) are read from its docs, not from a live job** — this has never run against a real transcription, so the reader accepts a few spellings and reports anything it cannot read rather than returning an empty list.
 - **Rating totals can drift by one against the votes** — a vote and its
   counter are two writes, not one. The vote is authoritative and written

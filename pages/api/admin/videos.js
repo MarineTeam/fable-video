@@ -42,6 +42,7 @@ import {
 } from "../../../lib/schedule";
 import { logAction } from "../../../lib/audit";
 import { maybeAnnounceReadyVideos } from "../../../lib/push";
+import { collectFinishedTranscripts } from "../../../lib/transcriptCollect";
 import { clampWatermarkMode } from "../../../lib/watermark";
 import { withMonitorApi } from "../../../lib/monitor";
 
@@ -107,6 +108,22 @@ async function handler(req, res) {
         await maybeAnnounceReadyVideos(videos);
       } catch (err) {
         console.error("New-video announce failed:", err);
+      }
+      // Best-effort, same contract: collect any transcription bunny has
+      // finished since it was queued, so the admin does not have to remember
+      // a second click minutes later. Bounded per request by
+      // lib/transcribeQueue.js; failures are retried next load and age out.
+      try {
+        const { collected } = await collectFinishedTranscripts();
+        for (const item of collected) {
+          await logAction(
+            admin,
+            "video.transcript_ingest",
+            `${item.guid} (${item.language}, ${item.cues} cues, collected automatically)`
+          );
+        }
+      } catch (err) {
+        console.error("Automatic transcript collection failed:", err);
       }
       return res.json({ videos, thumbnails: thumbnailsEnabled() });
     } catch (err) {
