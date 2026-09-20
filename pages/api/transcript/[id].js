@@ -19,8 +19,9 @@
 import { requireAccess } from "../../../lib/guard";
 import { oneTrimmed } from "../../../lib/params";
 import { scopeAllows } from "../../../lib/roles";
+import { languageMissing, pickLanguage } from "../../../lib/captions";
 import { getSchedule, isLive } from "../../../lib/schedule";
-import { getTranscript } from "../../../lib/captionsStore";
+import { getTranscript, getTranscriptLanguages } from "../../../lib/captionsStore";
 import { withMonitorApi } from "../../../lib/monitor";
 
 async function handler(req, res) {
@@ -55,10 +56,22 @@ async function handler(req, res) {
   }
 
   try {
-    const cues = await getTranscript(id);
+    const { default: fallback, all } = await getTranscriptLanguages(id);
+    const requested = oneTrimmed(req.query.lang);
+    const language = pickLanguage(all, requested, fallback);
+    const cues = await getTranscript(id, language);
     // An empty transcript is a normal answer, not an error: most videos have
     // never been transcribed, and the watch page renders nothing for them.
-    return res.json({ cues });
+    //
+    // `missing` is reported rather than papered over: a viewer who picked
+    // Spanish and is shown English would conclude the translation is WRONG,
+    // which is worse than being told there isn't one.
+    return res.json({
+      cues,
+      language,
+      languages: all,
+      missing: languageMissing(all, requested),
+    });
   } catch (err) {
     console.error("Could not load a transcript:", err);
     return res.status(502).json({ error: "Could not load the transcript" });
