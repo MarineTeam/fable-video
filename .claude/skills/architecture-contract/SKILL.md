@@ -719,6 +719,41 @@ every branch), `lib/roleMigration.js` (the upgrade path).
 plus a call on POST, PUT twice, PATCH and DELETE; a mutating branch without one is the
 bug this invariant exists to catch).
 
+### (x) When a response stops being self-limiting, its filter becomes load-bearing
+
+**Statement:** `/api/transcript-search` returned IDS ONLY, and said so as a defence:
+the client could only ever use an id to widen a list it already held, so an id it did
+not hold matched nothing — the route's own filtering was belt, and the response shape
+was braces. `/api/search`, which replaces it, returns full video objects, because the
+whole point is to reach videos past the homepage cap that the client does NOT hold.
+The braces are gone. The filtering is now the only thing between a search and a video
+the viewer may not see.
+
+**Why that is acceptable:** it is the same posture `/api/videos` has always had, and
+the same pipeline — `fetchVideoLibrary(scope)` applies group scope, publish window and
+ready-only. `/api/search` differs from it in exactly one way, `{ cap: false }`, and the
+homepage count is a DISPLAY limit rather than access control, so nothing the search
+returns was ever out of the viewer's reach.
+
+**What this costs, and the rule it implies:** a bug in the scope filter used to be
+survivable here and now is not. So the route's tests assert the filtering directly —
+that the viewer's own scope is passed down, and that the cap is the only thing
+disabled — rather than inferring safety from the response shape.
+
+**The general rule:** when you widen a response from identifiers to objects, you are
+removing a safety property, not just changing a payload. Say so, and move the proof
+from the shape to the filter.
+
+**Enforced at:** `pages/api/search.js` (guard, rate limit, `fetchVideoLibrary(access.videoScope, { cap: false })`),
+`lib/videoList.js` (the `cap` option and the comment explaining it is a display limit),
+`lib/search.js` (pure; searches an already-authorized list and does no access checking
+at all, which its own comment states).
+
+**Verify with:** `npm test -- searchRoute` — the suite fails if the scope stops being
+passed down or the cap comes back.
+
+---
+
 ### (w) A route that reveals or edits PEOPLE requires the people capability, whatever else it manages
 
 **Statement:** `/api/admin/groups` is gated on `groups.manage`, but its membership
@@ -1030,6 +1065,7 @@ that date. Line numbers in (k)/(l) are against those files as of v1.8.0 and will
 | The feed body never contains a CDN url (s) | `npm test -- feedRoutes` (asserts no `b-cdn.net` in the document) |
 | Only the feed media route builds a CDN media url (s) | `grep -rn "signedMp4Url\|signCdnPath" pages lib` (definitions + one caller) |
 | `lib/bunny.js` signing helpers still untouched (s) | `git log --oneline -- lib/bunny.js` |
+| Search passes the viewer's scope and disables only the display cap (x) | `npm test -- searchRoute search` |
 | Group membership needs viewers.read, not just groups.manage (w) | `npm test -- groupRoute groupMembership` |
 | Per-viewer data is keyed by the viewer; aggregates hold no identity (v) | `npm test -- ratings ratingRoute`; `grep -n "ratings\|rating_counts" lib/store.js` |
 | AI suggestions write nothing, anywhere (u) | `npm test -- aiChapters transcribeRoute`; `grep -n "Store\|redis" lib/aiChapters.js` (expect no output) |

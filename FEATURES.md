@@ -115,6 +115,16 @@ setup and architecture, see [README.md](./README.md).
   it. Transcription is bunny.net's, produced from the audio; a video that has
   not been transcribed shows no panel at all. Degrades the way chapters do: no
   player protocol means plain text instead of buttons that would do nothing.
+- **Search reaches the whole library** — typing in the search box matches the
+  loaded page instantly in the browser, as it always has, and the server
+  searches **everything else the viewer is allowed to see** at the same time,
+  merging the two in library order. Before this, a video past the admin's
+  homepage count could not be found by searching for it: the library had it,
+  the search could not reach it. Matches on title, notes and what was said.
+  Results are capped at 60 and the cap is **reported** — "showing the first 60
+  of 143" — rather than letting the viewer conclude that is all there is. The
+  server half is extra reach, not the search itself: if it fails, the instant
+  local search still answers.
 - **Continue-watching** — the homepage shows a strip of in-progress videos with
   progress bars, newest first. Finished and barely-started videos are excluded.
 - **My activity** — a full watch-history page (`/activity`, linked from the
@@ -513,10 +523,17 @@ setup and architecture, see [README.md](./README.md).
   structured references, so there is no "all sermons on Philippians" view.
   Book abbreviations, ranges and translations make that much deeper than it
   looks; it was deliberately left out of the core feature.
-- **Notes are not full-text indexed** — search is a substring match run in the
-  browser over the notes that ship with the library payload, which is bounded
-  by the admin's homepage video count. It is instant, but it is not a search
-  engine and it does not reach videos beyond that cap.
+- **Search is substring matching, not a search engine** — no stemming, no
+  fuzzy matching, no relevance ranking: results come back in library order,
+  and "baptism" does not find "baptise". It now reaches the **whole** library
+  rather than only the loaded page (see Search below), which was the part that
+  actually lost videos.
+- **The two halves of search match slightly differently** — titles and notes
+  are plain substring; the spoken-word half normalises punctuation and
+  apostrophes, so "Christ's" finds "Christs" in a transcript but not in a
+  title. Unifying them would change how search has behaved for admins who
+  have learned it, so it was left alone deliberately when the server half was
+  added.
 - **Podcast episodes are video, not audio** — bunny.net Stream has no
   audio-only or MP3 rendition (verified against their docs), so episodes are
   720p MP4s. They play everywhere but are a much larger download than audio.

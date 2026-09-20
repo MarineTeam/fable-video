@@ -198,6 +198,16 @@ function NotApproved({ user, requestStatus }) {
               {busy ? "Sending…" : "Request access"}
             </button>
             {error ? <div className="notice notice-error">{error}</div> : null}
+
+      {/* Told, not silently dropped: a search that matched more than one page
+          of results should say so rather than letting the viewer conclude the
+          library holds only what is shown. */}
+      {remote?.truncated ? (
+        <div className="muted small">
+          Showing the first {remote.videos.length} of {remote.total} matches — narrow the
+          search to see the rest.
+        </div>
+      ) : null}
           </form>
         )}
 
@@ -348,23 +358,29 @@ export default function Home({
   // cannot be, because they are tens of kilobytes each and would put megabytes
   // into every page load to serve a search most visits never run. So this one
   // dimension asks the server, and only for ids.
-  const [spokenIds, setSpokenIds] = useState(null);
+  // What the SERVER found: the whole authorized library, not just the page
+  // this browser is holding. Local matching still runs first and unchanged, so
+  // results for the loaded page appear the instant a key is pressed and these
+  // fill in behind them — the search never feels like it is waiting on a
+  // network round trip, which was the reason it was client-side to begin with.
+  const [remote, setRemote] = useState(null);
 
   useEffect(() => {
     if (!debouncedQuery) {
-      setSpokenIds(null);
+      setRemote(null);
       return undefined;
     }
     let cancelled = false;
-    fetch(`/api/transcript-search?q=${encodeURIComponent(debouncedQuery)}`)
-      .then((res) => (res.ok ? res.json() : { ids: [] }))
+    fetch(`/api/search?q=${encodeURIComponent(debouncedQuery)}`)
+      .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (!cancelled) setSpokenIds(new Set(data?.ids || []));
+        if (!cancelled) setRemote(data || null);
       })
-      // Transcript matches are extra results, not the search itself — a
-      // failure quietly leaves the title/notes search working.
+      // The server half is EXTRA reach, not the search itself. A failure
+      // quietly leaves the instant local search working rather than emptying
+      // a result list the viewer can see is wrong.
       .catch(() => {
-        if (!cancelled) setSpokenIds(null);
+        if (!cancelled) setRemote(null);
       });
     return () => {
       cancelled = true;
@@ -375,20 +391,30 @@ export default function Home({
 
   const filtered = useMemo(() => {
     if (loading) return [];
-    return allVideos.filter((video) => {
-      // Matches titles AND sermon notes. This narrows an already-authorized
-      // list — the server decided what is in it (group scope, schedule) — so
-      // searching can never surface a video the viewer may not see.
-      // A video qualifies on its title/notes OR on its transcript. The
-      // transcript half is still a narrowing of THIS list: spokenIds can only
-      // ever match something allVideos already contains, so the guarantee
-      // above survives even if the server answered wrongly.
-      const spoken = spokenIds?.has(video.id) || false;
-      if (!spoken && !videoMatchesQuery(video, debouncedQuery)) return false;
-      if (collection && video.collectionId !== collection) return false;
-      return true;
-    });
-  }, [allVideos, debouncedQuery, collection, loading, spokenIds]);
+
+    // The loaded page, matched locally on title and notes exactly as before.
+    // This is a narrowing of an already-authorized list — the server decided
+    // what is in it (group scope, schedule) — so it can never surface a video
+    // the viewer may not see.
+    const local = allVideos.filter((video) => videoMatchesQuery(video, debouncedQuery));
+
+    // Everything else the server found, which is the point of this feature:
+    // a video past the homepage cap used to be unfindable. Its scope and
+    // schedule filtering is load-bearing (see pages/api/search.js) — unlike
+    // the local half, these are videos this browser did not already hold.
+    const seen = new Set(local.map((video) => video.id));
+    const extra = (remote?.videos || []).filter((video) => !seen.has(video.id));
+
+    // Library order across both halves rather than "local first": the admin
+    // arranged the library deliberately, and a result list that puts the
+    // loaded page first would reshuffle it for reasons the viewer cannot see.
+    const order = new Map(allVideos.map((video, index) => [video.id, index]));
+    const merged = [...local, ...extra].sort(
+      (a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity)
+    );
+
+    return collection ? merged.filter((video) => video.collectionId === collection) : merged;
+  }, [allVideos, debouncedQuery, collection, loading, remote]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
   const safePage = Math.min(page, totalPages);
