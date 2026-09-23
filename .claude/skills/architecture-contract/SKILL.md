@@ -781,6 +781,13 @@ three videos exist), so an index built over anything wider than the viewer's sco
 library would leak what the scope hides. `bookIndex` reads the same title+notes the
 passage search matches, so every listed book finds at least one video. Verify:
 `npm test -- passagesRoute scripture`.
+
+**Word stems (2026-09-23).** `videoMatchesQuery` also matches a query's words by stem
+(`lib/stem.js`) against a video's title and notes — through the same one predicate, so
+both halves of search still agree. Additive only. A query that parses as a passage is
+answered by passage overlap ALONE; letting stems in would read "Philippians 2" as the
+word "philippians" and widen it to the book. `lib/stem.js` is client-bundled: no regex
+lookbehind. Verify: `npm test -- stem notes`.
 ---
 
 ### (w) A route that reveals or edits PEOPLE requires the people capability, whatever else it manages

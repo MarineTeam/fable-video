@@ -138,6 +138,15 @@ setup and architecture, see [README.md](./README.md).
   of 143" — rather than letting the viewer conclude that is all there is. The
   server half is extra reach, not the search itself: if it fails, the instant
   local search still answers.
+- **Search finds other forms of a word** — "baptism" finds "baptised",
+  "baptized" and "baptizing"; "forgiving" finds "forgiveness"; "praying" finds
+  "prayed". Every word of a multi-word search must appear somewhere in the
+  title or notes, in any order. It only ever **adds** matches — the plain text
+  search is untouched — and it is deliberately cautious: common word endings
+  that are also ordinary letters ("-er", "-en") are left alone, so "Peter" never
+  finds "pet", and words match whole, never inside a longer word. A search that
+  is a Bible passage is answered by the passage alone, so "Philippians 2" never
+  widens to the whole book.
 - **Search by passage** — searching for a Bible passage finds every video whose
   title or notes cite an **overlapping** passage, however it was written:
   "Philippians 2" finds a talk noted as "Phil 1:27–2:11", and "Philippians"
@@ -579,11 +588,12 @@ setup and architecture, see [README.md](./README.md).
   (ESV)" is John 3:16), and verses are checked against a ceiling of 176
   rather than each chapter's real length. Browsing is by book; there is no
   chapter-by-chapter view.
-- **Search is substring matching, not a search engine** — no stemming, no
-  fuzzy matching, no relevance ranking: results come back in library order,
-  and "baptism" does not find "baptise". It now reaches the **whole** library
-  rather than only the loaded page (see Search below), which was the part that
-  actually lost videos.
+- **Search has no relevance ranking** — results come back in library order,
+  not best match first. Word forms are matched (below), but only in titles and
+  notes: the spoken-word half is still plain text, because stemming tens of
+  kilobytes of transcript per video on every search is a cost the search box
+  cannot carry. The stemmer is deliberately small — it knows "baptise" and
+  "baptized" are one word, not that "baptism" and "immersion" are.
 - **The two halves of search match slightly differently** — titles and notes
   are plain substring; the spoken-word half normalises punctuation and
   apostrophes, so "Christ's" finds "Christs" in a transcript but not in a
