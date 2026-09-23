@@ -443,7 +443,15 @@ setup and architecture, see [README.md](./README.md).
   granted collection is visible to that group on the next request with nobody
   editing anything, which is the answer to ticking every new upload by hand.
   Deleting a collection prunes it from every group that granted it, so a grant
-  never names something that no longer exists. Managers and admins are never group-scoped. Enforcement is
+  never names something that no longer exists. **A single upload can be granted
+  as it is created**: the upload card lists the groups (for someone holding
+  `groups.manage` — uploading alone does not let you grant access), and files
+  dropped while groups are ticked are added to them. Nothing is ticked by
+  default and there is no stored default group, deliberately. A group that no
+  longer exists, or already grants its 500-video maximum, is refused before the
+  video is created; a grant that fails afterwards is named on the upload row
+  rather than failing the upload. Cancelling an upload clears it from any group
+  it was granted to. Managers and admins are never group-scoped. Enforcement is
   server-side throughout: an out-of-scope video 404s before any playback token
   is minted, rather than merely being hidden from a list.
 - **Group membership editor** — add or remove people from a group **on the

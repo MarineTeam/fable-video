@@ -1718,3 +1718,31 @@ code {
   color: var(--danger, #f87171);
   font-size: 0.85rem;
 }
+
+/* Upload card: the optional "also visible to groups" picker. */
+.upload-groups {
+  border: 0;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  justify-content: center;
+}
+
+.upload-groups legend {
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+.upload-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+.upload-warning {
+  display: block;
+  color: var(--danger, #f87171);
+}

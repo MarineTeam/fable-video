@@ -1466,7 +1466,7 @@ function PrivateListManager({ video, viewers, emailConfigured, onClose, onChange
 /* Videos tab                                                          */
 /* ------------------------------------------------------------------ */
 
-function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
+function VideosTab({ emailConfigured, onSharesChanged, canPublish, canGrantGroups }) {
   const [videos, setVideos] = useState(null);
   const [thumbs, setThumbs] = useState(false);
   const [collections, setCollections] = useState([]);
@@ -1487,6 +1487,11 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkReport, setBulkReport] = useState(null);
   const [bulkCollection, setBulkCollection] = useState("");
+  // The upload card's "also visible to" groups. Applies to every file dropped
+  // while ticked; starts empty on every visit, deliberately — see
+  // lib/uploadGrants.js on why there is no remembered default.
+  const [grantGroups, setGrantGroups] = useState([]);
+  const [uploadGroups, setUploadGroups] = useState([]);
   const [recounting, setRecounting] = useState(false);
   const [recountNote, setRecountNote] = useState("");
   const [shareStats, setShareStats] = useState(null);
@@ -1499,6 +1504,16 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
   useEffect(() => {
     videosRef.current = videos || [];
   }, [videos]);
+
+  // Group names for the upload card's picker. Only fetched for someone who
+  // may grant groups — /api/admin/groups refuses anyone else, and the upload
+  // route refuses their groupIds independently.
+  useEffect(() => {
+    if (!canGrantGroups) return;
+    api("/api/admin/groups")
+      .then((data) => setGrantGroups(data.groups || []))
+      .catch(() => setGrantGroups([]));
+  }, [canGrantGroups]);
 
   const load = useCallback(async () => {
     try {
@@ -1586,8 +1601,18 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
       try {
         const created = await api("/api/admin/upload", {
           method: "POST",
-          body: { title },
+          // groupIds only when something is ticked, so an ordinary upload is
+          // the exact request it always was.
+          body: uploadGroups.length ? { title, groupIds: uploadGroups } : { title },
         });
+        const failedGroups = created.groups?.failed || [];
+        if (failedGroups.length) {
+          patchUpload(key, {
+            warning: `Not added to ${failedGroups
+              .map((id) => grantGroups.find((g) => g.id === id)?.name || id)
+              .join(", ")} — add it on the Groups tab.`,
+          });
+        }
         const { Upload } = await import("tus-js-client");
         const upload = new Upload(file, {
           endpoint: created.tus.endpoint,
@@ -1621,7 +1646,7 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
         patchUpload(key, { state: "error", error: err.message });
       }
     },
-    [load]
+    [load, uploadGroups, grantGroups]
   );
 
   const cancelUpload = (entry) => {
@@ -1886,6 +1911,28 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
           </button>
           . Files upload straight from your browser to bunny.net (resumable).
         </p>
+        {grantGroups.length > 0 ? (
+          <fieldset className="upload-groups">
+            <legend className="muted small">
+              Also visible to groups (optional — applies to files dropped while ticked)
+            </legend>
+            {grantGroups.map((g) => (
+              <label key={g.id} className="upload-group">
+                <input
+                  type="checkbox"
+                  checked={uploadGroups.includes(g.id)}
+                  onChange={(e) =>
+                    setUploadGroups((prev) =>
+                      e.target.checked ? [...prev, g.id] : prev.filter((id) => id !== g.id)
+                    )
+                  }
+                />
+                {g.name}
+                {g.restricted ? null : <span className="muted small"> (sees everything)</span>}
+              </label>
+            ))}
+          </fieldset>
+        ) : null}
         <input
           ref={fileInput}
           type="file"
@@ -1901,7 +1948,10 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
           <div className="upload-list">
             {uploads.map((u) => (
               <div key={u.key} className="upload-row">
-                <span className="upload-name">{u.title}</span>
+                <span className="upload-name">
+                  {u.title}
+                  {u.warning ? <span className="upload-warning small"> {u.warning}</span> : null}
+                </span>
                 {u.state === "uploading" || u.state === "creating" ? (
                   <>
                     <div className="progress-track upload-progress">
@@ -5147,6 +5197,7 @@ export default function Admin({ user, owner, capabilities, siteName }) {
           // behind it enforces CAP.SETTINGS_MANAGE independently — hiding the
           // control is a convenience, never the boundary.
           canPublish={can(CAP.SETTINGS_MANAGE)}
+          canGrantGroups={can(CAP.GROUPS_MANAGE)}
         />
       ) : null}
       {tab === "viewers" ? (

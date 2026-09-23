@@ -413,6 +413,16 @@ the air.
 (`isLive`), `lib/videoList.js`, `pages/api/videos.js`, `pages/api/collections.js`,
 `pages/api/progress.js`, `pages/watch/video/[id].js`.
 
+**Upload-time grants (2026-09-23).** `/api/admin/upload` accepts `groupIds` and adds the
+new video to those groups' allowlists. It is gated on `CAP.GROUPS_MANAGE` in addition to
+`CAP.VIDEOS_UPLOAD` — they are separate capabilities under custom roles, and ticking a
+box must not hand an uploader the power to grant access. Every refusal (no capability,
+unknown group, group at `MAX_VIDEOS_PER_GROUP`) happens BEFORE `createVideo`, so none
+leaves an orphan video; `grantVideoToGroups` never recreates a deleted group or lets
+`saveGroup` silently truncate a full one, and reports per-group failure. Cancelling an
+upload (`DELETE /api/admin/upload`) calls `pruneVideoFromGroups`. No stored default
+group, by design. Verify: `npm test -- uploadRoute uploadGrants groupGrants`.
+
 **Verify with:** `grep -rn "videoScope\|scopeAllows" pages lib | grep -v __tests__` —
 every viewer-facing read path should appear. `grep -n "scopeAllows" "pages/watch/video/[id].js"`
 must show the check ABOVE the `signEmbedUrl` call in the same file.
