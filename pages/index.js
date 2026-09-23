@@ -379,6 +379,25 @@ export default function Home({
   // network round trip, which was the reason it was client-side to begin with.
   const [remote, setRemote] = useState(null);
 
+  // "Browse by book": the books this viewer's library cites. Fetched once;
+  // an empty or failed answer simply hides the row — it is a way in to
+  // search, not something the page depends on.
+  const [books, setBooks] = useState([]);
+  useEffect(() => {
+    if (!approved) return;
+    fetch("/api/passages")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setBooks(data?.books || []))
+      .catch(() => {});
+  }, [approved]);
+
+  // A book is searched by its name, which the passage search reads as the
+  // whole book — so the result is exactly the videos counted here.
+  const browseBook = (book) => {
+    setQuery(book);
+    setDebouncedQuery(book);
+  };
+
   useEffect(() => {
     if (!debouncedQuery) {
       setRemote(null);
@@ -471,6 +490,24 @@ export default function Home({
           />
         </div>
       </div>
+
+      {books.length > 0 ? (
+        <details className="book-browse">
+          <summary>Browse by book</summary>
+          <div className="chip-row">
+            {books.map(({ book, count }) => (
+              <button
+                key={book}
+                type="button"
+                className={`chip ${query === book ? "chip-active" : ""}`}
+                onClick={() => browseBook(book)}
+              >
+                {book} <span className="book-count">{count}</span>
+              </button>
+            ))}
+          </div>
+        </details>
+      ) : null}
 
       {collections.length > 0 ? (
         <div className="chip-row">

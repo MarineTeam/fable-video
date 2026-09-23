@@ -1746,3 +1746,23 @@ code {
   display: block;
   color: var(--danger, #f87171);
 }
+
+/* Homepage "Browse by book": collapsed by default, so a library that cites
+   forty books does not push the videos below the fold. */
+.book-browse {
+  margin-bottom: 0.8rem;
+}
+
+.book-browse summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 0.6rem;
+}
+
+.book-count {
+  opacity: 0.7;
+  margin-left: 0.25rem;
+  font-variant-numeric: tabular-nums;
+}

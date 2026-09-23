@@ -146,6 +146,11 @@ setup and architecture, see [README.md](./README.md).
   8:28, 31–39") are all read. It only ever **adds** matches — anything the plain
   text search found is still found. On the watch page, the passages a video
   cites appear as links that open the library searched for that passage.
+  **Browse by book** on the homepage (collapsed by default) lists every book
+  the viewer's library cites, with how many videos cite it, in Bible order;
+  clicking one searches that book. The list is built over the same scoped
+  library as search — a count is itself information, so a video a viewer may
+  not see never adds to one.
   Deliberately cautious about inventing references: a book name needs a
   chapter number and a capital letter, the chapter must exist in that book
   ("Mark 20" is not a passage), and two-letter abbreviations that are ordinary
@@ -569,12 +574,11 @@ setup and architecture, see [README.md](./README.md).
   that has not been made.
 - **Chapters are typed, or accepted** — there is no import from a description
   and no per-viewer chapter progress.
-- **Passages are found, not browsed** — a passage search finds every video
-  citing it, but there is no page listing the books a library covers, and
-  references are read from titles and notes only, not from what was said.
+- **Passages are read from titles and notes only** — not from what was said.
   The 66-book Protestant canon only; translations are ignored ("John 3:16
   (ESV)" is John 3:16), and verses are checked against a ceiling of 176
-  rather than each chapter's real length.
+  rather than each chapter's real length. Browsing is by book; there is no
+  chapter-by-chapter view.
 - **Search is substring matching, not a search engine** — no stemming, no
   fuzzy matching, no relevance ranking: results come back in library order,
   and "baptism" does not find "baptise". It now reaches the **whole** library

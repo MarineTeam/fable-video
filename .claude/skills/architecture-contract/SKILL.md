@@ -773,6 +773,14 @@ PURE and bundled into the homepage, so it must not use regex lookbehind: that is
 SyntaxError at parse time in Safari before 16.4 and would take the whole library
 page down, not just this feature. Verify: `npm test -- scripture notes search`;
 `grep -n "(?<" lib/scripture.js` prints nothing.
+
+**Browse by book (2026-09-23).** `/api/passages` counts, per book, the videos citing it —
+over `fetchVideoLibrary(access.videoScope, { cap: false })`, exactly the pipeline
+`/api/search` uses. The count is information in its own right ("Philippians (3)" says
+three videos exist), so an index built over anything wider than the viewer's scoped
+library would leak what the scope hides. `bookIndex` reads the same title+notes the
+passage search matches, so every listed book finds at least one video. Verify:
+`npm test -- passagesRoute scripture`.
 ---
 
 ### (w) A route that reveals or edits PEOPLE requires the people capability, whatever else it manages
