@@ -72,6 +72,15 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # lib/__tests__/ratingScripts.test.js runs the rating Lua scripts on a
+      # real redis-server, because what those scripts are FOR is how Redis
+      # executes them — a mock would only agree with itself. Locally the suite
+      # skips when redis-server is missing; under CI it refuses to skip (see
+      # lib/__tests__/helpers/localRedis.js), so this step is what keeps it
+      # running rather than quietly disappearing from the count.
+      - name: Install redis-server
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq redis-server
+
       - name: Test
         run: npm test
 

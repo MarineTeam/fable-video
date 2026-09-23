@@ -101,9 +101,11 @@ setup and architecture, see [README.md](./README.md).
   on the admin Videos tab, and never to viewers. In a library watched by a few
   dozen people a visible "2 down" on someone's teaching is a social problem
   the product does not need, and at that size a public counter is close to
-  attributable anyway. The vote is stored under the viewer's own key, so
-  removing a viewer removes their votes with them; the totals are plain
-  integers holding no address at all. Rating obeys group access the same way
+  attributable anyway. The vote is stored under the viewer's own key; the
+  totals are plain integers holding no address at all, and **the vote and its
+  total are written together in one Redis step**, so they cannot disagree. A
+  **Recount ratings** button on the admin Videos tab rebuilds every total from
+  the votes, for totals written before that was true. Rating obeys group access the same way
   saving does, and answers 404 rather than 403 for a video out of scope, so it
   cannot be used to find out which ids exist.
 - **Transcript** — the spoken text of a recording, under the player, collapsed
@@ -537,13 +539,13 @@ setup and architecture, see [README.md](./README.md).
 - **Library search reads ONE language per video** — the default track, the one ingested first. Indexing every translation of the same sermon would multiply the search payload to return the same video, so searching in Spanish for a talk whose default is English finds nothing. The transcript panel still offers every language once the video is open.
 - **Collection rides on an admin visiting the Videos tab** — there is no webhook and no background worker, so a finished transcription is collected the next time an admin loads that list (see Transcript below). If nobody opens it for a day the marker expires and the transcript has to be fetched with the button. That is a deliberate trade: no new infrastructure, bounded work, and the manual button still there.
 - **AI chapters are suggestions, and staying that way is the design** — bunny can generate chapters from the transcript, but nothing on that path writes to the stored list: suggestions are read back read-only (`lib/aiChapters.js`) and land in the admin's textarea, where a person accepts them. A background write would be a second writer for the same field, which is how hand-written chapters get silently replaced. **The field names bunny returns (`title`/`start`) are read from its docs, not from a live job** — this has never run against a real transcription, so the reader accepts a few spellings and reports anything it cannot read rather than returning an empty list.
-- **Rating totals can drift by one against the votes** — a vote and its
-  counter are two writes, not one. The vote is authoritative and written
-  first; the counter is incremented after, best-effort, so an Upstash blip
-  between them leaves the total one short. It is never *corrected*, because
-  recomputing it would mean scanning every viewer's ratings hash, which this
-  repo does not do anywhere. Totals are read as approximate; a negative one is
-  clamped to zero rather than displayed. The votes themselves are exact.
+- **Removing a viewer leaves what was recorded about them** — `removeViewer`
+  clears the viewer record and last-seen time, but their progress, saved list
+  and votes stay under their email until something deletes them, and nothing
+  does yet. Their votes therefore still count in the totals. The data is keyed
+  by viewer precisely so that deleting it is one key per feature; deciding to
+  do it on removal (and losing a re-added viewer's progress) is an owner call
+  that has not been made.
 - **Chapters are typed, or accepted** — there is no import from a description
   and no per-viewer chapter progress.
 - **Scripture references are plain text** — notes are not parsed into

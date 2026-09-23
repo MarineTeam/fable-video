@@ -784,7 +784,7 @@ groups-only manager can reach the membership branch at all.
 
 ---
 
-### (v) Per-viewer data is keyed by the viewer, so removing them removes it
+### (v) Per-viewer data is keyed by the viewer; aggregates hold no identity and equal the data
 
 **Statement:** anything recorded about a person — progress, saved list, ratings — is
 stored under a key that carries their email (`fablevideo:progress:<email>`,
@@ -796,24 +796,30 @@ no identity at all.
 better and makes the admin's totals a single `HGETALL`. It also leaves a removed
 viewer's address sitting in a row that nothing cleans — there is no sweep over video
 keys, and adding one would mean scanning every video on every viewer removal. Keying
-by viewer means "remove this person" is already the whole deletion story, for every
-per-viewer feature at once, including ones not written yet.
+by viewer means deleting a person's data is one key per feature, for every per-viewer
+feature at once, including ones not written yet. **That deletion does not run today**:
+`removeViewer` clears only the viewer record and last-seen time (FEATURES.md, known
+gaps). Do not describe removal as deleting their data until it does.
 
-**The cost, accepted deliberately:** totals cannot be recomputed from the votes without
-a scan, so they are maintained by incrementing a delta and can drift by one against the
-votes (a vote written, then a counter write that failed). The vote is authoritative and
-is written first; the counter is best-effort and afterwards, at the call site as well as
-inside the store, so a counter failure can never report a successful vote as failed.
-Drift is documented in FEATURES.md rather than papered over, and a negative counter
-reads as 0.
+**Totals equal the votes (2026-09-23).** A vote and both counter moves are ONE Redis
+script (`VOTE_SCRIPT`, `lib/ratingScripts.js`), and the previous vote is read INSIDE it.
+Before that they were two writes — vote, then a best-effort `HINCRBY` — and a failure
+between them, or two racing clicks both reading "no vote", left a total wrong for good.
+Totals from that era are corrected by `RECOUNT_SCRIPT`, run from **Recount ratings**
+(`/api/admin/rating-recount`, `SETTINGS_MANAGE`), which rebuilds and replaces the
+counter hash from every `ratings:<email>` hash in one atomic step. Its one scan is the
+same maintenance exception the stale-bundle cleanup makes. Do NOT reintroduce a
+separate counter write "for simplicity": that is the drift this removed.
 
-**Enforced at:** `lib/ratings.js` (pure; `voteDelta` is the whole arithmetic),
-`lib/store.js` (`getRatings`/`setRating`/`clearRating` under the viewer's key;
-`applyRatingCounts` best-effort; `clearVideoRatingCounts` on delete),
-`pages/api/rating.js` (no email parameter; scope-gated; the counter update is outside
-the error path that answers the viewer).
+**Enforced at:** `lib/ratingScripts.js` (both scripts; no imports, so the tests run the
+exact strings), `lib/ratings.js` (pure; `voteDelta` is the specification the vote script
+is held to, transition by transition), `lib/store.js` (`recordRating` = one `EVAL`;
+`recountRatings`; `clearVideoRatingCounts` on delete), `pages/api/rating.js` (no email
+parameter; scope-gated; one storage call per vote).
 
-**Verify with:** `npm test -- ratings ratingRoute`; `grep -n "ratings\|rating_counts" lib/store.js`
+**Verify with:** `npm test -- ratings ratingRoute ratingScripts ratingRecountRoute`
+(`ratingScripts` runs on a real `redis-server` and is SKIPPED where none is installed —
+check the summary says 31 passed, not skipped); `grep -n "ratings\|rating_counts" lib/store.js`
 (the vote keys take an email, the counter key does not).
 
 ---
@@ -1067,7 +1073,7 @@ that date. Line numbers in (k)/(l) are against those files as of v1.8.0 and will
 | `lib/bunny.js` signing helpers still untouched (s) | `git log --oneline -- lib/bunny.js` |
 | Search passes the viewer's scope and disables only the display cap (x) | `npm test -- searchRoute search` |
 | Group membership needs viewers.read, not just groups.manage (w) | `npm test -- groupRoute groupMembership` |
-| Per-viewer data is keyed by the viewer; aggregates hold no identity (v) | `npm test -- ratings ratingRoute`; `grep -n "ratings\|rating_counts" lib/store.js` |
+| Per-viewer data is keyed by the viewer; aggregates hold no identity and equal the data (v) | `npm test -- ratings ratingRoute ratingScripts ratingRecountRoute` (ratingScripts needs `redis-server`); `grep -n "ratings\|rating_counts" lib/store.js` |
 | AI suggestions write nothing, anywhere (u) | `npm test -- aiChapters transcribeRoute`; `grep -n "Store\|redis" lib/aiChapters.js` (expect no output) |
 | Chapters/notes modules import no Redis (o) | `grep -n "^import" lib/chapters.js lib/notes.js` (expect no output) |
 | Chapters/notes are read only AFTER every access check (o) | `grep -n "scopeAllows\|getSchedule\|getChapters" "pages/watch/video/[id].js"` (the first two must precede the third) |

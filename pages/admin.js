@@ -1487,6 +1487,8 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkReport, setBulkReport] = useState(null);
   const [bulkCollection, setBulkCollection] = useState("");
+  const [recounting, setRecounting] = useState(false);
+  const [recountNote, setRecountNote] = useState("");
   const [shareStats, setShareStats] = useState(null);
   const [statsFor, setStatsFor] = useState(null);
   const dragIndex = useRef(null);
@@ -1515,6 +1517,26 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
       setError(err.message);
     }
   }, []);
+
+  // Rebuilds the thumbs-up/down totals from the votes themselves. New votes
+  // cannot drift any more (one Redis script writes a vote and its counters),
+  // so this is for totals written before that — see
+  // pages/api/admin/rating-recount.js.
+  const recountRatings = async () => {
+    setRecounting(true);
+    setError("");
+    setRecountNote("");
+    try {
+      const data = await api("/api/admin/rating-recount", { method: "POST" });
+      setRecountNote(
+        `Recounted ${data.votes} vote${data.votes === 1 ? "" : "s"} from ${data.viewers} viewer${data.viewers === 1 ? "" : "s"}.`
+      );
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+    setRecounting(false);
+  };
 
   useEffect(() => {
     load();
@@ -1932,7 +1954,19 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+          {canPublish ? (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={recounting}
+              onClick={recountRatings}
+              title="Rebuild the thumbs-up/down totals from the votes themselves"
+            >
+              {recounting ? "Recounting…" : "Recount ratings"}
+            </button>
+          ) : null}
         </div>
+        {recountNote ? <div className="notice notice-ok">{recountNote}</div> : null}
         {selected.size > 0 ? (
           <div className="bulk-toolbar">
             <span className="muted small">{selected.size} selected</span>
