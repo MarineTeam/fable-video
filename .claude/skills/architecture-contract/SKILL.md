@@ -650,6 +650,13 @@ narrowing is written down here rather than discovered later in a diff:
 2. The CDN URL exists only as a transient `302 Location`, minted per request **after**
    identity, group scope and the publish window have been re-checked.
 3. It is pull-zone token-signed and expires in 15 minutes.
+4. **Episode artwork (2026-09-23)** follows the same three rules through the same route:
+   `<itunes:image>` points at `/api/feed/<token>/<videoId>.jpg`, which re-checks identity,
+   scope and schedule, then asks bunny.net for the video's `thumbnailFileName`,
+   validates it as a plain file name, and 302s to a 15-minute signed URL. Apps cache
+   artwork for a long time keyed on the URL they were given — which is why that URL must
+   be this stable one, never a signed CDN URL that would expire inside their cache.
+   Verify: `npm test -- feedArtwork`.
 
 What invariant (d) exists to prevent is "a permanent, unauthenticated, shareable
 bypass". A 15-minute signed URL handed out only after a full authorization check is

@@ -193,6 +193,11 @@ setup and architecture, see [README.md](./README.md).
   button replaces the address if it is ever shared by mistake.
 - Episodes are **video MP4s**, not audio: bunny.net has no audio-only format.
   They play in podcast apps but download far more data than audio would.
+- **Each episode shows its own thumbnail** as artwork in the podcast app,
+  rather than the site icon on every episode. The app is given a stable
+  address on this portal, re-checked like the episode itself on every fetch,
+  so artwork disappears with access and no expiring bunny.net link ends up in
+  the app's cache.
 - Off until an admin enables it, and every denial looks identical from
   outside — a wrong or retired address is indistinguishable from one
   belonging to someone who is no longer approved.
@@ -606,10 +611,9 @@ setup and architecture, see [README.md](./README.md).
   They also need **MP4 Fallback** enabled on the bunny.net library, and
   bunny.net only generates an MP4 for videos uploaded *after* that was turned
   on — older recordings need re-uploading.
-- **No per-episode podcast artwork** — the feed uses the site icon for every
-  episode. Per-video thumbnails are signed and time-limited, and podcast apps
-  cache artwork long past that expiry, so using them would break and would
-  leave signed URLs in app caches.
+- **Podcast episode art is the video thumbnail** — a 16:9 frame, while podcast
+  apps expect square art, so some apps crop or letterbox it. Custom thumbnails
+  set on bunny.net are used when present. The show itself keeps the site icon.
 - **Public videos are one at a time, by hand** — there is no public
   collection, no public library page, and no bulk publish. That is the
   intent: one video, one decision, one link.

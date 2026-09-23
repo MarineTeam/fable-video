@@ -75,6 +75,9 @@ async function handler(req, res) {
     length: video.length,
     publishedAt: video.dateUploaded,
     enclosureUrl: `${base}/api/feed/${encodeURIComponent(token)}/${encodeURIComponent(video.id)}.mp4`,
+    // Per-episode art through the same entitlement-checked route, so the URL
+    // an app caches is stable and never a signed bunny.net one.
+    imageUrl: `${base}/api/feed/${encodeURIComponent(token)}/${encodeURIComponent(video.id)}.jpg`,
   }));
 
   const xml = buildPodcastFeed({
