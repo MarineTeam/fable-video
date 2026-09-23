@@ -817,9 +817,9 @@ is held to, transition by transition), `lib/store.js` (`recordRating` = one `EVA
 `recountRatings`; `clearVideoRatingCounts` on delete), `pages/api/rating.js` (no email
 parameter; scope-gated; one storage call per vote).
 
-**Verify with:** `npm test -- ratings ratingRoute ratingScripts ratingRecountRoute`
-(`ratingScripts` runs on a real `redis-server` and is SKIPPED where none is installed —
-check the summary says 31 passed, not skipped); `grep -n "ratings\|rating_counts" lib/store.js`
+**Verify with:** `npm test -- ratings ratingRoute ratingScripts ratingsStore.redis ratingRecountRoute`
+(`ratingScripts` and `ratingsStore.redis` run on a real `redis-server`, SKIPPED locally where none is installed and FAILING under CI —
+check the summary says 36 passed, not skipped); `grep -n "ratings\|rating_counts" lib/store.js`
 (the vote keys take an email, the counter key does not).
 
 ---
@@ -1073,7 +1073,7 @@ that date. Line numbers in (k)/(l) are against those files as of v1.8.0 and will
 | `lib/bunny.js` signing helpers still untouched (s) | `git log --oneline -- lib/bunny.js` |
 | Search passes the viewer's scope and disables only the display cap (x) | `npm test -- searchRoute search` |
 | Group membership needs viewers.read, not just groups.manage (w) | `npm test -- groupRoute groupMembership` |
-| Per-viewer data is keyed by the viewer; aggregates hold no identity and equal the data (v) | `npm test -- ratings ratingRoute ratingScripts ratingRecountRoute` (ratingScripts needs `redis-server`); `grep -n "ratings\|rating_counts" lib/store.js` |
+| Per-viewer data is keyed by the viewer; aggregates hold no identity and equal the data (v) | `npm test -- ratings ratingRoute ratingScripts ratingsStore.redis ratingRecountRoute` (ratingScripts, ratingsStore.redis need `redis-server`); `grep -n "ratings\|rating_counts" lib/store.js` |
 | AI suggestions write nothing, anywhere (u) | `npm test -- aiChapters transcribeRoute`; `grep -n "Store\|redis" lib/aiChapters.js` (expect no output) |
 | Chapters/notes modules import no Redis (o) | `grep -n "^import" lib/chapters.js lib/notes.js` (expect no output) |
 | Chapters/notes are read only AFTER every access check (o) | `grep -n "scopeAllows\|getSchedule\|getChapters" "pages/watch/video/[id].js"` (the first two must precede the third) |
