@@ -604,6 +604,28 @@ code {
   color: var(--text);
 }
 
+/* Watch page: the passages a video cites, each a link into the library
+   search. Anchors, so the chip look needs the underline taken off. */
+.passages {
+  margin-top: 14px;
+}
+
+.passages-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.passages .chip-row {
+  margin-bottom: 0;
+}
+
+.passage-chip {
+  text-decoration: none;
+}
+
 .chip-active {
   color: #071019;
   background: linear-gradient(135deg, var(--accent), var(--accent-2));

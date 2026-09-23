@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Head from "next/head";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import AppShell from "../components/AppShell";
 import { PlayIcon, SearchIcon } from "../components/icons";
 import { auth0 } from "../lib/auth0";
@@ -18,6 +19,7 @@ import { pageTitle } from "../lib/siteName";
 import { getSiteName } from "../lib/store";
 import { fetchVideoLibrary } from "../lib/videoList";
 import { videoMatchesQuery } from "../lib/notes";
+import { linkedQuery } from "../lib/search";
 import { withMonitorPage } from "../lib/monitor";
 
 const PER_PAGE = 10;
@@ -301,6 +303,18 @@ export default function Home({
   const [thumbnails, setThumbnails] = useState(initialThumbnails);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const router = useRouter();
+
+  // A link can open the library already searched — the watch page's passage
+  // links do (/?q=Philippians%202). Read once the router has the URL, and
+  // applied to both states so the results appear without waiting out the
+  // typing debounce.
+  const linked = router.isReady ? linkedQuery(router.query.q) : "";
+  useEffect(() => {
+    if (!linked) return;
+    setQuery(linked);
+    setDebouncedQuery(linked);
+  }, [linked]);
   const [collection, setCollection] = useState("");
   const [collections, setCollections] = useState([]);
   const [continueItems, setContinueItems] = useState([]);

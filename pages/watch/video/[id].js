@@ -25,6 +25,8 @@ import { getVideo, signEmbedUrl } from "../../../lib/bunny";
 import { getSchedule, isLive } from "../../../lib/schedule";
 import { getChapters, getNotes } from "../../../lib/videoMeta";
 import { notesLines } from "../../../lib/notes";
+import { passageSearchHref } from "../../../lib/search";
+import { compareReferences, formatReference, parseReferences } from "../../../lib/scripture";
 import { pageTitle } from "../../../lib/siteName";
 import { getSiteName } from "../../../lib/store";
 import { withMonitorPage } from "../../../lib/monitor";
@@ -172,6 +174,9 @@ export default function WatchVideo({
   vote,
   startAt,
 }) {
+  // Read from the title and notes the page already has — no request, and
+  // nothing a viewer could not already read on this page.
+  const passages = parseReferences(`${video.title || ""}\n${notes || ""}`).sort(compareReferences);
   return (
     <AppShell user={user} admin={admin} canNotify siteName={siteName}>
       <Head>
@@ -192,6 +197,25 @@ export default function WatchVideo({
         chapters={chapters}
         startAt={startAt}
       />
+      {passages.length ? (
+        <nav className="passages" aria-label="Passages in this video">
+          {/* Each passage opens the library searched for it, which finds
+              every video citing an overlapping passage however it was
+              written. The search runs over the viewer's own authorized
+              library, so a link can never show them something new. */}
+          <span className="passages-label">Passages</span>
+          <div className="chip-row">
+            {passages.map((ref) => {
+              const label = formatReference(ref);
+              return (
+                <Link key={label} href={passageSearchHref(label)} className="chip passage-chip">
+                  {label}
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+      ) : null}
       {notes ? (
         <section className="notes card">
           <h2 className="notes-title">Notes</h2>

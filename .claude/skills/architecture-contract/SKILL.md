@@ -752,6 +752,17 @@ at all, which its own comment states).
 **Verify with:** `npm test -- searchRoute` — the suite fails if the scope stops being
 passed down or the cap comes back.
 
+
+**Passage search rides the same predicate (2026-09-23).** `videoMatchesQuery`
+(`lib/notes.js`) also matches a query that IS a scripture reference against the
+references `lib/scripture.js` reads from a video's title and notes. Both halves call
+that one predicate — the browser over its loaded page, `/api/search` via
+`searchLibrary` over the scoped library — so they cannot disagree, and neither
+reaches a video the other could not. It only adds matches. `lib/scripture.js` is
+PURE and bundled into the homepage, so it must not use regex lookbehind: that is a
+SyntaxError at parse time in Safari before 16.4 and would take the whole library
+page down, not just this feature. Verify: `npm test -- scripture notes search`;
+`grep -n "(?<" lib/scripture.js` prints nothing.
 ---
 
 ### (w) A route that reveals or edits PEOPLE requires the people capability, whatever else it manages

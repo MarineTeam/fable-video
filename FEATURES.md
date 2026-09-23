@@ -138,6 +138,19 @@ setup and architecture, see [README.md](./README.md).
   of 143" — rather than letting the viewer conclude that is all there is. The
   server half is extra reach, not the search itself: if it fails, the instant
   local search still answers.
+- **Search by passage** — searching for a Bible passage finds every video whose
+  title or notes cite an **overlapping** passage, however it was written:
+  "Philippians 2" finds a talk noted as "Phil 1:27–2:11", and "Philippians"
+  finds "Php 4:13". Book names, common abbreviations, numbered books ("1 Cor",
+  "First John", "II Tim"), ranges across chapters and verse lists ("Romans
+  8:28, 31–39") are all read. It only ever **adds** matches — anything the plain
+  text search found is still found. On the watch page, the passages a video
+  cites appear as links that open the library searched for that passage.
+  Deliberately cautious about inventing references: a book name needs a
+  chapter number and a capital letter, the chapter must exist in that book
+  ("Mark 20" is not a passage), and two-letter abbreviations that are ordinary
+  words ("Is", "Am") are not read at all. An abbreviation typed on its own is
+  not treated as a book — "phil" is more likely a person than Philippians.
 - **Link to a moment** — a *Copy link at 24:15* button under the player copies
   the page address with the current position on it, and opening a link with
   `?t=` starts there. An explicit timestamp **beats the saved resume
@@ -548,10 +561,12 @@ setup and architecture, see [README.md](./README.md).
   that has not been made.
 - **Chapters are typed, or accepted** — there is no import from a description
   and no per-viewer chapter progress.
-- **Scripture references are plain text** — notes are not parsed into
-  structured references, so there is no "all sermons on Philippians" view.
-  Book abbreviations, ranges and translations make that much deeper than it
-  looks; it was deliberately left out of the core feature.
+- **Passages are found, not browsed** — a passage search finds every video
+  citing it, but there is no page listing the books a library covers, and
+  references are read from titles and notes only, not from what was said.
+  The 66-book Protestant canon only; translations are ignored ("John 3:16
+  (ESV)" is John 3:16), and verses are checked against a ceiling of 176
+  rather than each chapter's real length.
 - **Search is substring matching, not a search engine** — no stemming, no
   fuzzy matching, no relevance ranking: results come back in library order,
   and "baptism" does not find "baptise". It now reaches the **whole** library
