@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Head from "next/head";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import AppShell from "../components/AppShell";
 import { PlayIcon, SearchIcon } from "../components/icons";
 import { auth0 } from "../lib/auth0";
@@ -18,6 +19,7 @@ import { pageTitle } from "../lib/siteName";
 import { getSiteName } from "../lib/store";
 import { fetchVideoLibrary } from "../lib/videoList";
 import { videoMatchesQuery } from "../lib/notes";
+import { linkedQuery } from "../lib/search";
 import { withMonitorPage } from "../lib/monitor";
 
 const PER_PAGE = 10;
@@ -79,7 +81,7 @@ async function gssp({ req, resolvedUrl }) {
   let initialThumbnails = false;
   if (approved) {
     try {
-      const data = await fetchVideoLibrary(access.videoScope);
+      const data = await fetchVideoLibrary(access.videoScope, { groupIds: access.groupIds });
       initialVideos = data.videos;
       initialThumbnails = data.thumbnails;
     } catch {
@@ -198,6 +200,16 @@ function NotApproved({ user, requestStatus }) {
               {busy ? "Sending…" : "Request access"}
             </button>
             {error ? <div className="notice notice-error">{error}</div> : null}
+
+      {/* Told, not silently dropped: a search that matched more than one page
+          of results should say so rather than letting the viewer conclude the
+          library holds only what is shown. */}
+      {remote?.truncated ? (
+        <div className="muted small">
+          Showing the first {remote.videos.length} of {remote.total} matches — narrow the
+          search to see the rest.
+        </div>
+      ) : null}
           </form>
         )}
 
@@ -291,6 +303,18 @@ export default function Home({
   const [thumbnails, setThumbnails] = useState(initialThumbnails);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const router = useRouter();
+
+  // A link can open the library already searched — the watch page's passage
+  // links do (/?q=Philippians%202). Read once the router has the URL, and
+  // applied to both states so the results appear without waiting out the
+  // typing debounce.
+  const linked = router.isReady ? linkedQuery(router.query.q) : "";
+  useEffect(() => {
+    if (!linked) return;
+    setQuery(linked);
+    setDebouncedQuery(linked);
+  }, [linked]);
   const [collection, setCollection] = useState("");
   const [collections, setCollections] = useState([]);
   const [continueItems, setContinueItems] = useState([]);
@@ -348,23 +372,48 @@ export default function Home({
   // cannot be, because they are tens of kilobytes each and would put megabytes
   // into every page load to serve a search most visits never run. So this one
   // dimension asks the server, and only for ids.
-  const [spokenIds, setSpokenIds] = useState(null);
+  // What the SERVER found: the whole authorized library, not just the page
+  // this browser is holding. Local matching still runs first and unchanged, so
+  // results for the loaded page appear the instant a key is pressed and these
+  // fill in behind them — the search never feels like it is waiting on a
+  // network round trip, which was the reason it was client-side to begin with.
+  const [remote, setRemote] = useState(null);
+
+  // "Browse by book": the books this viewer's library cites. Fetched once;
+  // an empty or failed answer simply hides the row — it is a way in to
+  // search, not something the page depends on.
+  const [books, setBooks] = useState([]);
+  useEffect(() => {
+    if (!approved) return;
+    fetch("/api/passages")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setBooks(data?.books || []))
+      .catch(() => {});
+  }, [approved]);
+
+  // A book is searched by its name, which the passage search reads as the
+  // whole book — so the result is exactly the videos counted here.
+  const browseBook = (book) => {
+    setQuery(book);
+    setDebouncedQuery(book);
+  };
 
   useEffect(() => {
     if (!debouncedQuery) {
-      setSpokenIds(null);
+      setRemote(null);
       return undefined;
     }
     let cancelled = false;
-    fetch(`/api/transcript-search?q=${encodeURIComponent(debouncedQuery)}`)
-      .then((res) => (res.ok ? res.json() : { ids: [] }))
+    fetch(`/api/search?q=${encodeURIComponent(debouncedQuery)}`)
+      .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (!cancelled) setSpokenIds(new Set(data?.ids || []));
+        if (!cancelled) setRemote(data || null);
       })
-      // Transcript matches are extra results, not the search itself — a
-      // failure quietly leaves the title/notes search working.
+      // The server half is EXTRA reach, not the search itself. A failure
+      // quietly leaves the instant local search working rather than emptying
+      // a result list the viewer can see is wrong.
       .catch(() => {
-        if (!cancelled) setSpokenIds(null);
+        if (!cancelled) setRemote(null);
       });
     return () => {
       cancelled = true;
@@ -375,20 +424,30 @@ export default function Home({
 
   const filtered = useMemo(() => {
     if (loading) return [];
-    return allVideos.filter((video) => {
-      // Matches titles AND sermon notes. This narrows an already-authorized
-      // list — the server decided what is in it (group scope, schedule) — so
-      // searching can never surface a video the viewer may not see.
-      // A video qualifies on its title/notes OR on its transcript. The
-      // transcript half is still a narrowing of THIS list: spokenIds can only
-      // ever match something allVideos already contains, so the guarantee
-      // above survives even if the server answered wrongly.
-      const spoken = spokenIds?.has(video.id) || false;
-      if (!spoken && !videoMatchesQuery(video, debouncedQuery)) return false;
-      if (collection && video.collectionId !== collection) return false;
-      return true;
-    });
-  }, [allVideos, debouncedQuery, collection, loading, spokenIds]);
+
+    // The loaded page, matched locally on title and notes exactly as before.
+    // This is a narrowing of an already-authorized list — the server decided
+    // what is in it (group scope, schedule) — so it can never surface a video
+    // the viewer may not see.
+    const local = allVideos.filter((video) => videoMatchesQuery(video, debouncedQuery));
+
+    // Everything else the server found, which is the point of this feature:
+    // a video past the homepage cap used to be unfindable. Its scope and
+    // schedule filtering is load-bearing (see pages/api/search.js) — unlike
+    // the local half, these are videos this browser did not already hold.
+    const seen = new Set(local.map((video) => video.id));
+    const extra = (remote?.videos || []).filter((video) => !seen.has(video.id));
+
+    // Library order across both halves rather than "local first": the admin
+    // arranged the library deliberately, and a result list that puts the
+    // loaded page first would reshuffle it for reasons the viewer cannot see.
+    const order = new Map(allVideos.map((video, index) => [video.id, index]));
+    const merged = [...local, ...extra].sort(
+      (a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity)
+    );
+
+    return collection ? merged.filter((video) => video.collectionId === collection) : merged;
+  }, [allVideos, debouncedQuery, collection, loading, remote]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
   const safePage = Math.min(page, totalPages);
@@ -431,6 +490,24 @@ export default function Home({
           />
         </div>
       </div>
+
+      {books.length > 0 ? (
+        <details className="book-browse">
+          <summary>Browse by book</summary>
+          <div className="chip-row">
+            {books.map(({ book, count }) => (
+              <button
+                key={book}
+                type="button"
+                className={`chip ${query === book ? "chip-active" : ""}`}
+                onClick={() => browseBook(book)}
+              >
+                {book} <span className="book-count">{count}</span>
+              </button>
+            ))}
+          </div>
+        </details>
+      ) : null}
 
       {collections.length > 0 ? (
         <div className="chip-row">

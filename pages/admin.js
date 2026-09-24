@@ -129,7 +129,28 @@ function ScheduleBadge({ video }) {
       </span>
     );
   }
+  if (video.schedule?.repeat) {
+    const r = video.schedule.repeat;
+    const title = `${r.days.map((d) => WEEKDAY_NAMES[d]).join(", ")} ${r.start}–${r.end} (${r.timeZone})`;
+    return (
+      <span className="badge" title={title}>
+        {video.scheduleState === "off-slot" ? "Weekly · off now" : "Weekly · on now"}
+      </span>
+    );
+  }
   return null;
+}
+
+const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// The admin's own time zone, as the default for a new weekly rule — "9am
+// Sunday" is typed by someone who means their own 9am.
+function browserTimeZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
 }
 
 // datetime-local wants "YYYY-MM-DDTHH:mm" in LOCAL time; the API stores UTC
@@ -561,15 +582,45 @@ function PublicLinkEditor({ video, onClose, onSaved }) {
   );
 }
 
-function ScheduleEditor({ video, onClose, onSaved }) {
+function ScheduleEditor({ video, groups = [], onClose, onSaved }) {
   const [publishAt, setPublishAt] = useState(toLocalInput(video.schedule?.publishAt));
   const [expiresAt, setExpiresAt] = useState(toLocalInput(video.schedule?.expiresAt));
+  // Per-group windows: "also visible to this group during this window".
+  const [groupRows, setGroupRows] = useState(() =>
+    Object.entries(video.schedule?.groups || {}).map(([groupId, w]) => ({
+      groupId,
+      publishAt: toLocalInput(w?.publishAt),
+      expiresAt: toLocalInput(w?.expiresAt),
+    }))
+  );
+  // Weekly repeat on the default window: visible only inside these slots.
+  const existingRepeat = video.schedule?.repeat || null;
+  const [repeatOn, setRepeatOn] = useState(Boolean(existingRepeat));
+  const [repeatDays, setRepeatDays] = useState(existingRepeat?.days || [0]);
+  const [repeatStart, setRepeatStart] = useState(existingRepeat?.start || "09:00");
+  const [repeatEnd, setRepeatEnd] = useState(existingRepeat?.end || "13:00");
+  const [repeatZone] = useState(existingRepeat?.timeZone || browserTimeZone());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  const toggleDay = (d) =>
+    setRepeatDays((days) => (days.includes(d) ? days.filter((x) => x !== d) : [...days, d].sort()));
+
+  const patchRow = (index, patch) =>
+    setGroupRows((rows) => rows.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  const unusedGroups = groups.filter((g) => !groupRows.some((r) => r.groupId === g.id));
 
   const save = async (clear) => {
     setBusy(true);
     setError("");
+    const groupWindows = {};
+    for (const row of groupRows) {
+      if (!row.groupId || (!row.publishAt && !row.expiresAt)) continue;
+      groupWindows[row.groupId] = {
+        publishAt: fromLocalInput(row.publishAt),
+        expiresAt: fromLocalInput(row.expiresAt),
+      };
+    }
     try {
       await api("/api/admin/videos", {
         method: "POST",
@@ -578,6 +629,11 @@ function ScheduleEditor({ video, onClose, onSaved }) {
           id: video.id,
           publishAt: clear ? null : fromLocalInput(publishAt),
           expiresAt: clear ? null : fromLocalInput(expiresAt),
+          groups: clear ? null : groupWindows,
+          repeat:
+            clear || !repeatOn
+              ? null
+              : { days: repeatDays, start: repeatStart, end: repeatEnd, timeZone: repeatZone },
         },
       });
       onSaved();
@@ -625,6 +681,110 @@ function ScheduleEditor({ video, onClose, onSaved }) {
             onChange={(e) => setExpiresAt(e.target.value)}
           />
         </label>
+        <div className="stack-sm schedule-repeat">
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={repeatOn}
+              onChange={(e) => setRepeatOn(e.target.checked)}
+            />
+            <span>Only at set times each week</span>
+          </label>
+          {repeatOn ? (
+            <>
+              <div className="schedule-days" role="group" aria-label="Days">
+                {WEEKDAY_NAMES.map((name, d) => (
+                  <label key={name} className="schedule-day">
+                    <input type="checkbox" checked={repeatDays.includes(d)} onChange={() => toggleDay(d)} />
+                    {name}
+                  </label>
+                ))}
+              </div>
+              <div className="schedule-repeat-times">
+                <input
+                  type="time"
+                  className="input input-sm"
+                  value={repeatStart}
+                  onChange={(e) => setRepeatStart(e.target.value)}
+                  aria-label="From"
+                />
+                <span className="muted small">to</span>
+                <input
+                  type="time"
+                  className="input input-sm"
+                  value={repeatEnd}
+                  onChange={(e) => setRepeatEnd(e.target.value)}
+                  aria-label="Until"
+                />
+                <span className="muted small">{repeatZone}</span>
+              </div>
+              <span className="muted small">
+                Visible to viewers only during these hours, within the dates above. An end
+                time before the start runs past midnight. Group windows below are not
+                limited by this.
+              </span>
+            </>
+          ) : null}
+        </div>
+        {groups.length > 0 ? (
+          <div className="stack-sm schedule-groups">
+            <span className="muted small">
+              Earlier or longer for a group — members of these groups can also watch
+              during their own window. This only ever adds time; it never hides the
+              video from a group (use a group restriction for that).
+            </span>
+            {groupRows.map((row, index) => (
+              <div key={row.groupId || `new-${index}`} className="schedule-group-row">
+                <select
+                  className="input input-sm"
+                  value={row.groupId}
+                  onChange={(e) => patchRow(index, { groupId: e.target.value })}
+                  aria-label="Group"
+                >
+                  <option value="">Choose a group…</option>
+                  {groups
+                    .filter((g) => g.id === row.groupId || !groupRows.some((r) => r.groupId === g.id))
+                    .map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                </select>
+                <input
+                  type="datetime-local"
+                  className="input input-sm"
+                  value={row.publishAt}
+                  onChange={(e) => patchRow(index, { publishAt: e.target.value })}
+                  aria-label="Group publish at"
+                />
+                <input
+                  type="datetime-local"
+                  className="input input-sm"
+                  value={row.expiresAt}
+                  onChange={(e) => patchRow(index, { expiresAt: e.target.value })}
+                  aria-label="Group expires at"
+                />
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label="Remove group window"
+                  onClick={() => setGroupRows((rows) => rows.filter((_, i) => i !== index))}
+                >
+                  <XIcon size={13} />
+                </button>
+              </div>
+            ))}
+            {unusedGroups.length > 0 ? (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setGroupRows((rows) => [...rows, { groupId: "", publishAt: "", expiresAt: "" }])}
+              >
+                Add a group window
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {error ? <div className="notice notice-error">{error}</div> : null}
         <div className="row-actions">
           <button
@@ -638,7 +798,7 @@ function ScheduleEditor({ video, onClose, onSaved }) {
           <button
             type="button"
             className="btn btn-ghost"
-            disabled={busy || (!publishAt && !expiresAt)}
+            disabled={busy || (!publishAt && !expiresAt && !existingRepeat && groupRows.length === 0)}
             onClick={() => save(true)}
           >
             Always available
@@ -1466,7 +1626,7 @@ function PrivateListManager({ video, viewers, emailConfigured, onClose, onChange
 /* Videos tab                                                          */
 /* ------------------------------------------------------------------ */
 
-function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
+function VideosTab({ emailConfigured, onSharesChanged, canPublish, canGrantGroups }) {
   const [videos, setVideos] = useState(null);
   const [thumbs, setThumbs] = useState(false);
   const [collections, setCollections] = useState([]);
@@ -1487,6 +1647,16 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkReport, setBulkReport] = useState(null);
   const [bulkCollection, setBulkCollection] = useState("");
+  // The upload card's "also visible to" groups. Applies to every file dropped
+  // while ticked; starts empty on every visit, deliberately — see
+  // lib/uploadGrants.js on why there is no remembered default.
+  const [grantGroups, setGrantGroups] = useState([]);
+  // Group names for the schedule editor's per-group windows (from the admin
+  // videos list, names only).
+  const [groupNames, setGroupNames] = useState([]);
+  const [uploadGroups, setUploadGroups] = useState([]);
+  const [recounting, setRecounting] = useState(false);
+  const [recountNote, setRecountNote] = useState("");
   const [shareStats, setShareStats] = useState(null);
   const [statsFor, setStatsFor] = useState(null);
   const dragIndex = useRef(null);
@@ -1498,6 +1668,16 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
     videosRef.current = videos || [];
   }, [videos]);
 
+  // Group names for the upload card's picker. Only fetched for someone who
+  // may grant groups — /api/admin/groups refuses anyone else, and the upload
+  // route refuses their groupIds independently.
+  useEffect(() => {
+    if (!canGrantGroups) return;
+    api("/api/admin/groups")
+      .then((data) => setGrantGroups(data.groups || []))
+      .catch(() => setGrantGroups([]));
+  }, [canGrantGroups]);
+
   const load = useCallback(async () => {
     try {
       const [v, c, viewersData] = await Promise.all([
@@ -1508,6 +1688,7 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
         api("/api/admin/viewers?scope=recipients"),
       ]);
       setVideos(v.videos);
+      setGroupNames(v.groups || []);
       setThumbs(v.thumbnails);
       setCollections(c.collections);
       setViewers(viewersData.viewers);
@@ -1515,6 +1696,26 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
       setError(err.message);
     }
   }, []);
+
+  // Rebuilds the thumbs-up/down totals from the votes themselves. New votes
+  // cannot drift any more (one Redis script writes a vote and its counters),
+  // so this is for totals written before that — see
+  // pages/api/admin/rating-recount.js.
+  const recountRatings = async () => {
+    setRecounting(true);
+    setError("");
+    setRecountNote("");
+    try {
+      const data = await api("/api/admin/rating-recount", { method: "POST" });
+      setRecountNote(
+        `Recounted ${data.votes} vote${data.votes === 1 ? "" : "s"} from ${data.viewers} viewer${data.viewers === 1 ? "" : "s"}.`
+      );
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+    setRecounting(false);
+  };
 
   useEffect(() => {
     load();
@@ -1564,8 +1765,18 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
       try {
         const created = await api("/api/admin/upload", {
           method: "POST",
-          body: { title },
+          // groupIds only when something is ticked, so an ordinary upload is
+          // the exact request it always was.
+          body: uploadGroups.length ? { title, groupIds: uploadGroups } : { title },
         });
+        const failedGroups = created.groups?.failed || [];
+        if (failedGroups.length) {
+          patchUpload(key, {
+            warning: `Not added to ${failedGroups
+              .map((id) => grantGroups.find((g) => g.id === id)?.name || id)
+              .join(", ")} — add it on the Groups tab.`,
+          });
+        }
         const { Upload } = await import("tus-js-client");
         const upload = new Upload(file, {
           endpoint: created.tus.endpoint,
@@ -1599,7 +1810,7 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
         patchUpload(key, { state: "error", error: err.message });
       }
     },
-    [load]
+    [load, uploadGroups, grantGroups]
   );
 
   const cancelUpload = (entry) => {
@@ -1864,6 +2075,28 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
           </button>
           . Files upload straight from your browser to bunny.net (resumable).
         </p>
+        {grantGroups.length > 0 ? (
+          <fieldset className="upload-groups">
+            <legend className="muted small">
+              Also visible to groups (optional — applies to files dropped while ticked)
+            </legend>
+            {grantGroups.map((g) => (
+              <label key={g.id} className="upload-group">
+                <input
+                  type="checkbox"
+                  checked={uploadGroups.includes(g.id)}
+                  onChange={(e) =>
+                    setUploadGroups((prev) =>
+                      e.target.checked ? [...prev, g.id] : prev.filter((id) => id !== g.id)
+                    )
+                  }
+                />
+                {g.name}
+                {g.restricted ? null : <span className="muted small"> (sees everything)</span>}
+              </label>
+            ))}
+          </fieldset>
+        ) : null}
         <input
           ref={fileInput}
           type="file"
@@ -1879,7 +2112,10 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
           <div className="upload-list">
             {uploads.map((u) => (
               <div key={u.key} className="upload-row">
-                <span className="upload-name">{u.title}</span>
+                <span className="upload-name">
+                  {u.title}
+                  {u.warning ? <span className="upload-warning small"> {u.warning}</span> : null}
+                </span>
                 {u.state === "uploading" || u.state === "creating" ? (
                   <>
                     <div className="progress-track upload-progress">
@@ -1932,7 +2168,19 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+          {canPublish ? (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={recounting}
+              onClick={recountRatings}
+              title="Rebuild the thumbs-up/down totals from the votes themselves"
+            >
+              {recounting ? "Recounting…" : "Recount ratings"}
+            </button>
+          ) : null}
         </div>
+        {recountNote ? <div className="notice notice-ok">{recountNote}</div> : null}
         {selected.size > 0 ? (
           <div className="bulk-toolbar">
             <span className="muted small">{selected.size} selected</span>
@@ -2294,6 +2542,7 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish }) {
       {scheduleFor ? (
         <ScheduleEditor
           video={scheduleFor}
+          groups={groupNames}
           onClose={() => setScheduleFor(null)}
           onSaved={load}
         />
@@ -3704,6 +3953,120 @@ function SharesTab({ emailConfigured, onCount }) {
 }
 
 /* ------------------------------------------------------------------ */
+/* App icon (Settings tab)                                             */
+/* ------------------------------------------------------------------ */
+
+// Draws the chosen image, centre-cropped to a square, at one size, and returns
+// the PNG as base64. The resize happens HERE, in the browser, so the server
+// needs no image library — and it re-checks every result anyway
+// (lib/appIcon.js), so nothing about this function is trusted.
+function renderIconPng(image, size) {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  const side = Math.min(image.naturalWidth, image.naturalHeight);
+  const sx = (image.naturalWidth - side) / 2;
+  const sy = (image.naturalHeight - side) / 2;
+  ctx.drawImage(image, sx, sy, side, side, 0, 0, size, size);
+  return canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
+}
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("That file could not be read as an image"));
+    };
+    image.src = url;
+  });
+}
+
+function AppIconCard() {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  // Changes after a save or reset, so the preview is refetched rather than
+  // served from the browser's cache.
+  const [bust, setBust] = useState(0);
+
+  const choose = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setError("");
+    setNote("");
+    setBusy(true);
+    try {
+      const image = await loadImage(file);
+      if (Math.min(image.naturalWidth, image.naturalHeight) < 512) {
+        throw new Error("Choose an image at least 512 pixels on its shorter side");
+      }
+      const icons = {};
+      for (const size of [180, 192, 512]) icons[size] = renderIconPng(image, size);
+      await api("/api/admin/app-icon", { method: "PUT", body: { icons } });
+      setNote("Saved. New installs use it now; installed apps pick it up when the browser next checks.");
+      setBust(Date.now());
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
+  };
+
+  const reset = async () => {
+    setError("");
+    setNote("");
+    setBusy(true);
+    try {
+      await api("/api/admin/app-icon", { method: "DELETE" });
+      setNote("Back to the built-in icon.");
+      setBust(Date.now());
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <section className="card">
+      <h3>App icon</h3>
+      <p className="muted small">
+        The picture on a phone&apos;s home screen when the portal is installed, and the podcast
+        cover. Any image works — it is cropped to a square from the centre. A plain,
+        bold image reads best at small sizes. PNG output only.
+      </p>
+      <div className="inline-form">
+        {/* eslint-disable-next-line @next/next/no-img-element -- a same-origin preview of a generated icon; next/image would add nothing here */}
+        <img
+          src={`/api/app-icon/192?preview=${bust}`}
+          alt="Current app icon"
+          width={48}
+          height={48}
+          className="app-icon-preview"
+        />
+        <label className="btn btn-primary btn-sm" aria-disabled={busy}>
+          {busy ? "Working…" : "Choose image"}
+          <input type="file" accept="image/*" hidden disabled={busy} onChange={choose} />
+        </label>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={reset}>
+          Reset to default
+        </button>
+        {note ? <span className="muted small">{note}</span> : null}
+      </div>
+      {error ? <div className="notice notice-error">{error}</div> : null}
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Settings tab                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -3944,6 +4307,8 @@ function SettingsTab({ config, onConfig }) {
           ) : null}
         </form>
       </section>
+
+      <AppIconCard />
 
       <section className="card">
         <h3>Homepage video count</h3>
@@ -4298,6 +4663,7 @@ function GroupsTab() {
   // record (see pages/api/admin/groups.js). The server decides; this only
   // hides an editor that would 403 anyway.
   const [canEditMembers, setCanEditMembers] = useState(false);
+  const [collections, setCollections] = useState([]);
   const [membersFor, setMembersFor] = useState(null); // group id
   const [memberDraft, setMemberDraft] = useState("");
   const [memberNote, setMemberNote] = useState("");
@@ -4318,6 +4684,9 @@ function GroupsTab() {
     api("/api/admin/videos")
       .then((data) => setVideos(data.videos || []))
       .catch(() => {});
+    api("/api/admin/collections")
+      .then((data) => setCollections(data.collections || []))
+      .catch(() => {});
   }, [load]);
 
   const startEdit = (group) => {
@@ -4325,6 +4694,7 @@ function GroupsTab() {
     setDraft({
       restricted: group.restricted,
       videoIds: [...(group.videoIds || [])],
+      collectionIds: [...(group.collectionIds || [])],
     });
     setSearch("");
     setError("");
@@ -4370,6 +4740,15 @@ function GroupsTab() {
     setBusy(false);
   };
 
+  const toggleCollection = (id) => {
+    setDraft((d) => ({
+      ...d,
+      collectionIds: d.collectionIds.includes(id)
+        ? d.collectionIds.filter((c) => c !== id)
+        : [...d.collectionIds, id],
+    }));
+  };
+
   const toggleVideo = (id) => {
     setDraft((d) => ({
       ...d,
@@ -4389,6 +4768,7 @@ function GroupsTab() {
           name,
           restricted: draft.restricted,
           videoIds: draft.videoIds,
+          collectionIds: draft.collectionIds,
         },
       });
       setEditing(null);
@@ -4518,10 +4898,18 @@ function GroupsTab() {
                     {group.restricted
                       ? `restricted to ${group.videoIds.length} video${
                           group.videoIds.length === 1 ? "" : "s"
+                        }${
+                          group.collectionIds?.length
+                            ? ` and ${group.collectionIds.length} collection${
+                                group.collectionIds.length === 1 ? "" : "s"
+                              }`
+                            : ""
                         }`
                       : "unrestricted (label only)"}
                   </span>
-                  {group.restricted && group.videoIds.length === 0 ? (
+                  {group.restricted &&
+                  group.videoIds.length === 0 &&
+                  (group.collectionIds?.length || 0) === 0 ? (
                     <span className="notice notice-error">
                       Restricted with an empty allowlist — members of this group
                       currently see nothing.
@@ -4633,6 +5021,39 @@ function GroupsTab() {
 
                     {draft.restricted ? (
                       <>
+                        {/* Collections first: granting one is the cheaper
+                            answer, because it FOLLOWS — a video uploaded into
+                            it later is visible without anyone editing this
+                            group. Ticking videos is the exception for a
+                            one-off, not the default. */}
+                        {collections.length ? (
+                          <>
+                            <span className="muted small">
+                              Collections — everything in a ticked collection is
+                              granted, including videos added to it later.
+                            </span>
+                            <div className="scroll-list">
+                              {collections.map((c) => (
+                                <label key={c.id} className="check-row">
+                                  <input
+                                    type="checkbox"
+                                    checked={draft.collectionIds.includes(c.id)}
+                                    onChange={() => toggleCollection(c.id)}
+                                  />
+                                  <span>{c.name}</span>
+                                </label>
+                              ))}
+                            </div>
+                            <span className="muted small">
+                              {draft.collectionIds.length} collection
+                              {draft.collectionIds.length === 1 ? "" : "s"} selected
+                            </span>
+                          </>
+                        ) : null}
+
+                        <span className="muted small">
+                          Individual videos — added on top of any collections above.
+                        </span>
                         <input
                           className="input input-sm"
                           placeholder="Search videos…"
@@ -5057,6 +5478,7 @@ export default function Admin({ user, owner, capabilities, siteName }) {
           // behind it enforces CAP.SETTINGS_MANAGE independently — hiding the
           // control is a convenience, never the boundary.
           canPublish={can(CAP.SETTINGS_MANAGE)}
+          canGrantGroups={can(CAP.GROUPS_MANAGE)}
         />
       ) : null}
       {tab === "viewers" ? (

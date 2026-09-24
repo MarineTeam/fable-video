@@ -101,11 +101,26 @@ setup and architecture, see [README.md](./README.md).
   on the admin Videos tab, and never to viewers. In a library watched by a few
   dozen people a visible "2 down" on someone's teaching is a social problem
   the product does not need, and at that size a public counter is close to
-  attributable anyway. The vote is stored under the viewer's own key, so
-  removing a viewer removes their votes with them; the totals are plain
-  integers holding no address at all. Rating obeys group access the same way
-  saving does, and answers 404 rather than 403 for a video out of scope, so it
+  attributable anyway. The vote is stored under the viewer's own key; the
+  totals are plain integers holding no address at all, and **the vote and its
+  total are written together in one Redis step**, so they cannot disagree. A
+  **Recount ratings** button on the admin Videos tab rebuilds every total from
+  the votes, for totals written before that was true. Rating obeys group access and the
+  publish window the same way saving does, and answers 404 rather than 403 for a video out of scope, so it
   cannot be used to find out which ids exist.
+- **Comments** — a discussion under each video on the watch page. Anyone who
+  can watch the video can read its comments and add one (up to 1,000
+  characters); a comment appears at once. **Other viewers see the author's
+  account name, never their email** — the profile name, or the part of the
+  email before the @ when the profile has none or the name is itself an email
+  address. An author can delete their own comment at any time; anyone holding
+  the **Remove any viewer's comment** capability (Roles tab) can remove anyone's,
+  from the same place, and that removal is in the Activity log. Staff who can
+  read the viewer list also see each author's email beside their name, so an
+  abusive comment can be traced to an account. Comments obey group access and
+  the publish window exactly as watching does, are rate limited per person
+  (30 an hour), are capped at 500 per video, and are removed with the video.
+  Shown as plain text: nothing typed becomes markup or a link.
 - **Transcript** — the spoken text of a recording, under the player, collapsed
   by default. Every line carries the timestamp it was said at and clicking one
   seeks there, like a chapter but at the resolution of a sentence. A search box
@@ -113,8 +128,70 @@ setup and architecture, see [README.md](./README.md).
   search above matches videos by **what was said in them**, not just their
   title and notes — so a half-remembered phrase finds the sermon that contains
   it. Transcription is bunny.net's, produced from the audio; a video that has
-  not been transcribed shows no panel at all. Degrades the way chapters do: no
+  not been transcribed shows no panel at all. **Every language bunny produced
+  is kept**, with a picker in the panel when there is more than one —
+  translation is billed per language, so ingesting only one would mean paying
+  for tracks nobody could read. **Search reads every language too**: a
+  viewer searching in Spanish finds the sermon whose Spanish translation says
+  it. Translations are searched inside Redis, which hands back only the
+  matching video ids, so a library of many-language sermons does not make
+  every search load every translation. A language the video does not have is reported
+  rather than quietly answered with another, because a viewer who picks
+  Spanish and reads English concludes the translation is wrong rather than
+  absent. **One click, not two**:
+  transcription is asynchronous, so queueing records the video, and both the
+  admin Videos tab and a **scheduled job** collect whatever bunny has finished
+  since — so a transcript no longer waits for an admin to come back — and the
+  *Fetch captions* button still works for anyone who wants it now. The job is
+  inert until `CRON_SECRET` is set (see Configuration); it runs daily, which
+  every Vercel plan allows, and can run every 15 minutes on Pro. Before this, forgetting the second click left a video that had really
+  been transcribed and paid for, with no transcript and nothing saying why. Degrades the way chapters do: no
   player protocol means plain text instead of buttons that would do nothing.
+- **Search reaches the whole library** — typing in the search box matches the
+  loaded page instantly in the browser, as it always has, and the server
+  searches **everything else the viewer is allowed to see** at the same time,
+  merging the two in library order. Before this, a video past the admin's
+  homepage count could not be found by searching for it: the library had it,
+  the search could not reach it. Matches on title, notes and what was said.
+  Results are capped at 60 and the cap is **reported** — "showing the first 60
+  of 143" — rather than letting the viewer conclude that is all there is. The
+  server half is extra reach, not the search itself: if it fails, the instant
+  local search still answers.
+- **Search finds other forms of a word** — "baptism" finds "baptised",
+  "baptized" and "baptizing"; "forgiving" finds "forgiveness"; "praying" finds
+  "prayed". Every word of a multi-word search must appear somewhere in the
+  title or notes, in any order. It only ever **adds** matches — the plain text
+  search is untouched — and it is deliberately cautious: common word endings
+  that are also ordinary letters ("-er", "-en") are left alone, so "Peter" never
+  finds "pet", and words match whole, never inside a longer word. A search that
+  is a Bible passage is answered by the passage alone, so "Philippians 2" never
+  widens to the whole book.
+- **Search by passage** — searching for a Bible passage finds every video whose
+  title or notes cite an **overlapping** passage, however it was written:
+  "Philippians 2" finds a talk noted as "Phil 1:27–2:11", and "Philippians"
+  finds "Php 4:13". Book names, common abbreviations, numbered books ("1 Cor",
+  "First John", "II Tim"), ranges across chapters and verse lists ("Romans
+  8:28, 31–39") are all read. It only ever **adds** matches — anything the plain
+  text search found is still found. On the watch page, the passages a video
+  cites appear as links that open the library searched for that passage.
+  **Browse by book** on the homepage (collapsed by default) lists every book
+  the viewer's library cites, with how many videos cite it, in Bible order;
+  clicking one searches that book. The list is built over the same scoped
+  library as search — a count is itself information, so a video a viewer may
+  not see never adds to one.
+  Deliberately cautious about inventing references: a book name needs a
+  chapter number and a capital letter, the chapter must exist in that book
+  ("Mark 20" is not a passage), and two-letter abbreviations that are ordinary
+  words ("Is", "Am") are not read at all. An abbreviation typed on its own is
+  not treated as a book — "phil" is more likely a person than Philippians.
+- **Link to a moment** — a *Copy link at 24:15* button under the player copies
+  the page address with the current position on it, and opening a link with
+  `?t=` starts there. An explicit timestamp **beats the saved resume
+  position**: the viewer followed a link to a point, and sending them to where
+  they last stopped instead would quietly ignore what they clicked. A value
+  that is not a timestamp is ignored rather than treated as 0:00, so a mangled
+  link leaves resume alone instead of dropping them at the start. Reads plain
+  seconds, `1:30`, `1:02:03` and `1h2m3s`, because people hand-edit these.
 - **Continue-watching** — the homepage shows a strip of in-progress videos with
   progress bars, newest first. Finished and barely-started videos are excluded.
 - **My activity** — a full watch-history page (`/activity`, linked from the
@@ -135,11 +212,23 @@ setup and architecture, see [README.md](./README.md).
   button replaces the address if it is ever shared by mistake.
 - Episodes are **video MP4s**, not audio: bunny.net has no audio-only format.
   They play in podcast apps but download far more data than audio would.
+- **Each episode shows its own thumbnail** as artwork in the podcast app,
+  rather than the site icon on every episode. The app is given a stable
+  address on this portal, re-checked like the episode itself on every fetch,
+  so artwork disappears with access and no expiring bunny.net link ends up in
+  the app's cache.
 - Off until an admin enables it, and every denial looks identical from
   outside — a wrong or retired address is indistinguishable from one
   belonging to someone who is no longer approved.
 
 ### Notifications & installable app
+- **Change the app icon from the admin page** _(admin, Settings)_ — choose any
+  image and it becomes the home-screen icon for new installs, the iOS icon and
+  the podcast cover, with no redeploy. It is cropped to a square from the
+  centre and resized in the browser; the server re-checks every size is a PNG
+  of exactly that size before storing it — never an SVG, which could carry
+  script. **Reset to default** brings the built-in icon back. Already-installed
+  apps pick it up when their browser next re-checks the manifest.
 - **Push notifications** — approved viewers can opt in with a "Notify me" button
   and get a Web Push notification when a **new video becomes ready** (announced
   once per video, first run seeded silently). Sends only ever reach
@@ -386,14 +475,50 @@ setup and architecture, see [README.md](./README.md).
   Viewers tab, filter the viewer list by tag, and pull a whole tag's emails
   into the bulk-share or Private list recipient box with one click instead
   of pasting each address by hand.
+- **Per-group publish windows** _(admin, Schedule on a video)_ — besides the
+  video's own publish/expiry window, give a group its **own** window: the
+  youth leaders see Sunday's talk from Wednesday, or a class keeps a video a
+  month after it expires for everyone else. Group windows only ever **add**
+  time — a member sees the video during their group's window OR the default
+  one — so they cannot be used to hide a video from a group (group
+  restrictions do that), and a group that could not see the video at all
+  still cannot. They apply everywhere the default window does: the library,
+  search, the watch page, transcripts, continue-watching and the podcast feed.
+  Deleting a group removes its windows, so a new group with the same name
+  starts with none.
+- **Repeating windows** _(admin, Schedule on a video → "Only at set times each
+  week")_ — pick days and a time range ("Sundays 09:00–13:00", or Wednesday and
+  Sunday evenings) and viewers see the video only inside those slots, still
+  within its publish/expiry dates. Times are read in the time zone the rule was
+  saved in (shown beside the times), so summer time does not shift the slot. An
+  end before the start runs past midnight. It applies everywhere the publish
+  window does, including the public page and the podcast feed; staff still see
+  the video at all times, and the library badge says "Weekly · on now" or
+  "Weekly · off now". Group windows are not limited by it, so leaders can still
+  preview outside the slot. It stops new visits; a player already open keeps
+  going until its signed link runs out.
 - **Group content restrictions** — a group can optionally be **restricted** to
-  an explicit list of videos (Groups tab), so its members see only those in
+  an explicit list of videos **and/or whole collections** (Groups tab), so its
+  members see only those in
   the library, in search, in continue-watching, and on the watch page itself.
   A tag with no group record, or an unrestricted group, stays a plain label
   that grants and restricts nothing — so every tag that existed before this
   shipped behaves exactly as it did. Belonging to several groups means the
   union of the restricted ones; an unrestricted group never widens a
-  restricted one. Managers and admins are never group-scoped. Enforcement is
+  restricted one, and its collections are ignored for the same reason its
+  videos are. **A collection grant auto-follows**: a video uploaded into a
+  granted collection is visible to that group on the next request with nobody
+  editing anything, which is the answer to ticking every new upload by hand.
+  Deleting a collection prunes it from every group that granted it, so a grant
+  never names something that no longer exists. **A single upload can be granted
+  as it is created**: the upload card lists the groups (for someone holding
+  `groups.manage` — uploading alone does not let you grant access), and files
+  dropped while groups are ticked are added to them. Nothing is ticked by
+  default and there is no stored default group, deliberately. A group that no
+  longer exists, or already grants its 500-video maximum, is refused before the
+  video is created; a grant that fails afterwards is named on the upload row
+  rather than failing the upload. Cancelling an upload clears it from any group
+  it was granted to. Managers and admins are never group-scoped. Enforcement is
   server-side throughout: an out-of-scope video 404s before any playback token
   is minted, rather than merely being hidden from a list.
 - **Group membership editor** — add or remove people from a group **on the
@@ -477,6 +602,13 @@ setup and architecture, see [README.md](./README.md).
   enabled in the Settings tab (Vercel deployments only).
 - `ADMIN_GEO_BYPASS_EMAILS` — email-based geo bypass with no toggle; always
   applies once set.
+- `CRON_SECRET` — switches on the scheduled transcript collector
+  (`/api/cron/transcripts`, scheduled in `vercel.json`). At least 16 random
+  characters; Vercel sends it to the job automatically. Unset (or shorter),
+  the route answers 404 and collection happens only when an admin opens the
+  Videos tab, as before. The schedule is daily (`0 6 * * *`, UTC) because
+  Vercel's Hobby plan refuses to deploy anything more frequent; on Pro,
+  change it to `*/15 * * * *` for transcripts within a quarter of an hour.
 
 ---
 
@@ -490,55 +622,74 @@ setup and architecture, see [README.md](./README.md).
   group's members hands out addresses. A groups-only manager still sees the
   record and a member count, and still edits what the group may watch; they
   just cannot see or change who is in it.
-- **Group allowlists are per-video and manual** — a new upload is not added to
-  any restricted group automatically, so a restricted viewer won't see it
-  until an admin ticks it. (A collection-based rule would auto-follow, but
-  per-video was the deliberate choice.)
-- **Comments are not implemented** — ratings are (below), but there is no
-  free-text discussion anywhere in the portal. That is a deliberate stop: text
-  other viewers can read needs moderation, reporting and a notion of who may
-  delete whose words, none of which exists here.
-- **Transcripts are one language, and the admin fetches them by hand** — bunny can translate captions into 56 languages, but only one track is ingested (English when present, otherwise the first bunny produced). And because transcription is asynchronous with no webhook wired up, “Transcribe” and “Fetch captions” are two separate clicks minutes apart rather than one.
+- **A collection grant follows the collection, not the video** — moving a
+  video out of a granted collection removes it from that group's scope on the
+  next request, with no warning to whoever moved it. That is the auto-follow
+  working as intended, but it means collection membership is now an access
+  decision as well as an organisational one.
+- **Comments are flat, final and quiet** — there are no replies or threads, a
+  comment cannot be edited (delete and post again), nobody is notified of a new
+  one, and there is no "report" button or admin list of recent comments:
+  moderation happens on the watch page itself. Comments are not on public
+  links or share links, whose viewers are not approved accounts.
+- **Search matches a phrase, not a translation of one** — every language bunny produced is searched, but each as written: searching "lost sheep" finds a sermon that says it in English, not one that only says "oveja perdida". Accents are part of a word here ("donde" does not find "dónde"), as they already were for the default language.
+- **Automatic transcript collection is daily unless you are on Vercel Pro** — bunny has no webhook, so finished transcriptions are collected when an admin opens the Videos tab and by a scheduled job. On Hobby the job may only run once a day (Vercel's rule), so without an admin visit a transcript can take up to a day to appear; on Pro the schedule can be every 15 minutes. The job is off until `CRON_SECRET` is set. A job bunny never finishes is given up after three days (long enough for at least two scheduled attempts) and has to be fetched with the button.
 - **AI chapters are suggestions, and staying that way is the design** — bunny can generate chapters from the transcript, but nothing on that path writes to the stored list: suggestions are read back read-only (`lib/aiChapters.js`) and land in the admin's textarea, where a person accepts them. A background write would be a second writer for the same field, which is how hand-written chapters get silently replaced. **The field names bunny returns (`title`/`start`) are read from its docs, not from a live job** — this has never run against a real transcription, so the reader accepts a few spellings and reports anything it cannot read rather than returning an empty list.
-- **Rating totals can drift by one against the votes** — a vote and its
-  counter are two writes, not one. The vote is authoritative and written
-  first; the counter is incremented after, best-effort, so an Upstash blip
-  between them leaves the total one short. It is never *corrected*, because
-  recomputing it would mean scanning every viewer's ratings hash, which this
-  repo does not do anywhere. Totals are read as approximate; a negative one is
-  clamped to zero rather than displayed. The votes themselves are exact.
-- **Chapters are typed, or accepted** — there is no import from a description
-  and no per-viewer chapter progress.
-- **Scripture references are plain text** — notes are not parsed into
-  structured references, so there is no "all sermons on Philippians" view.
-  Book abbreviations, ranges and translations make that much deeper than it
-  looks; it was deliberately left out of the core feature.
-- **Notes are not full-text indexed** — search is a substring match run in the
-  browser over the notes that ship with the library payload, which is bounded
-  by the admin's homepage video count. It is instant, but it is not a search
-  engine and it does not reach videos beyond that cap.
+- **Removing a viewer leaves what was recorded about them** — `removeViewer`
+  clears the viewer record and last-seen time, but their progress, saved list,
+  votes and comments stay until something deletes them, and nothing does yet
+  (a moderator can remove the comments by hand). Their votes therefore still count in the totals. The data is keyed
+  by viewer precisely so that deleting it is one key per feature; deciding to
+  do it on removal (and losing a re-added viewer's progress) is an owner call
+  that has not been made.
+- **Chapters are typed, pasted, or accepted** — there is no per-viewer chapter
+  progress. (Pasting a whole video description works already: timestamp lines
+  become chapters and every other line is listed as ignored, so nothing is
+  dropped silently. What does not exist is reading a description from
+  bunny.net automatically.)
+- **Passages are read from titles and notes only** — not from what was said.
+  The 66-book Protestant canon only; translations are ignored ("John 3:16
+  (ESV)" is John 3:16), and verses are checked against a ceiling of 176
+  rather than each chapter's real length. Browsing is by book; there is no
+  chapter-by-chapter view.
+- **Search has no relevance ranking** — results come back in library order,
+  not best match first. Word forms are matched (below), but only in titles and
+  notes: the spoken-word half is still plain text, because stemming tens of
+  kilobytes of transcript per video on every search is a cost the search box
+  cannot carry. The stemmer is deliberately small — it knows "baptise" and
+  "baptized" are one word, not that "baptism" and "immersion" are.
+- **The two halves of search match slightly differently** — titles and notes
+  are plain substring; the spoken-word half normalises punctuation and
+  apostrophes, so "Christ's" finds "Christs" in a transcript but not in a
+  title. Unifying them would change how search has behaved for admins who
+  have learned it, so it was left alone deliberately when the server half was
+  added.
 - **Podcast episodes are video, not audio** — bunny.net Stream has no
   audio-only or MP3 rendition (verified against their docs), so episodes are
   720p MP4s. They play everywhere but are a much larger download than audio.
   They also need **MP4 Fallback** enabled on the bunny.net library, and
   bunny.net only generates an MP4 for videos uploaded *after* that was turned
   on — older recordings need re-uploading.
-- **No per-episode podcast artwork** — the feed uses the site icon for every
-  episode. Per-video thumbnails are signed and time-limited, and podcast apps
-  cache artwork long past that expiry, so using them would break and would
-  leave signed URLs in app caches.
+- **Podcast episode art is the video thumbnail** — a 16:9 frame, while podcast
+  apps expect square art, so some apps crop or letterbox it. Custom thumbnails
+  set on bunny.net are used when present. The show itself keeps the site icon.
 - **Public videos are one at a time, by hand** — there is no public
   collection, no public library page, and no bulk publish. That is the
   intent: one video, one decision, one link.
-- **Recurring or per-group schedules** — a video's publish/expiry window is a
-  single window that applies to every viewer; it can't differ per group or
-  repeat.
-- **PWA install icons** — the app icon *images* are static files and always
-  need a file edit + redeploy to change; only the *name* shown alongside them
-  is editable live. The service worker's push-notification fallback title
-  ("Marine Video Portal", used only if a push payload is ever sent without a
-  title — every current sender always supplies one) is likewise still static;
-  not worth threading a Redis read through a code path that never runs.
+- **A group window cannot hold a video back, and a repeat is weekly only** —
+  per-group windows only ever add time for a group (below); hiding a video from
+  one group is what group restrictions are for, and keeping windows additive is
+  what makes a missed check fail safe. Repeating windows are one weekly rule per
+  video (same hours on each chosen day); there is no monthly or "first Sunday"
+  rule, and group windows do not repeat.
+- **Some icons stay built-in** — the notification *badge* (Android draws it as
+  a one-colour silhouette, so an opaque uploaded picture would be a blob) and
+  the offline copies the service worker keeps. Push notifications themselves
+  show the custom icon. The service worker's fallback notification title is
+  static too; every current sender supplies its own title. A custom icon is
+  offered to Android as a plain icon, not a "maskable" one, because an
+  arbitrary image has no guaranteed safe zone — Android pads it rather than
+  cropping it.
 - **Already-installed apps don't re-check the manifest promptly** — a platform
   limitation, not something app code controls: browsers re-check an installed
   PWA's manifest on their own schedule, which can be several app opens or

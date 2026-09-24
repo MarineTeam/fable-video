@@ -19,7 +19,7 @@ import { fetchVideoLibrary } from "../../../lib/videoList";
 import { resolveFeedRequest } from "../../../lib/feedAccess";
 import { buildPodcastFeed } from "../../../lib/podcast";
 import { mediaEnabled } from "../../../lib/bunnyMedia";
-import { getSiteName } from "../../../lib/store";
+import { getAppIconVersion, getSiteName } from "../../../lib/store";
 import { oneString } from "../../../lib/params";
 import { allowRequest } from "../../../lib/ratelimit";
 import { withMonitorApi } from "../../../lib/monitor";
@@ -54,10 +54,12 @@ async function handler(req, res) {
 
   let library;
   let siteName;
+  let iconVersion;
   try {
-    [library, siteName] = await Promise.all([
-      fetchVideoLibrary(resolved.access.videoScope),
+    [library, siteName, iconVersion] = await Promise.all([
+      fetchVideoLibrary(resolved.access.videoScope, { groupIds: resolved.access.groupIds }),
       getSiteName().catch(() => null),
+      getAppIconVersion().catch(() => null),
     ]);
   } catch (err) {
     console.error("Could not build the podcast feed:", err);
@@ -75,6 +77,9 @@ async function handler(req, res) {
     length: video.length,
     publishedAt: video.dateUploaded,
     enclosureUrl: `${base}/api/feed/${encodeURIComponent(token)}/${encodeURIComponent(video.id)}.mp4`,
+    // Per-episode art through the same entitlement-checked route, so the URL
+    // an app caches is stable and never a signed bunny.net one.
+    imageUrl: `${base}/api/feed/${encodeURIComponent(token)}/${encodeURIComponent(video.id)}.jpg`,
   }));
 
   const xml = buildPodcastFeed({
@@ -85,7 +90,8 @@ async function handler(req, res) {
     // podcast apps cache artwork for a long time, and a 6-hour signed URL
     // would both break later and leave a signed bunny.net URL sitting in
     // someone's app cache.
-    imageUrl: base ? `${base}/icon-512.png` : null,
+    // The admin-set icon when there is one, through its versioned URL.
+    imageUrl: base ? (iconVersion ? `${base}/api/app-icon/512?v=${iconVersion}` : `${base}/icon-512.png`) : null,
     episodes: mediaEnabled() ? episodes : [],
   });
 

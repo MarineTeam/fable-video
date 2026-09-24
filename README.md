@@ -256,6 +256,7 @@ Inert until both VAPID keys are set. Generate them with
 | --- | --- |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | VAPID public key (browser-safe). |
 | `VAPID_PRIVATE_KEY` | VAPID private key (**secret** — server only, never `NEXT_PUBLIC_`). |
+| `CRON_SECRET` | Optional. Switches on the scheduled transcript collector (`/api/cron/transcripts`, scheduled daily in `vercel.json`). 16+ random characters (**secret**); Vercel sends it to the job automatically. Unset → the route answers 404. |
 | `VAPID_SUBJECT` | Optional `mailto:`/`https:` contact sent to push services (defaults to `APP_BASE_URL`). |
 
 > **iOS only delivers push to the PWA once it's installed to the Home Screen**

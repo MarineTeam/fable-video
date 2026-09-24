@@ -413,6 +413,16 @@ the air.
 (`isLive`), `lib/videoList.js`, `pages/api/videos.js`, `pages/api/collections.js`,
 `pages/api/progress.js`, `pages/watch/video/[id].js`.
 
+**Upload-time grants (2026-09-23).** `/api/admin/upload` accepts `groupIds` and adds the
+new video to those groups' allowlists. It is gated on `CAP.GROUPS_MANAGE` in addition to
+`CAP.VIDEOS_UPLOAD` — they are separate capabilities under custom roles, and ticking a
+box must not hand an uploader the power to grant access. Every refusal (no capability,
+unknown group, group at `MAX_VIDEOS_PER_GROUP`) happens BEFORE `createVideo`, so none
+leaves an orphan video; `grantVideoToGroups` never recreates a deleted group or lets
+`saveGroup` silently truncate a full one, and reports per-group failure. Cancelling an
+upload (`DELETE /api/admin/upload`) calls `pruneVideoFromGroups`. No stored default
+group, by design. Verify: `npm test -- uploadRoute uploadGrants groupGrants`.
+
 **Verify with:** `grep -rn "videoScope\|scopeAllows" pages lib | grep -v __tests__` —
 every viewer-facing read path should appear. `grep -n "scopeAllows" "pages/watch/video/[id].js"`
 must show the check ABOVE the `signEmbedUrl` call in the same file.
@@ -626,6 +636,101 @@ URL), and `deleteFeedToken` on viewer removal in `pages/api/admin/viewers.js`.
 handlers, changes the world in Redis between two calls with the SAME token, and
 asserts the second answer differs.
 
+### (bb) Comments: gated like watching; the author's email never reaches another viewer
+
+**Statement (2026-09-24, owner's decisions):** anyone who can watch a video can read and
+add comments; a comment is live at once; its author, or a `comments.manage` holder, can
+delete it. `pages/api/comments.js` applies `scopeAllows` to every method (404 out of
+scope) and the publish window (`viewerMayActOn`) to reading and writing, not to deleting
+your own. The author is the SESSION — no request field names a person — and the stored
+email is what "mine" is decided by. `commentView` (`lib/comments.js`) sends other
+viewers a DISPLAY NAME only; an email-shaped profile name is cut to its local part; the
+email itself is added only for a `viewers.read` holder (invariant (w): an email is people
+data). A moderator's removal of someone else's comment is audited (`comment.delete`).
+Text is refused, not cut, past 1,000 characters, stripped of control, zero-width and
+bidi-override characters, and rendered as text.
+
+**Why:** comments are the first thing one viewer writes that another reads. Without the
+scope and window checks, a comment route would be a way to talk about — and probe the
+existence of — videos a viewer cannot see. Showing the email would publish the approved
+viewer list to every viewer, one comment at a time.
+
+**Verify with:** `npm test -- comments commentsRoute commentsStore`.
+
+### (aa) A scheduled-job route has no session; CRON_SECRET is its whole gate, and it is inert without one
+
+**Statement (2026-09-24):** `pages/api/cron/*` are called by Vercel's cron runner, not
+by people. They are excluded from `proxy.js`'s matcher (geo enforcement would refuse a
+runner request that carries no country, and there is no session to roll), so NOTHING
+upstream guards them. `lib/cronAuth.js` is the gate: no `CRON_SECRET`, or one under 16
+characters, → 404, as if the route did not exist; anything but
+`Authorization: Bearer <CRON_SECRET>` → 401, compared in constant time over digests;
+GET only. The one job today, `/api/cron/transcripts`, runs the existing transcript
+collector (`lib/transcriptCollect.js`) with a larger per-run cap, audits each video as
+`scheduled job`, and answers counts only — the video ids are in the audit log.
+
+**Why:** a cron route is on the public internet like any other. A job that skipped the
+secret would let anyone trigger bunny calls and audit-log writes at will; one that fell
+back to "no secret configured → run anyway" would be open on every deployment that has
+not set it. Collection is safe to repeat — Vercel may deliver a run twice, and an admin
+page load may overlap one — because it takes a lock (`fablevideo:transcribe_collecting`,
+SET NX EX 300, released by a compare-and-delete script so a run that outlived its lock
+never frees a newer holder's) and because a collected video is no longer pending.
+
+**Why the queue limit moved from 24 hours to 3 days:** on Hobby the job runs once a day,
+up to 59 minutes late. With a 24-hour limit a job queued just after one run would expire
+before the next and be dropped without a single scheduled attempt.
+
+**Verify with:** `npm test -- cronTranscriptsRoute collectLock transcriptCollect transcribeQueue`.
+
+### (z) Per-group publish windows only ever ADD visibility
+
+**Statement (2026-09-24):** a schedule may carry `groups: { <groupId>: { publishAt,
+expiresAt } }`. `isLiveFor(schedule, groupIds)` (`lib/schedule.js`) is true when the
+DEFAULT window is live OR any of the viewer's groups' windows is. Every enforcement
+point uses it with `access.groupIds` (from `resolveAccess`, derived from tags):
+`fetchVideoLibrary` (homepage, `/api/videos`, search, book index, My List, feed list),
+the watch page, `/api/transcript`, `/api/progress` and the feed media route. The public
+page uses the default window only — an anonymous visitor has no groups.
+
+**Why additive, and why it must stay so:** each of those call sites has to be handed
+the viewer's groups, and one will eventually be missed. Additive windows make that slip
+fail SAFE — a missed call site withholds an early preview. A window that could DELAY a
+video for a group would make the same slip a leak. Group scope still applies on top, so
+a window never reaches someone the video's grants do not. Group ids are group NAMES, so
+`DELETE /api/admin/groups` prunes the group's windows (`pruneGroupFromSchedules`), and a
+window for a group that does not exist is refused when saved. `__proto__`,
+`constructor` and `prototype` are never used as group keys.
+
+**Repeating windows narrow the DEFAULT window only (2026-09-24):** `schedule.repeat`
+(`{ days, start, end, timeZone }`) is checked inside `isLive`, so every call site above
+picks it up without being touched, and a missed one cannot leak — `isLive` is the one
+place that decides. It must stay inside `isLive` and must not be applied to group
+windows: a group window is the documented way to preview outside the slot. A malformed
+stored rule reads as no rule (`normalizeRepeat`); the admin route refuses one before it
+is saved (`validateRepeat`).
+
+**Verify with:** `npm test -- groupSchedules videoListGroups transcriptRoute access groupRoute repeatingSchedules scheduleRoute`.
+
+### (y) An admin-uploaded file served to everyone is a PNG, checked by its bytes
+
+**Statement (2026-09-23):** the admin-set app icon (`lib/appIcon.js`) is the one piece
+of admin-uploaded content served from this origin to anyone, signed in or not
+(`/api/app-icon/<size>`, excluded from `proxy.js`'s matcher with the other PWA
+assets). It is accepted only as a PNG — by its signature and IHDR header, never by a
+declared type — of EXACTLY the size it is filed under, under a byte cap, and served
+with `Content-Type: image/png`, `X-Content-Type-Options: nosniff` and
+`Content-Security-Policy: default-src 'none'`. The browser resizes; the server trusts
+none of it.
+
+**Why:** "it is only an icon" is how an SVG with a script in it ends up executing on
+the site's own origin. Do not widen the accepted types to SVG, and do not let the
+declared type decide. The version is written LAST and cleared FIRST in `k("app_icon")`,
+so a reader never pairs a version with a half-written set; it carries a letter prefix
+because Upstash JSON-parses all-digit strings into numbers.
+
+**Verify with:** `npm test -- appIcon appIconRoutes routes feedArtwork`.
+
 ### (s) Invariant (d) amended: the podcast feed may redirect to a signed, short-lived CDN media URL — nothing else may
 
 **Statement:** Invariant (d) and change-control rule 3 say no direct bunny CDN file
@@ -640,6 +745,13 @@ narrowing is written down here rather than discovered later in a diff:
 2. The CDN URL exists only as a transient `302 Location`, minted per request **after**
    identity, group scope and the publish window have been re-checked.
 3. It is pull-zone token-signed and expires in 15 minutes.
+4. **Episode artwork (2026-09-23)** follows the same three rules through the same route:
+   `<itunes:image>` points at `/api/feed/<token>/<videoId>.jpg`, which re-checks identity,
+   scope and schedule, then asks bunny.net for the video's `thumbnailFileName`,
+   validates it as a plain file name, and 302s to a 15-minute signed URL. Apps cache
+   artwork for a long time keyed on the URL they were given — which is why that URL must
+   be this stable one, never a signed CDN URL that would expire inside their cache.
+   Verify: `npm test -- feedArtwork`.
 
 What invariant (d) exists to prevent is "a permanent, unauthenticated, shareable
 bypass". A 15-minute signed URL handed out only after a full authorization check is
@@ -719,6 +831,67 @@ every branch), `lib/roleMigration.js` (the upgrade path).
 plus a call on POST, PUT twice, PATCH and DELETE; a mutating branch without one is the
 bug this invariant exists to catch).
 
+### (x) When a response stops being self-limiting, its filter becomes load-bearing
+
+**Statement:** `/api/transcript-search` returned IDS ONLY, and said so as a defence:
+the client could only ever use an id to widen a list it already held, so an id it did
+not hold matched nothing — the route's own filtering was belt, and the response shape
+was braces. `/api/search`, which replaces it, returns full video objects, because the
+whole point is to reach videos past the homepage cap that the client does NOT hold.
+The braces are gone. The filtering is now the only thing between a search and a video
+the viewer may not see.
+
+**Why that is acceptable:** it is the same posture `/api/videos` has always had, and
+the same pipeline — `fetchVideoLibrary(scope)` applies group scope, publish window and
+ready-only. `/api/search` differs from it in exactly one way, `{ cap: false }`, and the
+homepage count is a DISPLAY limit rather than access control, so nothing the search
+returns was ever out of the viewer's reach.
+
+**What this costs, and the rule it implies:** a bug in the scope filter used to be
+survivable here and now is not. So the route's tests assert the filtering directly —
+that the viewer's own scope is passed down, and that the cap is the only thing
+disabled — rather than inferring safety from the response shape.
+
+**The general rule:** when you widen a response from identifiers to objects, you are
+removing a safety property, not just changing a payload. Say so, and move the proof
+from the shape to the filter.
+
+**Enforced at:** `pages/api/search.js` (guard, rate limit, `fetchVideoLibrary(access.videoScope, { cap: false })`),
+`lib/videoList.js` (the `cap` option and the comment explaining it is a display limit),
+`lib/search.js` (pure; searches an already-authorized list and does no access checking
+at all, which its own comment states).
+
+**Verify with:** `npm test -- searchRoute` — the suite fails if the scope stops being
+passed down or the cap comes back.
+
+
+**Passage search rides the same predicate (2026-09-23).** `videoMatchesQuery`
+(`lib/notes.js`) also matches a query that IS a scripture reference against the
+references `lib/scripture.js` reads from a video's title and notes. Both halves call
+that one predicate — the browser over its loaded page, `/api/search` via
+`searchLibrary` over the scoped library — so they cannot disagree, and neither
+reaches a video the other could not. It only adds matches. `lib/scripture.js` is
+PURE and bundled into the homepage, so it must not use regex lookbehind: that is a
+SyntaxError at parse time in Safari before 16.4 and would take the whole library
+page down, not just this feature. Verify: `npm test -- scripture notes search`;
+`grep -n "(?<" lib/scripture.js` prints nothing.
+
+**Browse by book (2026-09-23).** `/api/passages` counts, per book, the videos citing it —
+over `fetchVideoLibrary(access.videoScope, { cap: false })`, exactly the pipeline
+`/api/search` uses. The count is information in its own right ("Philippians (3)" says
+three videos exist), so an index built over anything wider than the viewer's scoped
+library would leak what the scope hides. `bookIndex` reads the same title+notes the
+passage search matches, so every listed book finds at least one video. Verify:
+`npm test -- passagesRoute scripture`.
+
+**Word stems (2026-09-23).** `videoMatchesQuery` also matches a query's words by stem
+(`lib/stem.js`) against a video's title and notes — through the same one predicate, so
+both halves of search still agree. Additive only. A query that parses as a passage is
+answered by passage overlap ALONE; letting stems in would read "Philippians 2" as the
+word "philippians" and widen it to the book. `lib/stem.js` is client-bundled: no regex
+lookbehind. Verify: `npm test -- stem notes`.
+---
+
 ### (w) A route that reveals or edits PEOPLE requires the people capability, whatever else it manages
 
 **Statement:** `/api/admin/groups` is gated on `groups.manage`, but its membership
@@ -749,7 +922,7 @@ groups-only manager can reach the membership branch at all.
 
 ---
 
-### (v) Per-viewer data is keyed by the viewer, so removing them removes it
+### (v) Per-viewer data is keyed by the viewer; aggregates hold no identity and equal the data
 
 **Statement:** anything recorded about a person — progress, saved list, ratings — is
 stored under a key that carries their email (`fablevideo:progress:<email>`,
@@ -761,24 +934,30 @@ no identity at all.
 better and makes the admin's totals a single `HGETALL`. It also leaves a removed
 viewer's address sitting in a row that nothing cleans — there is no sweep over video
 keys, and adding one would mean scanning every video on every viewer removal. Keying
-by viewer means "remove this person" is already the whole deletion story, for every
-per-viewer feature at once, including ones not written yet.
+by viewer means deleting a person's data is one key per feature, for every per-viewer
+feature at once, including ones not written yet. **That deletion does not run today**:
+`removeViewer` clears only the viewer record and last-seen time (FEATURES.md, known
+gaps). Do not describe removal as deleting their data until it does.
 
-**The cost, accepted deliberately:** totals cannot be recomputed from the votes without
-a scan, so they are maintained by incrementing a delta and can drift by one against the
-votes (a vote written, then a counter write that failed). The vote is authoritative and
-is written first; the counter is best-effort and afterwards, at the call site as well as
-inside the store, so a counter failure can never report a successful vote as failed.
-Drift is documented in FEATURES.md rather than papered over, and a negative counter
-reads as 0.
+**Totals equal the votes (2026-09-23).** A vote and both counter moves are ONE Redis
+script (`VOTE_SCRIPT`, `lib/ratingScripts.js`), and the previous vote is read INSIDE it.
+Before that they were two writes — vote, then a best-effort `HINCRBY` — and a failure
+between them, or two racing clicks both reading "no vote", left a total wrong for good.
+Totals from that era are corrected by `RECOUNT_SCRIPT`, run from **Recount ratings**
+(`/api/admin/rating-recount`, `SETTINGS_MANAGE`), which rebuilds and replaces the
+counter hash from every `ratings:<email>` hash in one atomic step. Its one scan is the
+same maintenance exception the stale-bundle cleanup makes. Do NOT reintroduce a
+separate counter write "for simplicity": that is the drift this removed.
 
-**Enforced at:** `lib/ratings.js` (pure; `voteDelta` is the whole arithmetic),
-`lib/store.js` (`getRatings`/`setRating`/`clearRating` under the viewer's key;
-`applyRatingCounts` best-effort; `clearVideoRatingCounts` on delete),
-`pages/api/rating.js` (no email parameter; scope-gated; the counter update is outside
-the error path that answers the viewer).
+**Enforced at:** `lib/ratingScripts.js` (both scripts; no imports, so the tests run the
+exact strings), `lib/ratings.js` (pure; `voteDelta` is the specification the vote script
+is held to, transition by transition), `lib/store.js` (`recordRating` = one `EVAL`;
+`recountRatings`; `clearVideoRatingCounts` on delete), `pages/api/rating.js` (no email
+parameter; scope-gated; one storage call per vote).
 
-**Verify with:** `npm test -- ratings ratingRoute`; `grep -n "ratings\|rating_counts" lib/store.js`
+**Verify with:** `npm test -- ratings ratingRoute ratingScripts ratingsStore.redis ratingRecountRoute`
+(`ratingScripts` and `ratingsStore.redis` run on a real `redis-server`, SKIPPED locally where none is installed and FAILING under CI —
+check the summary says 36 passed, not skipped); `grep -n "ratings\|rating_counts" lib/store.js`
 (the vote keys take an email, the counter key does not).
 
 ---
@@ -1030,8 +1209,9 @@ that date. Line numbers in (k)/(l) are against those files as of v1.8.0 and will
 | The feed body never contains a CDN url (s) | `npm test -- feedRoutes` (asserts no `b-cdn.net` in the document) |
 | Only the feed media route builds a CDN media url (s) | `grep -rn "signedMp4Url\|signCdnPath" pages lib` (definitions + one caller) |
 | `lib/bunny.js` signing helpers still untouched (s) | `git log --oneline -- lib/bunny.js` |
+| Search passes the viewer's scope and disables only the display cap (x) | `npm test -- searchRoute search` |
 | Group membership needs viewers.read, not just groups.manage (w) | `npm test -- groupRoute groupMembership` |
-| Per-viewer data is keyed by the viewer; aggregates hold no identity (v) | `npm test -- ratings ratingRoute`; `grep -n "ratings\|rating_counts" lib/store.js` |
+| Per-viewer data is keyed by the viewer; aggregates hold no identity and equal the data (v) | `npm test -- ratings ratingRoute ratingScripts ratingsStore.redis ratingRecountRoute` (ratingScripts, ratingsStore.redis need `redis-server`); `grep -n "ratings\|rating_counts" lib/store.js` |
 | AI suggestions write nothing, anywhere (u) | `npm test -- aiChapters transcribeRoute`; `grep -n "Store\|redis" lib/aiChapters.js` (expect no output) |
 | Chapters/notes modules import no Redis (o) | `grep -n "^import" lib/chapters.js lib/notes.js` (expect no output) |
 | Chapters/notes are read only AFTER every access check (o) | `grep -n "scopeAllows\|getSchedule\|getChapters" "pages/watch/video/[id].js"` (the first two must precede the third) |

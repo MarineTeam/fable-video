@@ -3,6 +3,7 @@
 import { requireCapability } from "../../../lib/guard";
 import { CAP } from "../../../lib/roles";
 import { createCollection, deleteCollection, listCollections } from "../../../lib/bunny";
+import { pruneCollectionFromGroups } from "../../../lib/groups";
 import { logAction } from "../../../lib/audit";
 import { oneTrimmed } from "../../../lib/params";
 import { withMonitorApi } from "../../../lib/monitor";
@@ -53,6 +54,10 @@ async function handler(req, res) {
     if (!id) return res.status(400).json({ error: "Collection id is required" });
     try {
       await deleteCollection(id);
+      // Best-effort, exactly like the video prune on delete: a grant naming a
+      // collection that no longer exists is clutter at best, and at worst a
+      // grant a recycled id would inherit.
+      await pruneCollectionFromGroups(id).catch(() => {});
     } catch (err) {
       console.error("Could not delete the collection:", err);
       return res.status(502).json({ error: "Could not delete the collection" });

@@ -23,6 +23,7 @@ import { hasCapability } from "../../../lib/capabilities";
 import { oneTrimmed } from "../../../lib/params";
 import { CAP } from "../../../lib/roles";
 import {
+  MAX_COLLECTIONS_PER_GROUP,
   MAX_GROUP_NAME_LENGTH,
   MAX_MEMBERSHIP_CHANGES,
   MAX_TAGS_PER_VIEWER,
@@ -38,6 +39,7 @@ import {
 } from "../../../lib/groups";
 import { listViewers, setViewerTags } from "../../../lib/store";
 import { logAction } from "../../../lib/audit";
+import { pruneGroupFromSchedules } from "../../../lib/schedule";
 import { withMonitorApi } from "../../../lib/monitor";
 
 async function handler(req, res) {
@@ -183,7 +185,17 @@ async function handler(req, res) {
       return res.status(400).json({ error: "Invalid video id in the allowlist" });
     }
 
-    const patch = { name: name.trim(), videoIds: rawVideoIds };
+    const rawCollectionIds = Array.isArray(req.body?.collectionIds) ? req.body.collectionIds : [];
+    if (rawCollectionIds.length > MAX_COLLECTIONS_PER_GROUP) {
+      return res
+        .status(400)
+        .json({ error: `At most ${MAX_COLLECTIONS_PER_GROUP} collections per group` });
+    }
+    if (rawCollectionIds.some((id) => typeof id !== "string" || id.length > 100)) {
+      return res.status(400).json({ error: "Invalid collection id in the allowlist" });
+    }
+
+    const patch = { name: name.trim(), videoIds: rawVideoIds, collectionIds: rawCollectionIds };
     if (req.body?.restricted !== undefined) {
       patch.restricted = req.body.restricted === true;
     }
@@ -199,7 +211,7 @@ async function handler(req, res) {
       admin,
       "group.save",
       saved.restricted
-        ? `${saved.name} (${saved.videoIds.length} videos)`
+        ? `${saved.name} (${saved.videoIds.length} videos, ${saved.collectionIds.length} collections)`
         : `${saved.name} (unrestricted)`
     );
     return res.json({ ok: true, group: saved });
@@ -218,6 +230,13 @@ async function handler(req, res) {
       return res.status(502).json({ error: "Could not delete the group" });
     }
     if (!removed) return res.status(404).json({ error: "Group not found" });
+    // Per-group publish windows are keyed on the group id, which is derived
+    // from the NAME — a later group called the same would otherwise inherit
+    // every early-access window this one had. Best-effort: the group is gone
+    // either way, and a leftover window only matters if the name comes back.
+    await pruneGroupFromSchedules(groupId(name)).catch((err) =>
+      console.error("Could not clear the group's publish windows:", err)
+    );
     // Deleting the record drops the restriction; the tag itself stays on
     // viewers and reverts to being a plain label.
     await logAction(admin, "group.delete", groupId(name));

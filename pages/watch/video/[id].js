@@ -8,9 +8,11 @@ import AppShell from "../../../components/AppShell";
 import ResumablePlayer from "../../../components/ResumablePlayer";
 import SaveToListButton from "../../../components/SaveToListButton";
 import RatingButtons from "../../../components/RatingButtons";
+import Comments from "../../../components/Comments";
 import { getMyList, getRatings } from "../../../lib/store";
 import { isSaved } from "../../../lib/mylist";
 import { ratingOf } from "../../../lib/ratings";
+import { parseTimeParam } from "../../../lib/timestampLink";
 import { auth0 } from "../../../lib/auth0";
 import { blockedByEmailVerification, normalizeEmail } from "../../../lib/auth";
 import { resolveAccess, scopeAllows } from "../../../lib/roles";
@@ -21,14 +23,16 @@ import {
 } from "../../../lib/store";
 import { resolveWatermark } from "../../../lib/watermark";
 import { getVideo, signEmbedUrl } from "../../../lib/bunny";
-import { getSchedule, isLive } from "../../../lib/schedule";
+import { getSchedule, isLiveFor } from "../../../lib/schedule";
 import { getChapters, getNotes } from "../../../lib/videoMeta";
 import { notesLines } from "../../../lib/notes";
+import { passageSearchHref } from "../../../lib/search";
+import { compareReferences, formatReference, parseReferences } from "../../../lib/scripture";
 import { pageTitle } from "../../../lib/siteName";
 import { getSiteName } from "../../../lib/store";
 import { withMonitorPage } from "../../../lib/monitor";
 
-async function gssp({ req, params, resolvedUrl }) {
+async function gssp({ req, params, query, resolvedUrl }) {
   const session = await auth0.getSession(req);
   const email = session?.user?.email ? normalizeEmail(session.user.email) : null;
   if (!email) {
@@ -70,7 +74,7 @@ async function gssp({ req, params, resolvedUrl }) {
       // constraint, rather than taking live content off the air.
       console.error("Could not read the video schedule:", err);
     }
-    if (!isLive(schedule)) return { notFound: true };
+    if (!isLiveFor(schedule, access.groupIds)) return { notFound: true };
   }
 
   let video;
@@ -147,6 +151,11 @@ async function gssp({ req, params, resolvedUrl }) {
       notes,
       saved,
       vote,
+      // Null when there is no ?t=, or when it is not a timestamp we accept.
+      // Null rather than 0 on purpose: an unparseable value must leave the
+      // saved resume position alone rather than silently sending the viewer
+      // back to the start.
+      startAt: parseTimeParam(query?.t),
     },
   };
 }
@@ -164,7 +173,11 @@ export default function WatchVideo({
   notes,
   saved,
   vote,
+  startAt,
 }) {
+  // Read from the title and notes the page already has — no request, and
+  // nothing a viewer could not already read on this page.
+  const passages = parseReferences(`${video.title || ""}\n${notes || ""}`).sort(compareReferences);
   return (
     <AppShell user={user} admin={admin} canNotify siteName={siteName}>
       <Head>
@@ -183,7 +196,27 @@ export default function WatchVideo({
         videoId={video.id}
         watermark={watermarkText}
         chapters={chapters}
+        startAt={startAt}
       />
+      {passages.length ? (
+        <nav className="passages" aria-label="Passages in this video">
+          {/* Each passage opens the library searched for it, which finds
+              every video citing an overlapping passage however it was
+              written. The search runs over the viewer's own authorized
+              library, so a link can never show them something new. */}
+          <span className="passages-label">Passages</span>
+          <div className="chip-row">
+            {passages.map((ref) => {
+              const label = formatReference(ref);
+              return (
+                <Link key={label} href={passageSearchHref(label)} className="chip passage-chip">
+                  {label}
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+      ) : null}
       {notes ? (
         <section className="notes card">
           <h2 className="notes-title">Notes</h2>
@@ -199,6 +232,7 @@ export default function WatchVideo({
           </div>
         </section>
       ) : null}
+      <Comments videoId={video.id} />
     </AppShell>
   );
 }
