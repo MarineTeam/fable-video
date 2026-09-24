@@ -18,6 +18,7 @@ import { requireAccess } from "../../lib/guard";
 import { oneTrimmed } from "../../lib/params";
 import { allowRequest } from "../../lib/ratelimit";
 import { scopeAllows } from "../../lib/roles";
+import { viewerMayActOn } from "../../lib/schedule";
 import { getMyList, removeFromMyList, saveToMyList } from "../../lib/store";
 import { isFull, MAX_ITEMS, savedVideos } from "../../lib/mylist";
 import { fetchVideoLibrary } from "../../lib/videoList";
@@ -59,6 +60,13 @@ async function handler(req, res) {
     // every read, but the write itself would have succeeded and told them
     // the id exists. 404 rather than 403, matching the watch page.
     if (!scopeAllows(access.videoScope, videoId)) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    // The publish window, as the watch page applies it — for SAVING only.
+    // Removing an entry is always allowed, so a video that expired while it
+    // was saved can still be taken off the list.
+    if (req.method === "POST" && !(await viewerMayActOn(access, videoId))) {
       return res.status(404).json({ error: "Not found" });
     }
 

@@ -10,7 +10,9 @@
 // name another person.
 //
 // RATING IS GATED LIKE WATCHING, through the same scopeAllows check the watch
-// page performs. Without it a restricted viewer could rate a video they cannot
+// page performs, and — for casting a vote — the same publish window
+// (lib/schedule.js viewerMayActOn; before 2026-09-24 this route skipped it,
+// so an unpublished video could collect votes). Without it a restricted viewer could rate a video they cannot
 // see — the vote would be invisible to them afterwards, but the write would
 // have succeeded, and a 200 is itself an answer to "does this id exist?".
 //
@@ -21,6 +23,7 @@ import { requireAccess } from "../../lib/guard";
 import { oneTrimmed } from "../../lib/params";
 import { allowRequest } from "../../lib/ratelimit";
 import { scopeAllows } from "../../lib/roles";
+import { viewerMayActOn } from "../../lib/schedule";
 import { getRatings, recordRating } from "../../lib/store";
 import { normalizeVote, ratingOf } from "../../lib/ratings";
 import { withMonitorApi } from "../../lib/monitor";
@@ -58,6 +61,13 @@ async function handler(req, res) {
     const next = req.method === "DELETE" ? null : normalizeVote(req.body?.vote);
     if (req.method === "POST" && !next) {
       return res.status(400).json({ error: "Rating must be up or down" });
+    }
+
+    // The publish window, as the watch page applies it. Only for CASTING a
+    // vote: taking one back is always allowed, including on a video that has
+    // since expired, because a viewer must be able to undo what they did.
+    if (req.method === "POST" && !(await viewerMayActOn(access, videoId))) {
+      return res.status(404).json({ error: "Not found" });
     }
 
     try {
