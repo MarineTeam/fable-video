@@ -636,6 +636,32 @@ URL), and `deleteFeedToken` on viewer removal in `pages/api/admin/viewers.js`.
 handlers, changes the world in Redis between two calls with the SAME token, and
 asserts the second answer differs.
 
+### (aa) A scheduled-job route has no session; CRON_SECRET is its whole gate, and it is inert without one
+
+**Statement (2026-09-24):** `pages/api/cron/*` are called by Vercel's cron runner, not
+by people. They are excluded from `proxy.js`'s matcher (geo enforcement would refuse a
+runner request that carries no country, and there is no session to roll), so NOTHING
+upstream guards them. `lib/cronAuth.js` is the gate: no `CRON_SECRET`, or one under 16
+characters, → 404, as if the route did not exist; anything but
+`Authorization: Bearer <CRON_SECRET>` → 401, compared in constant time over digests;
+GET only. The one job today, `/api/cron/transcripts`, runs the existing transcript
+collector (`lib/transcriptCollect.js`) with a larger per-run cap, audits each video as
+`scheduled job`, and answers counts only — the video ids are in the audit log.
+
+**Why:** a cron route is on the public internet like any other. A job that skipped the
+secret would let anyone trigger bunny calls and audit-log writes at will; one that fell
+back to "no secret configured → run anyway" would be open on every deployment that has
+not set it. Collection is safe to repeat — Vercel may deliver a run twice, and an admin
+page load may overlap one — because it takes a lock (`fablevideo:transcribe_collecting`,
+SET NX EX 300, released by a compare-and-delete script so a run that outlived its lock
+never frees a newer holder's) and because a collected video is no longer pending.
+
+**Why the queue limit moved from 24 hours to 3 days:** on Hobby the job runs once a day,
+up to 59 minutes late. With a 24-hour limit a job queued just after one run would expire
+before the next and be dropped without a single scheduled attempt.
+
+**Verify with:** `npm test -- cronTranscriptsRoute collectLock transcriptCollect transcribeQueue`.
+
 ### (z) Per-group publish windows only ever ADD visibility
 
 **Statement (2026-09-24):** a schedule may carry `groups: { <groupId>: { publishAt,

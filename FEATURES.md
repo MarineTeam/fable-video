@@ -122,10 +122,12 @@ setup and architecture, see [README.md](./README.md).
   rather than quietly answered with another, because a viewer who picks
   Spanish and reads English concludes the translation is wrong rather than
   absent. **One click, not two**:
-  transcription is asynchronous, so queueing records the video and the admin
-  Videos tab collects whatever bunny has finished since — no webhook, no
-  poller, and the *Fetch captions* button still works for anyone who wants it
-  now. Before this, forgetting the second click left a video that had really
+  transcription is asynchronous, so queueing records the video, and both the
+  admin Videos tab and a **scheduled job** collect whatever bunny has finished
+  since — so a transcript no longer waits for an admin to come back — and the
+  *Fetch captions* button still works for anyone who wants it now. The job is
+  inert until `CRON_SECRET` is set (see Configuration); it runs daily, which
+  every Vercel plan allows, and can run every 15 minutes on Pro. Before this, forgetting the second click left a video that had really
   been transcribed and paid for, with no transcript and nothing saying why. Degrades the way chapters do: no
   player protocol means plain text instead of buttons that would do nothing.
 - **Search reaches the whole library** — typing in the search box matches the
@@ -583,6 +585,13 @@ setup and architecture, see [README.md](./README.md).
   enabled in the Settings tab (Vercel deployments only).
 - `ADMIN_GEO_BYPASS_EMAILS` — email-based geo bypass with no toggle; always
   applies once set.
+- `CRON_SECRET` — switches on the scheduled transcript collector
+  (`/api/cron/transcripts`, scheduled in `vercel.json`). At least 16 random
+  characters; Vercel sends it to the job automatically. Unset (or shorter),
+  the route answers 404 and collection happens only when an admin opens the
+  Videos tab, as before. The schedule is daily (`0 6 * * *`, UTC) because
+  Vercel's Hobby plan refuses to deploy anything more frequent; on Pro,
+  change it to `*/15 * * * *` for transcripts within a quarter of an hour.
 
 ---
 
@@ -606,7 +615,7 @@ setup and architecture, see [README.md](./README.md).
   other viewers can read needs moderation, reporting and a notion of who may
   delete whose words, none of which exists here.
 - **Library search reads ONE language per video** — the default track, the one ingested first. Indexing every translation of the same sermon would multiply the search payload to return the same video, so searching in Spanish for a talk whose default is English finds nothing. The transcript panel still offers every language once the video is open.
-- **Collection rides on an admin visiting the Videos tab** — there is no webhook and no background worker, so a finished transcription is collected the next time an admin loads that list (see Transcript below). If nobody opens it for a day the marker expires and the transcript has to be fetched with the button. That is a deliberate trade: no new infrastructure, bounded work, and the manual button still there.
+- **Automatic transcript collection is daily unless you are on Vercel Pro** — bunny has no webhook, so finished transcriptions are collected when an admin opens the Videos tab and by a scheduled job. On Hobby the job may only run once a day (Vercel's rule), so without an admin visit a transcript can take up to a day to appear; on Pro the schedule can be every 15 minutes. The job is off until `CRON_SECRET` is set. A job bunny never finishes is given up after three days (long enough for at least two scheduled attempts) and has to be fetched with the button.
 - **AI chapters are suggestions, and staying that way is the design** — bunny can generate chapters from the transcript, but nothing on that path writes to the stored list: suggestions are read back read-only (`lib/aiChapters.js`) and land in the admin's textarea, where a person accepts them. A background write would be a second writer for the same field, which is how hand-written chapters get silently replaced. **The field names bunny returns (`title`/`start`) are read from its docs, not from a live job** — this has never run against a real transcription, so the reader accepts a few spellings and reports anything it cannot read rather than returning an empty list.
 - **Removing a viewer leaves what was recorded about them** — `removeViewer`
   clears the viewer record and last-seen time, but their progress, saved list
