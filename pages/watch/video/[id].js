@@ -8,6 +8,7 @@ import AppShell from "../../../components/AppShell";
 import ResumablePlayer from "../../../components/ResumablePlayer";
 import SaveToListButton from "../../../components/SaveToListButton";
 import RatingButtons from "../../../components/RatingButtons";
+import Comments from "../../../components/Comments";
 import { getMyList, getRatings } from "../../../lib/store";
 import { isSaved } from "../../../lib/mylist";
 import { ratingOf } from "../../../lib/ratings";
@@ -231,6 +232,7 @@ export default function WatchVideo({
           </div>
         </section>
       ) : null}
+      <Comments videoId={video.id} />
     </AppShell>
   );
 }

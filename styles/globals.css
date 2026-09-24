@@ -1846,3 +1846,88 @@ code {
   gap: 0.45rem;
   font-size: 0.9rem;
 }
+
+/* Comments under a video (components/Comments.js). */
+.comments {
+  margin-top: 18px;
+}
+
+.comment-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.comment {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.comment:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.comment-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.6rem;
+}
+
+.comment-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.comment-email {
+  overflow-wrap: anywhere;
+}
+
+.comment-delete {
+  margin-left: auto;
+}
+
+.comment-text {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+  font-size: 0.92rem;
+}
+
+.comment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.comment-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 4.5rem;
+  font: inherit;
+}
+
+.comment-form-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

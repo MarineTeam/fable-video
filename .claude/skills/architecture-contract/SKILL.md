@@ -636,6 +636,27 @@ URL), and `deleteFeedToken` on viewer removal in `pages/api/admin/viewers.js`.
 handlers, changes the world in Redis between two calls with the SAME token, and
 asserts the second answer differs.
 
+### (bb) Comments: gated like watching; the author's email never reaches another viewer
+
+**Statement (2026-09-24, owner's decisions):** anyone who can watch a video can read and
+add comments; a comment is live at once; its author, or a `comments.manage` holder, can
+delete it. `pages/api/comments.js` applies `scopeAllows` to every method (404 out of
+scope) and the publish window (`viewerMayActOn`) to reading and writing, not to deleting
+your own. The author is the SESSION — no request field names a person — and the stored
+email is what "mine" is decided by. `commentView` (`lib/comments.js`) sends other
+viewers a DISPLAY NAME only; an email-shaped profile name is cut to its local part; the
+email itself is added only for a `viewers.read` holder (invariant (w): an email is people
+data). A moderator's removal of someone else's comment is audited (`comment.delete`).
+Text is refused, not cut, past 1,000 characters, stripped of control, zero-width and
+bidi-override characters, and rendered as text.
+
+**Why:** comments are the first thing one viewer writes that another reads. Without the
+scope and window checks, a comment route would be a way to talk about — and probe the
+existence of — videos a viewer cannot see. Showing the email would publish the approved
+viewer list to every viewer, one comment at a time.
+
+**Verify with:** `npm test -- comments commentsRoute commentsStore`.
+
 ### (aa) A scheduled-job route has no session; CRON_SECRET is its whole gate, and it is inert without one
 
 **Statement (2026-09-24):** `pages/api/cron/*` are called by Vercel's cron runner, not

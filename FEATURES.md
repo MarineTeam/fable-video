@@ -108,6 +108,19 @@ setup and architecture, see [README.md](./README.md).
   the votes, for totals written before that was true. Rating obeys group access and the
   publish window the same way saving does, and answers 404 rather than 403 for a video out of scope, so it
   cannot be used to find out which ids exist.
+- **Comments** — a discussion under each video on the watch page. Anyone who
+  can watch the video can read its comments and add one (up to 1,000
+  characters); a comment appears at once. **Other viewers see the author's
+  account name, never their email** — the profile name, or the part of the
+  email before the @ when the profile has none or the name is itself an email
+  address. An author can delete their own comment at any time; anyone holding
+  the **Remove any viewer's comment** capability (Roles tab) can remove anyone's,
+  from the same place, and that removal is in the Activity log. Staff who can
+  read the viewer list also see each author's email beside their name, so an
+  abusive comment can be traced to an account. Comments obey group access and
+  the publish window exactly as watching does, are rate limited per person
+  (30 an hour), are capped at 500 per video, and are removed with the video.
+  Shown as plain text: nothing typed becomes markup or a link.
 - **Transcript** — the spoken text of a recording, under the player, collapsed
   by default. Every line carries the timestamp it was said at and clicking one
   seeks there, like a chapter but at the resolution of a sentence. A search box
@@ -614,17 +627,18 @@ setup and architecture, see [README.md](./README.md).
   next request, with no warning to whoever moved it. That is the auto-follow
   working as intended, but it means collection membership is now an access
   decision as well as an organisational one.
-- **Comments are not implemented** — ratings are (below), but there is no
-  free-text discussion anywhere in the portal. That is a deliberate stop: text
-  other viewers can read needs moderation, reporting and a notion of who may
-  delete whose words, none of which exists here.
+- **Comments are flat, final and quiet** — there are no replies or threads, a
+  comment cannot be edited (delete and post again), nobody is notified of a new
+  one, and there is no "report" button or admin list of recent comments:
+  moderation happens on the watch page itself. Comments are not on public
+  links or share links, whose viewers are not approved accounts.
 - **Search matches a phrase, not a translation of one** — every language bunny produced is searched, but each as written: searching "lost sheep" finds a sermon that says it in English, not one that only says "oveja perdida". Accents are part of a word here ("donde" does not find "dónde"), as they already were for the default language.
 - **Automatic transcript collection is daily unless you are on Vercel Pro** — bunny has no webhook, so finished transcriptions are collected when an admin opens the Videos tab and by a scheduled job. On Hobby the job may only run once a day (Vercel's rule), so without an admin visit a transcript can take up to a day to appear; on Pro the schedule can be every 15 minutes. The job is off until `CRON_SECRET` is set. A job bunny never finishes is given up after three days (long enough for at least two scheduled attempts) and has to be fetched with the button.
 - **AI chapters are suggestions, and staying that way is the design** — bunny can generate chapters from the transcript, but nothing on that path writes to the stored list: suggestions are read back read-only (`lib/aiChapters.js`) and land in the admin's textarea, where a person accepts them. A background write would be a second writer for the same field, which is how hand-written chapters get silently replaced. **The field names bunny returns (`title`/`start`) are read from its docs, not from a live job** — this has never run against a real transcription, so the reader accepts a few spellings and reports anything it cannot read rather than returning an empty list.
 - **Removing a viewer leaves what was recorded about them** — `removeViewer`
-  clears the viewer record and last-seen time, but their progress, saved list
-  and votes stay under their email until something deletes them, and nothing
-  does yet. Their votes therefore still count in the totals. The data is keyed
+  clears the viewer record and last-seen time, but their progress, saved list,
+  votes and comments stay until something deletes them, and nothing does yet
+  (a moderator can remove the comments by hand). Their votes therefore still count in the totals. The data is keyed
   by viewer precisely so that deleting it is one key per feature; deciding to
   do it on removal (and losing a re-added viewer's progress) is an owner call
   that has not been made.
