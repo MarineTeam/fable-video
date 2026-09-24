@@ -175,7 +175,7 @@ newline in a pasted key corrupts TUS signatures and API calls").
 | Function | Method + path | Purpose |
 |---|---|---|
 | `listVideos({page, itemsPerPage})` | `GET /videos?page=&itemsPerPage=&orderBy=date` | One page of the library, newest first. |
-| `listAllVideos({maxPages})` | (wraps `listVideos`, paginated in parallel after page 1) | Full library, module-cached 4s per warm serverless instance (`VIDEO_LIST_CACHE_TTL_MS`). |
+| `listAllVideosWithStatus()` / `listAllVideos()` | (wraps `listVideos`, paginated in parallel after page 1, counted in the page size bunny served, de-duplicated by guid) | `{ videos, truncated, total }` / videos only. Up to `MAX_LIBRARY_PAGES` (10 pages, 1,000 videos); `truncated` past that. Module-cached 4s per warm serverless instance (`VIDEO_LIST_CACHE_TTL_MS`). |
 | `getVideo(id)` | `GET /videos/{id}` | Single video's metadata (status, title, guid, collectionId, thumbnailFileName, length). |
 | `createVideo(title, collectionId)` | `POST /videos` | Creates the bunny.net video record before a TUS upload starts. Invalidates the list cache. |
 | `updateVideo(id, patch)` | `POST /videos/{id}` | Rename / change collection. Invalidates the list cache. |

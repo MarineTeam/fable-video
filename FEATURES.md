@@ -658,6 +658,12 @@ setup and architecture, see [README.md](./README.md).
   (ESV)" is John 3:16), and verses are checked against a ceiling of 176
   rather than each chapter's real length. Browsing is by book; there is no
   chapter-by-chapter view.
+- **The library is read up to 1,000 videos** — bunny hands videos over 100 at a
+  time, and a whole-library read (the homepage, search, the admin Videos tab,
+  Analytics, the podcast feed) takes up to 10 pages. Past that, the Videos
+  tab, Analytics and search say so rather than presenting the newest 1,000 as
+  the whole library. Single videos are looked up directly, so any video still
+  plays from its own link.
 - **Search has no relevance ranking** — results come back in library order,
   not best match first. Word forms are matched (below), but only in titles and
   notes: the spoken-word half is still plain text, because stemming tens of

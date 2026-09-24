@@ -3,7 +3,7 @@
 // statistics API.
 import { requireCapability } from "../../../lib/guard";
 import { CAP } from "../../../lib/roles";
-import { getStatistics, listAllVideos } from "../../../lib/bunny";
+import { getStatistics, listAllVideosWithStatus } from "../../../lib/bunny";
 import { listShares, rollupShareAnalyticsByVideo } from "../../../lib/shares";
 import { withMonitorApi } from "../../../lib/monitor";
 
@@ -40,13 +40,16 @@ async function handler(req, res) {
   const iso = (d) => d.toISOString().slice(0, 10);
 
   try {
-    const [videos, stats, shares] = await Promise.all([
-      listAllVideos(),
+    const [library, stats, shares] = await Promise.all([
+      // Every video, up to lib/bunny.js's bound — past it the totals below
+      // cover the newest ones, and the response says so.
+      listAllVideosWithStatus(),
       getStatistics({ dateFrom: iso(dateFrom), dateTo: iso(dateTo) }).catch(
         () => null
       ),
       listShares().catch(() => []),
     ]);
+    const videos = library.videos;
 
     const totalViews = videos.reduce((sum, v) => sum + (v.views || 0), 0);
     const mostWatched = [...videos]
@@ -67,7 +70,9 @@ async function handler(req, res) {
       totalViews,
       views30d,
       watchTimeHours: Math.round((watchSeconds / 3600) * 10) / 10,
-      videoCount: videos.length,
+      videoCount: library.total ?? videos.length,
+      truncated: Boolean(library.truncated),
+      covered: videos.length,
       chart,
       mostWatched,
       shareRollup: rollupShareAnalyticsByVideo(shares),

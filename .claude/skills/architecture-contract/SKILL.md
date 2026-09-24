@@ -636,6 +636,21 @@ URL), and `deleteFeedToken` on viewer removal in `pages/api/admin/viewers.js`.
 handlers, changes the world in Redis between two calls with the SAME token, and
 asserts the second answer differs.
 
+### (cc) A whole-library read is bounded at 1,000 videos, and says so past it
+
+**Statement (2026-09-24):** `listAllVideosWithStatus()` (`lib/bunny.js`) reads page 1,
+then the rest in parallel — counted in the page size bunny actually served,
+de-duplicated by guid — up to `MAX_LIBRARY_PAGES` (10 pages, 1,000 videos), and returns
+`{ videos, truncated, total }`. `listAllVideos()` is the same read, videos only.
+Past the bound, the admin Videos tab (`truncated`), Analytics (`truncated`, `covered`,
+and the real `total` as `videoCount`) and search (`libraryTruncated`, via
+`fetchVideoLibrary`) SAY so; nothing presents a partial library as the whole one.
+
+**Why:** the bound was 5 pages and silent. A library past 500 videos lost its oldest from
+the homepage, search, the Videos tab and Analytics with no sign anything was cut.
+
+**Verify with:** `npm test -- libraryRead libraryBoundRoutes searchRoute videoListGroups`.
+
 ### (bb) Comments: gated like watching; the author's email never reaches another viewer
 
 **Statement (2026-09-24, owner's decisions):** anyone who can watch a video can read and
