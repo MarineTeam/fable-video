@@ -636,6 +636,22 @@ URL), and `deleteFeedToken` on viewer removal in `pages/api/admin/viewers.js`.
 handlers, changes the world in Redis between two calls with the SAME token, and
 asserts the second answer differs.
 
+### (dd) Per-viewer progress is bounded, and a deleted video leaves no watermark row
+
+**Statement (2026-09-24):** `POST /api/progress` is rate-limited (`allowRequest("progress",
+…, 300, "10 m")`), accepts only `isProgressVideoId` ids (`lib/progress.js`) within the
+viewer's `scopeAllows`, and `saveProgress` (`lib/store.js`) keeps each `progress:{email}`
+hash at `MAX_PROGRESS_ENTRIES` (1,000): one Lua script writes an update or an entry that
+fits, and only a NEW video at the cap takes the slow path that drops the least recently
+watched (`progressToEvict`). Both delete paths in `/api/admin/videos` clear the video's
+watermark override alongside its other per-video rows.
+
+**Why:** before, any string up to 100 characters was a valid id with no limit, so one
+signed-in viewer could grow their own hash without bound; and the watermark row was the
+one per-video record a delete did not remove.
+
+**Verify with:** `npm test -- progress progressRoute progressStore.redis videoDeleteCleanup`.
+
 ### (cc) A whole-library read is bounded at 1,000 videos, and says so past it
 
 **Statement (2026-09-24):** `listAllVideosWithStatus()` (`lib/bunny.js`) reads page 1,
