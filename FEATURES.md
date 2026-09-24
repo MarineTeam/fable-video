@@ -586,8 +586,14 @@ setup and architecture, see [README.md](./README.md).
   set.
 - **CI pipeline** — GitHub Actions runs lint + tests + build on every push/PR to
   `main`, catching breakage before Vercel deploys.
-- **Smoke tests** — Vitest coverage for the auth check, video-ordering logic,
-  theme helpers, and the share-email template.
+- **Tests** — over 1,000 Vitest tests: the pure rules (search, scripture,
+  stems, schedules, comments, ratings, captions), every API route's gate, and
+  the Lua scripts run against a **real redis-server** (CI installs one, and a
+  runner without it fails rather than skipping). New tests are checked by
+  breaking the code they cover and confirming they fail.
+- **Scheduled jobs** — a Vercel cron (`vercel.json`) runs the transcript
+  collector daily; off until `CRON_SECRET` is set, and gated by that secret
+  alone (see Configuration).
 
 ## Configuration knobs (environment)
 - `RESEND_API_KEY` + `EMAIL_FROM` — enable automatic email delivery of share
