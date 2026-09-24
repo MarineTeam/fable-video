@@ -456,6 +456,17 @@ setup and architecture, see [README.md](./README.md).
   Viewers tab, filter the viewer list by tag, and pull a whole tag's emails
   into the bulk-share or Private list recipient box with one click instead
   of pasting each address by hand.
+- **Per-group publish windows** _(admin, Schedule on a video)_ — besides the
+  video's own publish/expiry window, give a group its **own** window: the
+  youth leaders see Sunday's talk from Wednesday, or a class keeps a video a
+  month after it expires for everyone else. Group windows only ever **add**
+  time — a member sees the video during their group's window OR the default
+  one — so they cannot be used to hide a video from a group (group
+  restrictions do that), and a group that could not see the video at all
+  still cannot. They apply everywhere the default window does: the library,
+  search, the watch page, transcripts, continue-watching and the podcast feed.
+  Deleting a group removes its windows, so a new group with the same name
+  starts with none.
 - **Group content restrictions** — a group can optionally be **restricted** to
   an explicit list of videos **and/or whole collections** (Groups tab), so its
   members see only those in
@@ -627,9 +638,10 @@ setup and architecture, see [README.md](./README.md).
 - **Public videos are one at a time, by hand** — there is no public
   collection, no public library page, and no bulk publish. That is the
   intent: one video, one decision, one link.
-- **Recurring or per-group schedules** — a video's publish/expiry window is a
-  single window that applies to every viewer; it can't differ per group or
-  repeat.
+- **Schedules do not repeat, and a group window cannot hold a video back** —
+  there is no "every Sunday" window. Per-group windows only ever add time for a
+  group (below); hiding a video from one group is what group restrictions are
+  for, and keeping windows additive is what makes a missed check fail safe.
 - **Some icons stay built-in** — the notification *badge* (Android draws it as
   a one-colour silhouette, so an opaque uploaded picture would be a blob) and
   the offline copies the service worker keeps. Push notifications themselves

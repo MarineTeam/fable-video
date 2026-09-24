@@ -81,7 +81,7 @@ async function gssp({ req, resolvedUrl }) {
   let initialThumbnails = false;
   if (approved) {
     try {
-      const data = await fetchVideoLibrary(access.videoScope);
+      const data = await fetchVideoLibrary(access.videoScope, { groupIds: access.groupIds });
       initialVideos = data.videos;
       initialThumbnails = data.thumbnails;
     } catch {

@@ -20,7 +20,7 @@ import { requireAccess } from "../../../lib/guard";
 import { oneTrimmed } from "../../../lib/params";
 import { scopeAllows } from "../../../lib/roles";
 import { languageMissing, pickLanguage } from "../../../lib/captions";
-import { getSchedule, isLive } from "../../../lib/schedule";
+import { getSchedule, isLiveFor } from "../../../lib/schedule";
 import { getTranscript, getTranscriptLanguages } from "../../../lib/captionsStore";
 import { withMonitorApi } from "../../../lib/monitor";
 
@@ -52,7 +52,7 @@ async function handler(req, res) {
       // means no constraint, rather than taking live content off the air.
       console.error("Could not read the video schedule:", err);
     }
-    if (!isLive(schedule)) return res.status(404).json({ error: "Not found" });
+    if (!isLiveFor(schedule, access.groupIds)) return res.status(404).json({ error: "Not found" });
   }
 
   try {

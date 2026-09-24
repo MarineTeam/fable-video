@@ -22,7 +22,7 @@ async function handler(req, res) {
   }
 
   try {
-    const data = await fetchVideoLibrary(access.videoScope);
+    const data = await fetchVideoLibrary(access.videoScope, { groupIds: access.groupIds });
     return res.json(data);
   } catch (err) {
     console.error("Could not load the video library:", err);

@@ -561,15 +561,35 @@ function PublicLinkEditor({ video, onClose, onSaved }) {
   );
 }
 
-function ScheduleEditor({ video, onClose, onSaved }) {
+function ScheduleEditor({ video, groups = [], onClose, onSaved }) {
   const [publishAt, setPublishAt] = useState(toLocalInput(video.schedule?.publishAt));
   const [expiresAt, setExpiresAt] = useState(toLocalInput(video.schedule?.expiresAt));
+  // Per-group windows: "also visible to this group during this window".
+  const [groupRows, setGroupRows] = useState(() =>
+    Object.entries(video.schedule?.groups || {}).map(([groupId, w]) => ({
+      groupId,
+      publishAt: toLocalInput(w?.publishAt),
+      expiresAt: toLocalInput(w?.expiresAt),
+    }))
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  const patchRow = (index, patch) =>
+    setGroupRows((rows) => rows.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  const unusedGroups = groups.filter((g) => !groupRows.some((r) => r.groupId === g.id));
 
   const save = async (clear) => {
     setBusy(true);
     setError("");
+    const groupWindows = {};
+    for (const row of groupRows) {
+      if (!row.groupId || (!row.publishAt && !row.expiresAt)) continue;
+      groupWindows[row.groupId] = {
+        publishAt: fromLocalInput(row.publishAt),
+        expiresAt: fromLocalInput(row.expiresAt),
+      };
+    }
     try {
       await api("/api/admin/videos", {
         method: "POST",
@@ -578,6 +598,7 @@ function ScheduleEditor({ video, onClose, onSaved }) {
           id: video.id,
           publishAt: clear ? null : fromLocalInput(publishAt),
           expiresAt: clear ? null : fromLocalInput(expiresAt),
+          groups: clear ? null : groupWindows,
         },
       });
       onSaved();
@@ -625,6 +646,65 @@ function ScheduleEditor({ video, onClose, onSaved }) {
             onChange={(e) => setExpiresAt(e.target.value)}
           />
         </label>
+        {groups.length > 0 ? (
+          <div className="stack-sm schedule-groups">
+            <span className="muted small">
+              Earlier or longer for a group — members of these groups can also watch
+              during their own window. This only ever adds time; it never hides the
+              video from a group (use a group restriction for that).
+            </span>
+            {groupRows.map((row, index) => (
+              <div key={row.groupId || `new-${index}`} className="schedule-group-row">
+                <select
+                  className="input input-sm"
+                  value={row.groupId}
+                  onChange={(e) => patchRow(index, { groupId: e.target.value })}
+                  aria-label="Group"
+                >
+                  <option value="">Choose a group…</option>
+                  {groups
+                    .filter((g) => g.id === row.groupId || !groupRows.some((r) => r.groupId === g.id))
+                    .map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                </select>
+                <input
+                  type="datetime-local"
+                  className="input input-sm"
+                  value={row.publishAt}
+                  onChange={(e) => patchRow(index, { publishAt: e.target.value })}
+                  aria-label="Group publish at"
+                />
+                <input
+                  type="datetime-local"
+                  className="input input-sm"
+                  value={row.expiresAt}
+                  onChange={(e) => patchRow(index, { expiresAt: e.target.value })}
+                  aria-label="Group expires at"
+                />
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label="Remove group window"
+                  onClick={() => setGroupRows((rows) => rows.filter((_, i) => i !== index))}
+                >
+                  <XIcon size={13} />
+                </button>
+              </div>
+            ))}
+            {unusedGroups.length > 0 ? (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setGroupRows((rows) => [...rows, { groupId: "", publishAt: "", expiresAt: "" }])}
+              >
+                Add a group window
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {error ? <div className="notice notice-error">{error}</div> : null}
         <div className="row-actions">
           <button
@@ -1491,6 +1571,9 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish, canGrantGroup
   // while ticked; starts empty on every visit, deliberately — see
   // lib/uploadGrants.js on why there is no remembered default.
   const [grantGroups, setGrantGroups] = useState([]);
+  // Group names for the schedule editor's per-group windows (from the admin
+  // videos list, names only).
+  const [groupNames, setGroupNames] = useState([]);
   const [uploadGroups, setUploadGroups] = useState([]);
   const [recounting, setRecounting] = useState(false);
   const [recountNote, setRecountNote] = useState("");
@@ -1525,6 +1608,7 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish, canGrantGroup
         api("/api/admin/viewers?scope=recipients"),
       ]);
       setVideos(v.videos);
+      setGroupNames(v.groups || []);
       setThumbs(v.thumbnails);
       setCollections(c.collections);
       setViewers(viewersData.viewers);
@@ -2378,6 +2462,7 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish, canGrantGroup
       {scheduleFor ? (
         <ScheduleEditor
           video={scheduleFor}
+          groups={groupNames}
           onClose={() => setScheduleFor(null)}
           onSaved={load}
         />

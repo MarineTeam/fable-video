@@ -21,7 +21,7 @@ import {
   setVideoWatermarkOverride,
 } from "../../../lib/store";
 import { countsByVideo, countsFor, summarize } from "../../../lib/ratings";
-import { pruneVideoFromGroups } from "../../../lib/groups";
+import { getGroupMap, pruneVideoFromGroups } from "../../../lib/groups";
 import { getPublicMap, prunePublicVideo } from "../../../lib/publicVideos";
 import { beyondDuration, formatTimestamp, parseChapters } from "../../../lib/chapters";
 import { MAX_NOTES_LENGTH } from "../../../lib/notes";
@@ -38,6 +38,7 @@ import {
   getScheduleMap,
   scheduleState,
   setSchedule,
+  validateGroupWindows,
   validateWindow,
 } from "../../../lib/schedule";
 import { logAction } from "../../../lib/audit";
@@ -125,7 +126,16 @@ async function handler(req, res) {
       } catch (err) {
         console.error("Automatic transcript collection failed:", err);
       }
-      return res.json({ videos, thumbnails: thumbnailsEnabled() });
+      // Group NAMES only, for the schedule editor's per-group windows. No
+      // members: which people are in a group is viewers.read data, and a
+      // videos.manage holder needs only the names to schedule by them.
+      let groups = [];
+      try {
+        groups = Object.values(await getGroupMap()).map((g) => ({ id: g.id, name: g.name }));
+      } catch (err) {
+        console.error("Could not load group names for the schedule editor:", err);
+      }
+      return res.json({ videos, thumbnails: thumbnailsEnabled(), groups });
     } catch (err) {
       console.error("Could not load videos from bunny.net:", err);
       return res.status(502).json({ error: "Could not load videos from bunny.net" });
@@ -212,11 +222,28 @@ async function handler(req, res) {
     if (action === "set-schedule") {
       const publishAt = req.body?.publishAt || null;
       const expiresAt = req.body?.expiresAt || null;
+      const groups = req.body?.groups ?? null;
       const problem = validateWindow({ publishAt, expiresAt });
       if (problem) return res.status(400).json({ error: problem });
+      // Per-group windows only ADD visibility for members of a group the
+      // viewer could already see the video through (scope still applies), so
+      // they grant nothing a videos.manage holder could not already do by
+      // opening the default window. Groups must exist: a window stored for a
+      // name nobody has used yet would apply to whichever group takes it.
+      if (groups !== null) {
+        let known;
+        try {
+          known = Object.keys(await getGroupMap());
+        } catch (err) {
+          console.error("Could not read groups to validate a schedule:", err);
+          return res.status(502).json({ error: "Could not save the video schedule" });
+        }
+        const groupProblem = validateGroupWindows(groups, known);
+        if (groupProblem) return res.status(400).json({ error: groupProblem });
+      }
       let saved;
       try {
-        saved = await setSchedule(id, { publishAt, expiresAt });
+        saved = await setSchedule(id, { publishAt, expiresAt, groups });
       } catch (err) {
         console.error("Could not save the video schedule:", err);
         return res.status(502).json({ error: "Could not save the video schedule" });
@@ -225,7 +252,8 @@ async function handler(req, res) {
         admin,
         "video.schedule",
         saved
-          ? `${id} → ${saved.publishAt || "now"} to ${saved.expiresAt || "forever"}`
+          ? `${id} → ${saved.publishAt || "now"} to ${saved.expiresAt || "forever"}` +
+              (saved.groups ? ` (+${Object.keys(saved.groups).length} group window(s))` : "")
           : `${id} → always available`
       );
       return res.json({ ok: true, schedule: saved });

@@ -36,7 +36,7 @@ async function handler(req, res) {
         // video is now out of scope or outside its publish window simply is
         // not in `library`, so savedVideos drops it — saving something can
         // never outlive the right to see it.
-        fetchVideoLibrary(access.videoScope),
+        fetchVideoLibrary(access.videoScope, { groupIds: access.groupIds }),
       ]);
       return res.json({ videos: savedVideos(library.videos, raw), max: MAX_ITEMS });
     } catch (err) {

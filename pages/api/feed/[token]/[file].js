@@ -12,7 +12,7 @@
 // for a request that is going to be refused.
 import { resolveFeedRequest } from "../../../../lib/feedAccess";
 import { scopeAllows } from "../../../../lib/roles";
-import { getSchedule, isLive } from "../../../../lib/schedule";
+import { getSchedule, isLiveFor } from "../../../../lib/schedule";
 import { mediaEnabled, signCdnPath, signedMp4Url } from "../../../../lib/bunnyMedia";
 import { getVideo } from "../../../../lib/bunny";
 import { oneString } from "../../../../lib/params";
@@ -77,7 +77,7 @@ async function handler(req, res) {
     console.error("Could not read the schedule for a feed episode:", err);
     return res.status(404).json({ error: "Not found" });
   }
-  if (!isLive(schedule)) return res.status(404).json({ error: "Not found" });
+  if (!isLiveFor(schedule, resolved.access.groupIds)) return res.status(404).json({ error: "Not found" });
 
   // 4. Only now, a signed URL — minted per request, never stored.
   if (!mediaEnabled()) return res.status(404).json({ error: "Not found" });

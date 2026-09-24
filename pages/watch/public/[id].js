@@ -79,6 +79,8 @@ async function gssp({ req, params }) {
     console.error("Could not read the schedule for a public video:", err);
     return { notFound: true };
   }
+  // The DEFAULT window only: a public visitor has no groups, and per-group
+  // windows only ever add visibility for members (lib/schedule.js isLiveFor).
   if (!isLive(schedule)) return { notFound: true };
 
   // 3. The video itself.

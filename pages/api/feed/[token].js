@@ -57,7 +57,7 @@ async function handler(req, res) {
   let iconVersion;
   try {
     [library, siteName, iconVersion] = await Promise.all([
-      fetchVideoLibrary(resolved.access.videoScope),
+      fetchVideoLibrary(resolved.access.videoScope, { groupIds: resolved.access.groupIds }),
       getSiteName().catch(() => null),
       getAppIconVersion().catch(() => null),
     ]);

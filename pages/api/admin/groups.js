@@ -39,6 +39,7 @@ import {
 } from "../../../lib/groups";
 import { listViewers, setViewerTags } from "../../../lib/store";
 import { logAction } from "../../../lib/audit";
+import { pruneGroupFromSchedules } from "../../../lib/schedule";
 import { withMonitorApi } from "../../../lib/monitor";
 
 async function handler(req, res) {
@@ -229,6 +230,13 @@ async function handler(req, res) {
       return res.status(502).json({ error: "Could not delete the group" });
     }
     if (!removed) return res.status(404).json({ error: "Group not found" });
+    // Per-group publish windows are keyed on the group id, which is derived
+    // from the NAME — a later group called the same would otherwise inherit
+    // every early-access window this one had. Best-effort: the group is gone
+    // either way, and a leftover window only matters if the name comes back.
+    await pruneGroupFromSchedules(groupId(name)).catch((err) =>
+      console.error("Could not clear the group's publish windows:", err)
+    );
     // Deleting the record drops the restriction; the tag itself stays on
     // viewers and reverts to being a plain label.
     await logAction(admin, "group.delete", groupId(name));

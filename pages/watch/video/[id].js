@@ -22,7 +22,7 @@ import {
 } from "../../../lib/store";
 import { resolveWatermark } from "../../../lib/watermark";
 import { getVideo, signEmbedUrl } from "../../../lib/bunny";
-import { getSchedule, isLive } from "../../../lib/schedule";
+import { getSchedule, isLiveFor } from "../../../lib/schedule";
 import { getChapters, getNotes } from "../../../lib/videoMeta";
 import { notesLines } from "../../../lib/notes";
 import { passageSearchHref } from "../../../lib/search";
@@ -73,7 +73,7 @@ async function gssp({ req, params, query, resolvedUrl }) {
       // constraint, rather than taking live content off the air.
       console.error("Could not read the video schedule:", err);
     }
-    if (!isLive(schedule)) return { notFound: true };
+    if (!isLiveFor(schedule, access.groupIds)) return { notFound: true };
   }
 
   let video;

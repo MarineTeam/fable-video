@@ -31,7 +31,7 @@ async function handler(req, res) {
 
   let library;
   try {
-    library = await fetchVideoLibrary(access.videoScope, { cap: false });
+    library = await fetchVideoLibrary(access.videoScope, { cap: false, groupIds: access.groupIds });
   } catch (err) {
     console.error("Could not read the library for the book index:", err);
     return res.status(502).json({ error: "Could not load the book list" });

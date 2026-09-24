@@ -1773,3 +1773,15 @@ code {
   border: 1px solid var(--border);
   background: var(--panel);
 }
+
+/* Schedule editor: per-group windows. */
+.schedule-groups {
+  margin-top: 0.4rem;
+}
+
+.schedule-group-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}

@@ -636,6 +636,27 @@ URL), and `deleteFeedToken` on viewer removal in `pages/api/admin/viewers.js`.
 handlers, changes the world in Redis between two calls with the SAME token, and
 asserts the second answer differs.
 
+### (z) Per-group publish windows only ever ADD visibility
+
+**Statement (2026-09-24):** a schedule may carry `groups: { <groupId>: { publishAt,
+expiresAt } }`. `isLiveFor(schedule, groupIds)` (`lib/schedule.js`) is true when the
+DEFAULT window is live OR any of the viewer's groups' windows is. Every enforcement
+point uses it with `access.groupIds` (from `resolveAccess`, derived from tags):
+`fetchVideoLibrary` (homepage, `/api/videos`, search, book index, My List, feed list),
+the watch page, `/api/transcript`, `/api/progress` and the feed media route. The public
+page uses the default window only — an anonymous visitor has no groups.
+
+**Why additive, and why it must stay so:** each of those call sites has to be handed
+the viewer's groups, and one will eventually be missed. Additive windows make that slip
+fail SAFE — a missed call site withholds an early preview. A window that could DELAY a
+video for a group would make the same slip a leak. Group scope still applies on top, so
+a window never reaches someone the video's grants do not. Group ids are group NAMES, so
+`DELETE /api/admin/groups` prunes the group's windows (`pruneGroupFromSchedules`), and a
+window for a group that does not exist is refused when saved. `__proto__`,
+`constructor` and `prototype` are never used as group keys.
+
+**Verify with:** `npm test -- groupSchedules videoListGroups transcriptRoute access groupRoute`.
+
 ### (y) An admin-uploaded file served to everyone is a PNG, checked by its bytes
 
 **Statement (2026-09-23):** the admin-set app icon (`lib/appIcon.js`) is the one piece

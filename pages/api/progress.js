@@ -14,7 +14,7 @@ import { normalizeEmail } from "../../lib/auth";
 import { CAP, hasCapability, resolveAccess, scopeAllows } from "../../lib/roles";
 import { getProgress, saveProgress } from "../../lib/store";
 import { listAllVideos, thumbnailUrl } from "../../lib/bunny";
-import { getScheduleMap, isLive } from "../../lib/schedule";
+import { getScheduleMap, isLiveFor } from "../../lib/schedule";
 import { withMonitorApi } from "../../lib/monitor";
 
 const MAX_CONTINUE_ITEMS = 8;
@@ -84,7 +84,7 @@ async function handler(req, res) {
           (e) =>
             byId.has(e.videoId) &&
             scopeAllows(access.videoScope, e.videoId) &&
-            (staff || isLive(schedules[e.videoId], now))
+            (staff || isLiveFor(schedules[e.videoId], access.groupIds, now))
         )
         .map((e) => {
           const video = byId.get(e.videoId);
