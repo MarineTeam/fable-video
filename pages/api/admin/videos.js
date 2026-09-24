@@ -169,6 +169,7 @@ async function handler(req, res) {
             await pruneVideoMeta(videoId).catch(() => {});
             await prunePublicVideo(videoId).catch(() => {});
             await clearVideoRatingCounts(videoId).catch(() => {});
+            await setVideoWatermarkOverride(videoId, "default").catch(() => {});
             results[videoId] = { ok: true };
           } catch (err) {
             console.error("Bulk delete failed on bunny.net:", err);
@@ -376,6 +377,8 @@ async function handler(req, res) {
     await prunePublicVideo(id).catch(() => {});
     // A recycled bunny.net id must not inherit another video's score.
     await clearVideoRatingCounts(id).catch(() => {});
+    // Nor its watermark setting — "default" is how an override is removed.
+    await setVideoWatermarkOverride(id, "default").catch(() => {});
     await logAction(admin, "video.delete", id);
     return res.json({ ok: true });
   }

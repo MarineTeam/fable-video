@@ -16,6 +16,8 @@ import { getProgress, saveProgress } from "../../lib/store";
 import { listAllVideos, thumbnailUrl } from "../../lib/bunny";
 import { getScheduleMap, isLiveFor } from "../../lib/schedule";
 import { withMonitorApi } from "../../lib/monitor";
+import { allowRequest } from "../../lib/ratelimit";
+import { isProgressVideoId } from "../../lib/progress";
 
 const MAX_CONTINUE_ITEMS = 8;
 
@@ -108,19 +110,27 @@ async function handler(req, res) {
   }
 
   if (req.method === "POST") {
+    // The player saves every few seconds, so this is generous for a viewer
+    // with a few tabs open and tight for anything scripted (lib/progress.js).
+    if (!(await allowRequest("progress", email, 300, "10 m"))) {
+      return res.status(429).json({ error: "Too many progress updates" });
+    }
     const { videoId, t, d } = req.body || {};
     const position = Number(t);
     const duration = Number(d);
     if (
-      !videoId ||
-      typeof videoId !== "string" ||
-      videoId.length > 100 ||
+      !isProgressVideoId(videoId) ||
       !Number.isFinite(position) ||
       !Number.isFinite(duration) ||
       position < 0 ||
       duration <= 0
     ) {
       return res.status(400).json({ error: "Invalid progress payload" });
+    }
+    // Not a way to record videos outside the viewer's groups: reads already
+    // filter them out, so a write would only be clutter no one can see.
+    if (!scopeAllows(access.videoScope, videoId)) {
+      return res.status(404).json({ error: "Not found" });
     }
     try {
       await saveProgress(email, videoId, {

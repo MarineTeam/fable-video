@@ -8,6 +8,19 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Newest first. Each block is one merged pull request; the entries below the
 last block are the earlier part of this unreleased cycle.
 
+### 2026-09-24 — Bounded watch progress; delete forgets the watermark setting
+
+#### Fixed
+- **Watch progress had no bounds.** `POST /api/progress` took any string up
+  to 100 characters as a video id with no rate limit, so a signed-in viewer
+  could grow their own progress record without end. It now takes only a
+  video-id-shaped value the viewer's groups allow, is rate-limited (300 per
+  10 minutes — the player saves every few seconds), and each viewer's record
+  holds at most 1,000 videos: a new video at the cap drops the least recently
+  watched. Normal saves are still one Redis command.
+- **Deleting a video left its watermark setting behind.** Both the single and
+  the bulk delete now clear it with the rest of the video's data.
+
 ### 2026-09-24 — Library read to 1,000 videos; request-access page fix
 
 #### Fixed
