@@ -90,6 +90,9 @@ async function handler(req, res) {
     // results should be told there are more, not left thinking that is all
     // the library holds.
     truncated: result.truncated,
+    // Separate from `truncated`: the LIBRARY was larger than one read, so the
+    // oldest videos were not searched at all. Said, not hidden.
+    libraryTruncated: Boolean(library.libraryTruncated),
     thumbnails: library.thumbnails,
   });
 }

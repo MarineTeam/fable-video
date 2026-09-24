@@ -5,7 +5,7 @@ import { requireCapability } from "../../../lib/guard";
 import { CAP } from "../../../lib/roles";
 import {
   deleteVideo,
-  listAllVideos,
+  listAllVideosWithStatus,
   thumbnailsEnabled,
   thumbnailUrl,
   updateVideo,
@@ -61,9 +61,9 @@ async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
-      const [all, order, watermarkOverrides, schedules, chapters, notes, publicMap, ratingRaw] =
+      const [library, order, watermarkOverrides, schedules, chapters, notes, publicMap, ratingRaw] =
         await Promise.all([
-          listAllVideos(),
+          listAllVideosWithStatus(),
           getOrder().catch(() => []),
           getVideoWatermarkOverrides().catch(() => ({})),
           getScheduleMap().catch(() => ({})),
@@ -80,6 +80,7 @@ async function handler(req, res) {
           // an admin WHO rated anything. See lib/ratings.js.
           getRatingCounts().catch(() => ({})),
         ]);
+      const all = library.videos;
       const ratings = countsByVideo(ratingRaw);
       const now = Date.now();
       const videos = applyOrder(all, order).map((video) => ({
@@ -136,7 +137,8 @@ async function handler(req, res) {
       } catch (err) {
         console.error("Could not load group names for the schedule editor:", err);
       }
-      return res.json({ videos, thumbnails: thumbnailsEnabled(), groups });
+      // `truncated`: the library is larger than one read; the tab says so.
+      return res.json({ videos, thumbnails: thumbnailsEnabled(), groups, truncated: Boolean(library.truncated) });
     } catch (err) {
       console.error("Could not load videos from bunny.net:", err);
       return res.status(502).json({ error: "Could not load videos from bunny.net" });

@@ -1654,6 +1654,8 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish, canGrantGroup
   // Group names for the schedule editor's per-group windows (from the admin
   // videos list, names only).
   const [groupNames, setGroupNames] = useState([]);
+  // True when the library is larger than the admin list can read in full.
+  const [libraryTruncated, setLibraryTruncated] = useState(false);
   const [uploadGroups, setUploadGroups] = useState([]);
   const [recounting, setRecounting] = useState(false);
   const [recountNote, setRecountNote] = useState("");
@@ -1688,6 +1690,7 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish, canGrantGroup
         api("/api/admin/viewers?scope=recipients"),
       ]);
       setVideos(v.videos);
+      setLibraryTruncated(Boolean(v.truncated));
       setGroupNames(v.groups || []);
       setThumbs(v.thumbnails);
       setCollections(c.collections);
@@ -2157,6 +2160,12 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish, canGrantGroup
       </section>
 
       {error ? <div className="notice notice-error">{error}</div> : null}
+      {libraryTruncated ? (
+        <div className="notice">
+          The library has more videos than this list can show — these are the newest{" "}
+          {videos ? videos.length : ""}. Older ones still play from their links.
+        </div>
+      ) : null}
 
       <section className="card">
         <div className="card-head">
@@ -5243,6 +5252,11 @@ function AnalyticsTab() {
         <div className="card stat">
           <span className="stat-value">{data.videoCount.toLocaleString()}</span>
           <span className="muted small">Videos</span>
+          {data.truncated ? (
+            <span className="muted small">
+              Totals cover the newest {data.covered.toLocaleString()}
+            </span>
+          ) : null}
         </div>
       </div>
 

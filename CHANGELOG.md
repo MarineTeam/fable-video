@@ -8,6 +8,21 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Newest first. Each block is one merged pull request; the entries below the
 last block are the earlier part of this unreleased cycle.
 
+### 2026-09-24 — Library read to 1,000 videos; request-access page fix
+
+#### Fixed
+- **The request-access page crashed.** A signed-in person who was not yet
+  approved, and had not asked for access, got an error page instead of the
+  form: #38 placed the search "more matches" notice inside that form, where
+  the variable it reads does not exist. The notice now sits under the
+  homepage search, where it was meant to be. Lint now checks page and
+  component code for undefined names too (it covered only server code), so
+  the same mistake fails lint.
+- **The library was read to 500 videos, silently.** It is now read to 1,000,
+  and past that the admin Videos tab, Analytics and search say so. Analytics
+  reports the library's real video count. A video uploaded between two page
+  reads can no longer appear twice.
+
 ### 2026-09-24 — Search, scheduling, transcripts, comments (#38)
 
 **Deploy note:** set `CRON_SECRET` (16+ random characters) in Vercel to switch

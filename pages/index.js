@@ -200,16 +200,6 @@ function NotApproved({ user, requestStatus }) {
               {busy ? "Sending…" : "Request access"}
             </button>
             {error ? <div className="notice notice-error">{error}</div> : null}
-
-      {/* Told, not silently dropped: a search that matched more than one page
-          of results should say so rather than letting the viewer conclude the
-          library holds only what is shown. */}
-      {remote?.truncated ? (
-        <div className="muted small">
-          Showing the first {remote.videos.length} of {remote.total} matches — narrow the
-          search to see the rest.
-        </div>
-      ) : null}
           </form>
         )}
 
@@ -541,6 +531,21 @@ export default function Home({
       ) : null}
 
       {error ? <div className="notice notice-error">{error}</div> : null}
+
+      {/* Told, not silently dropped: a search that matched more than one page
+          of results should say so rather than letting the viewer conclude the
+          library holds only what is shown. */}
+      {remote?.libraryTruncated ? (
+        <div className="muted small">
+          This search covers the newest 1,000 videos in the library; older ones are not included.
+        </div>
+      ) : null}
+      {remote?.truncated ? (
+        <div className="muted small">
+          Showing the first {remote.videos.length} of {remote.total} matches — narrow the
+          search to see the rest.
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="muted loading-note">Loading videos…</div>
