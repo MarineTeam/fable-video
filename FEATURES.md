@@ -593,8 +593,11 @@ setup and architecture, see [README.md](./README.md).
   by viewer precisely so that deleting it is one key per feature; deciding to
   do it on removal (and losing a re-added viewer's progress) is an owner call
   that has not been made.
-- **Chapters are typed, or accepted** — there is no import from a description
-  and no per-viewer chapter progress.
+- **Chapters are typed, pasted, or accepted** — there is no per-viewer chapter
+  progress. (Pasting a whole video description works already: timestamp lines
+  become chapters and every other line is listed as ignored, so nothing is
+  dropped silently. What does not exist is reading a description from
+  bunny.net automatically.)
 - **Passages are read from titles and notes only** — not from what was said.
   The 66-book Protestant canon only; translations are ignored ("John 3:16
   (ESV)" is John 3:16), and verses are checked against a ceiling of 176
