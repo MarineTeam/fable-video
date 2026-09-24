@@ -5,6 +5,102 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+Newest first. Each block is one merged pull request; the entries below the
+last block are the earlier part of this unreleased cycle.
+
+### 2026-09-24 — Search, scheduling, transcripts, comments (#38)
+
+**Deploy note:** set `CRON_SECRET` (16+ random characters) in Vercel to switch
+on the scheduled transcript collector. Without it, `/api/cron/transcripts`
+answers 404 and transcripts are still collected when an admin opens the Videos
+tab. The schedule in the new `vercel.json` is daily, because Vercel's Hobby
+plan refuses to deploy anything more frequent; on Pro it can be `*/15 * * * *`.
+No data migration.
+
+#### Added
+
+- **Comments under videos.** Anyone who can watch a video can read and add
+  comments; a comment appears at once. Other viewers see the author's account
+  name, never their email. An author can delete their own; the new **Remove any
+  viewer's comment** capability (`comments.manage`) can remove anyone's, and
+  that removal is audited. Gated like watching (group scope, publish window),
+  rate limited 30 an hour per person, capped at 500 per video, removed with the
+  video, and shown as plain text.
+- **Per-group publish windows.** A group can get its own window beside the
+  video's — early access for leaders, or longer access for a class. They only
+  ever add time; hiding a video from a group is what group restrictions are for.
+- **Repeating weekly windows** ("Sundays 09:00–13:00"), read in the time zone
+  the rule was saved in, and past midnight when the end is before the start.
+  They narrow the default window only, so group windows are not limited by them.
+- **Search by passage** — "Philippians 2" finds "Phil 1:27–2:11" in titles and
+  notes, in any spelling — and **Browse by book** on the homepage.
+- **Search by word form** — "baptism" finds "baptised" and "baptizing".
+- **Search in every transcript language.** Translations are matched inside
+  Redis and come back as ids only, so a library of many-language sermons does
+  not make every search load every translation.
+- **Search reaches the whole library**, not only the page the homepage holds.
+- **Scheduled transcript collection** (`/api/cron/transcripts`), so a finished
+  transcription no longer waits for an admin to open the Videos tab. A queued
+  job now waits three days, not one, before being given up.
+- **Link to a moment in a video** (`?t=`).
+- **Group access by collection**, and choosing groups while uploading.
+- **Podcast episode artwork** through an entitlement-checked route.
+- **Admin-set app icon**, also used on push notifications.
+- **Ratings recount**, and a vote and its totals written in one Redis step.
+
+#### Fixed
+
+- Rating and saving to My List now check the publish window, as watching does.
+  Before, anyone who knew a video's id could rate it before it was published.
+- Deleting a video left its translated transcripts and language index behind.
+- The schedule editor's group-window rows wrapped their remove button onto a
+  line of its own.
+
+### 2026-09-19 — Transcripts, My List, AI chapter suggestions, ratings, group membership (#37)
+
+#### Added
+
+- **Transcripts** from bunny.net's Transcribe AI, shown under the player with
+  clickable timestamps. The route returns the text, never the caption URL, so
+  a transcript is gated exactly like the video.
+- **My List** — a per-viewer saved queue.
+- **AI chapter suggestions** that propose but never write: an admin accepts
+  them into the chapter editor.
+- **Rating a video** (👍 / 👎). A viewer sees only their own vote; totals go to
+  staff.
+- **Bulk group membership**, requiring `viewers.read` as well as
+  `groups.manage`, because who is in a group is people data.
+
+#### Fixed
+
+- The caption sanitizer let an unterminated tag survive a single strip pass.
+
+### 2026-09-19 — Request parameters and an open redirect (#36)
+
+#### Security
+
+- **Push broadcast click targets could leave the site.** The check was
+  `startsWith("/")`, which `//evil.com` and `/\evil.com` both pass; the service
+  worker would then navigate an open portal tab there. It now requires a single
+  leading slash, checked through `new URL()`.
+- **Every request parameter goes through `lib/params.js`**, which rejects a
+  wrong-typed value instead of coercing it. Twenty older call sites still used
+  `String()` / `Number()`, which turn `["abc"]` into `"abc"` and `true` into
+  `"true"`.
+
+### 2026-09-17 — Pre-paint palette hardening (#34, #35)
+
+#### Security
+
+- The pre-paint theme script now checks that the cached palette colours are
+  6-digit hex before applying them, instead of trusting localStorage.
+- CodeQL #7: the theme storage key is escaped with `jsLiteral()` before it is
+  embedded in the inline boot script. `JSON.stringify` alone leaves `</script>`
+  and U+2028/U+2029 able to break out. Nothing was exploitable (the key is a
+  constant); the call site is fixed rather than the alert dismissed.
+
+---
+
 ### Security
 
 - **The share and bundle watch pages now honour `REQUIRE_VERIFIED_EMAIL`.**

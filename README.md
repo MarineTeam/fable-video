@@ -17,6 +17,22 @@ directly. See [CHANGELOG.md](CHANGELOG.md) for release notes and
 - **State:** Upstash Redis (via Vercel Storage)
 - **Email:** Resend · **Notifications:** Web Push (VAPID) · **Monitoring:** Sentry
 
+### What viewers get
+
+The short version; [FEATURES.md](FEATURES.md) has the detail and the known gaps.
+
+- **Watching** — resume where you left off, chapters that seek, a transcript
+  in every language bunny.net produced, and a link to any moment (`?t=`).
+- **Finding** — search across titles, notes and what was said, reaching the
+  whole library; by passage ("Philippians 2" finds "Phil 1:27–2:11"), by word
+  form ("baptism" finds "baptized"), and **Browse by book**.
+- **Keeping** — My List, continue-watching, a full watch history, and a
+  private podcast feed.
+- **Responding** — rate a video (only you see your vote) and **comment** under
+  it (others see your name, never your email).
+- **When** — videos can be scheduled, repeat weekly ("Sundays 09:00–13:00"),
+  or open early for one group.
+
 ---
 
 ## How access works
@@ -256,11 +272,22 @@ Inert until both VAPID keys are set. Generate them with
 | --- | --- |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | VAPID public key (browser-safe). |
 | `VAPID_PRIVATE_KEY` | VAPID private key (**secret** — server only, never `NEXT_PUBLIC_`). |
-| `CRON_SECRET` | Optional. Switches on the scheduled transcript collector (`/api/cron/transcripts`, scheduled daily in `vercel.json`). 16+ random characters (**secret**); Vercel sends it to the job automatically. Unset → the route answers 404. |
 | `VAPID_SUBJECT` | Optional `mailto:`/`https:` contact sent to push services (defaults to `APP_BASE_URL`). |
 
 > **iOS only delivers push to the PWA once it's installed to the Home Screen**
 > (iOS/iPadOS 16.4+).
+
+### Optional — scheduled transcript collection
+
+| Variable | What it does |
+| --- | --- |
+| `CRON_SECRET` | Switches on `/api/cron/transcripts`, the scheduled job that collects finished transcriptions. 16+ random characters (**secret**); Vercel sends it to the job as `Authorization: Bearer …` on every run. Unset, blank or shorter → the route answers 404 and transcripts are collected only when an admin opens the Videos tab. |
+
+The schedule lives in `vercel.json` and is **daily** (`0 6 * * *`, UTC),
+because Vercel's Hobby plan refuses to deploy a cron that runs more often. On
+Pro, change it to `*/15 * * * *` so transcripts appear within a quarter of an
+hour. The route sits outside `proxy.js`, so geo enforcement and sessions never
+see it; the secret is its only gate.
 
 ### Optional — podcast feed
 
@@ -443,6 +470,17 @@ pages/
     manifest.js           Public GET — the PWA manifest, generated from the
                            live site name; rewritten from /manifest.webmanifest
                            in next.config.js
+    search.js             Whole-library search (titles, notes, transcripts in every language)
+    passages.js           Browse-by-book index for the homepage
+    mylist.js             The viewer's saved queue (My List)
+    rating.js             The viewer's own 👍/👎 on one video
+    comments.js           Comments under a video — list / add / delete (gated like watching)
+    transcript/[id].js    One video's transcript, gated like the watch page
+    feed/[token].js       Private podcast feed (RSS); feed/[token]/[file].js is episode art
+    feed-token.js         The viewer's own feed link — create / rotate
+    access-request.js     "Request access" for a signed-in, unapproved person
+    app-icon/[size].js    The admin-set app icon (PNG only), or the built-in one
+    cron/transcripts.js   Scheduled job: collect finished transcriptions (CRON_SECRET)
     push/subscribe.js     Register/remove a viewer's Web Push subscription
     share-track.js        Real-playback events (play/progress/ended) for one share link
     admin/
@@ -463,12 +501,21 @@ pages/
                           or bulk (view/playback stats, emailed status)
       upload.js           Create Bunny video + signed TUS auth (rate-limited)
       collections.js      Create / list / delete collections
+      transcribe.js       Queue a transcription, fetch captions, read suggested chapters
+      rating-recount.js   Rebuild every rating total from the votes
+      app-icon.js         Upload / reset the app icon
+      groups.js           Groups, restrictions and membership
+      roles.js            Custom roles and who holds them
+      access-requests.js  Approve / deny access requests
+      public-videos.js    Mark a video watchable without an account
+      cleanup.js          Stale-data cleanup
       audit.js            Recent admin actions
       analytics.js        Views, watch time, 30-day chart, most-watched
   watch/
     video/[id].js         Plays a library video for an approved viewer (resumable)
     [shareId].js          Plays a video via a private share link (forced login + email match)
     bundle/[bundleId].js  Lists everything currently shared with one recipient (same gate)
+    public/[id].js        A public video — no account, one video, default deny
 components/
   AppShell.js             Header/layout shell
   PushToggle.js           "Notify me" opt-in button (Web Push subscribe/unsubscribe)
@@ -476,6 +523,12 @@ components/
   ResumablePlayer.js      Wraps the Bunny embed via player.js for resume + progress
   ShareTrackedPlayer.js   Wraps the Bunny embed via player.js for share-link playback tracking
   ShareGateMessage.js     Shared "link/bundle isn't available" card (share + bundle pages)
+  TranscriptPanel.js      Transcript under the player — language picker, click-to-seek
+  Comments.js             Comments under a video (loaded after the page renders)
+  RatingButtons.js        The viewer's own 👍/👎
+  SaveToListButton.js     Save to / remove from My List
+  WatermarkOverlay.js     Viewer-email watermark over the player
+  QueryMonitor.js         Opt-in performance panel
   icons.js                Inline SVG icons
 lib/
   auth0.js                Auth0 v4 client (session handling)
@@ -485,7 +538,7 @@ lib/
   roleMigration.js        Carries fixed-role rows onto the custom-role model
   groups.js               Viewer groups: per-video allowlists over the existing tags
   accessRequests.js       Self-serve access requests (queue only — never grants)
-  schedule.js             Per-video publish/expiry windows
+  schedule.js             Per-video publish/expiry windows, weekly repeats, per-group windows
   publicVideos.js         The one no-login flag: default deny, fails CLOSED on error
   feedTokens.js           256-bit podcast-feed tokens (identity claim only)
   feedAccess.js           Re-resolves feed entitlement on EVERY fetch
@@ -493,7 +546,27 @@ lib/
   bunnyMedia.js           Signed short-lived CDN MP4 urls (podcast enclosures only)
   chapters.js             Chapter parsing/formatting — pure, storage-free, client-safe
   notes.js                Sermon-notes cleaning + the search predicate (pure, client-safe)
-  videoMeta.js            Redis storage for chapters and notes (the two hashes above)
+  videoMeta.js            Redis storage for chapters and notes, and the per-video cleanup on delete
+  captions.js             VTT parsing and transcript matching (pure)
+  captionsStore.js        Transcripts in every language, the pending-collection queue, its lock
+  transcribeQueue.js      Which queued transcriptions to check, and when to give up (pure)
+  transcriptCollect.js    Collects finished transcriptions (admin list + scheduled job)
+  cronAuth.js             CRON_SECRET check for scheduled-job routes
+  aiChapters.js           Suggested chapters from bunny.net — proposed, never stored
+  search.js               Whole-library search matching (pure, shared with the homepage)
+  scripture.js            Reads Bible passages out of text; passage overlap (pure)
+  stem.js                 Word stems for search ("baptism" / "baptized") (pure)
+  timestampLink.js        ?t= links to a moment (pure)
+  mylist.js               My List rules (pure)
+  ratings.js              Rating rules — votes are per viewer, totals hold no identity (pure)
+  ratingScripts.js        Lua scripts that write a vote and its totals in one step
+  comments.js             Comment rules: text, display name, who sees an email (pure)
+  commentsStore.js        Comments per video (Redis; cap enforced by a Lua script)
+  appIcon.js              Admin-set app icon: PNG-only validation (pure)
+  uploadGrants.js         Groups ticked at upload time
+  params.js               Request-parameter readers that reject wrong types
+  geo.js                  Geo whitelist decisions; geoBlockedPage.js is the block page
+  monitor.js              Query Monitor (opt-in); monitorClient.js is its browser half
   accessRequestNotify.js  Best-effort email/push to whoever can action a new request
   siteName.js             Site-name resolution + page-title/short-name helpers (pure, client-safe)
   guard.js                API guards: requireUser / requireAccess / requireCapability
@@ -533,6 +606,7 @@ sentry.edge.config.js     Sentry Edge runtime init (opt-in)
 next.config.js            Wrapped with withSentryConfig; rewrites
                            /manifest.webmanifest to /api/manifest
 .github/workflows/ci.yml  Lint + test + build on push/PR to main
+vercel.json               Vercel cron: the daily scheduled transcript collection
 ```
 
 ---
@@ -548,12 +622,16 @@ enforce it independently.
 - **Videos** — upload (drag-and-drop, progress, cancel/retry), rename, delete,
   drag-to-reorder, search, encoding-status badges, per-video collection
   assignment, a per-video **watermark override** (Default/Always/Never), a
-  a per-video **Schedule** (publish-at / expires-at window, with Scheduled and
-  Expired badges), a per-video **Chapters & notes** dialog (timestamped
+  a per-video **Schedule** (publish-at / expires-at window, an optional weekly
+  repeat such as "Sundays 09:00–13:00", and optional per-group windows that
+  open the video earlier or keep it longer for one group — with Scheduled,
+  Expired and "Weekly · on/off now" badges), a per-video **Chapters & notes** dialog (timestamped
   chapters typed one per line, plus free-text sermon notes — the server
   parses the chapters, sorts them on save, and reports back any line it could
-  not read), a per-row **Stats** toggle showing that video's share-link
-  analytics inline,
+  not read), **Transcribe** (bunny.net's Transcribe AI, priced on the button,
+  with optional **suggested chapters** that are never saved until accepted),
+  each video's 👍/👎 totals and a **Recount ratings** button, a per-row
+  **Stats** toggle showing that video's share-link analytics inline,
   per-video private share-link creation (with an "email the link" option),
   and **multi-select bulk sharing** (select several videos, share them with
   several recipients in one request) as well as **bulk delete** and **bulk
@@ -571,7 +649,9 @@ enforce it independently.
   button is separate, isn't shown on the list, and isn't touched by
   Remove.
 - **Roles** _(needs `roles.manage`)_ — create roles from the capability
-  catalog and see who holds each. Capabilities you don't hold yourself are
+  catalog and see who holds each. **Remove any viewer's comment**
+  (`comments.manage`) is the capability for moderating comments, which
+  happens on each video's watch page. Capabilities you don't hold yourself are
   greyed out with a reason: you can only hand out what you have.
 - **Viewers** — a queue of pending **access requests** to approve or deny,
   plus add/remove approved emails, **bulk add** (paste a list), each
@@ -591,7 +671,8 @@ enforce it independently.
   results (email is bundle-consolidated when bundled). Creating a link
   (single or bulk) includes a **watermark** override.
 - **Settings** — the **site name** (header, page titles, and share emails —
-  applied to all visitors immediately, no redeploy), homepage video count, the
+  applied to all visitors immediately, no redeploy), the **app icon** (upload
+  one picture; the browser makes the three sizes, no redeploy), homepage video count, the
   site **color palette** (7 presets +
   custom, applied to all visitors), the **email watermark** global default
   and exemption list, a **geo-location whitelist** (two independent
