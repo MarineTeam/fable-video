@@ -3788,6 +3788,120 @@ function SharesTab({ emailConfigured, onCount }) {
 }
 
 /* ------------------------------------------------------------------ */
+/* App icon (Settings tab)                                             */
+/* ------------------------------------------------------------------ */
+
+// Draws the chosen image, centre-cropped to a square, at one size, and returns
+// the PNG as base64. The resize happens HERE, in the browser, so the server
+// needs no image library — and it re-checks every result anyway
+// (lib/appIcon.js), so nothing about this function is trusted.
+function renderIconPng(image, size) {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  const side = Math.min(image.naturalWidth, image.naturalHeight);
+  const sx = (image.naturalWidth - side) / 2;
+  const sy = (image.naturalHeight - side) / 2;
+  ctx.drawImage(image, sx, sy, side, side, 0, 0, size, size);
+  return canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
+}
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("That file could not be read as an image"));
+    };
+    image.src = url;
+  });
+}
+
+function AppIconCard() {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  // Changes after a save or reset, so the preview is refetched rather than
+  // served from the browser's cache.
+  const [bust, setBust] = useState(0);
+
+  const choose = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setError("");
+    setNote("");
+    setBusy(true);
+    try {
+      const image = await loadImage(file);
+      if (Math.min(image.naturalWidth, image.naturalHeight) < 512) {
+        throw new Error("Choose an image at least 512 pixels on its shorter side");
+      }
+      const icons = {};
+      for (const size of [180, 192, 512]) icons[size] = renderIconPng(image, size);
+      await api("/api/admin/app-icon", { method: "PUT", body: { icons } });
+      setNote("Saved. New installs use it now; installed apps pick it up when the browser next checks.");
+      setBust(Date.now());
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
+  };
+
+  const reset = async () => {
+    setError("");
+    setNote("");
+    setBusy(true);
+    try {
+      await api("/api/admin/app-icon", { method: "DELETE" });
+      setNote("Back to the built-in icon.");
+      setBust(Date.now());
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <section className="card">
+      <h3>App icon</h3>
+      <p className="muted small">
+        The picture on a phone&apos;s home screen when the portal is installed, and the podcast
+        cover. Any image works — it is cropped to a square from the centre. A plain,
+        bold image reads best at small sizes. PNG output only.
+      </p>
+      <div className="inline-form">
+        {/* eslint-disable-next-line @next/next/no-img-element -- a same-origin preview of a generated icon; next/image would add nothing here */}
+        <img
+          src={`/api/app-icon/192?preview=${bust}`}
+          alt="Current app icon"
+          width={48}
+          height={48}
+          className="app-icon-preview"
+        />
+        <label className="btn btn-primary btn-sm" aria-disabled={busy}>
+          {busy ? "Working…" : "Choose image"}
+          <input type="file" accept="image/*" hidden disabled={busy} onChange={choose} />
+        </label>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={reset}>
+          Reset to default
+        </button>
+        {note ? <span className="muted small">{note}</span> : null}
+      </div>
+      {error ? <div className="notice notice-error">{error}</div> : null}
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Settings tab                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -4028,6 +4142,8 @@ function SettingsTab({ config, onConfig }) {
           ) : null}
         </form>
       </section>
+
+      <AppIconCard />
 
       <section className="card">
         <h3>Homepage video count</h3>

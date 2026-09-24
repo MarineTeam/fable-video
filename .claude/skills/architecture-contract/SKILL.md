@@ -636,6 +636,25 @@ URL), and `deleteFeedToken` on viewer removal in `pages/api/admin/viewers.js`.
 handlers, changes the world in Redis between two calls with the SAME token, and
 asserts the second answer differs.
 
+### (y) An admin-uploaded file served to everyone is a PNG, checked by its bytes
+
+**Statement (2026-09-23):** the admin-set app icon (`lib/appIcon.js`) is the one piece
+of admin-uploaded content served from this origin to anyone, signed in or not
+(`/api/app-icon/<size>`, excluded from `proxy.js`'s matcher with the other PWA
+assets). It is accepted only as a PNG — by its signature and IHDR header, never by a
+declared type — of EXACTLY the size it is filed under, under a byte cap, and served
+with `Content-Type: image/png`, `X-Content-Type-Options: nosniff` and
+`Content-Security-Policy: default-src 'none'`. The browser resizes; the server trusts
+none of it.
+
+**Why:** "it is only an icon" is how an SVG with a script in it ends up executing on
+the site's own origin. Do not widen the accepted types to SVG, and do not let the
+declared type decide. The version is written LAST and cleared FIRST in `k("app_icon")`,
+so a reader never pairs a version with a half-written set; it carries a letter prefix
+because Upstash JSON-parses all-digit strings into numbers.
+
+**Verify with:** `npm test -- appIcon appIconRoutes routes feedArtwork`.
+
 ### (s) Invariant (d) amended: the podcast feed may redirect to a signed, short-lived CDN media URL — nothing else may
 
 **Statement:** Invariant (d) and change-control rule 3 say no direct bunny CDN file

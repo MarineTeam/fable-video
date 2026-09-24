@@ -203,6 +203,13 @@ setup and architecture, see [README.md](./README.md).
   belonging to someone who is no longer approved.
 
 ### Notifications & installable app
+- **Change the app icon from the admin page** _(admin, Settings)_ — choose any
+  image and it becomes the home-screen icon for new installs, the iOS icon and
+  the podcast cover, with no redeploy. It is cropped to a square from the
+  centre and resized in the browser; the server re-checks every size is a PNG
+  of exactly that size before storing it — never an SVG, which could carry
+  script. **Reset to default** brings the built-in icon back. Already-installed
+  apps pick it up when their browser next re-checks the manifest.
 - **Push notifications** — approved viewers can opt in with a "Notify me" button
   and get a Web Push notification when a **new video becomes ready** (announced
   once per video, first run seeded silently). Sends only ever reach
@@ -620,12 +627,13 @@ setup and architecture, see [README.md](./README.md).
 - **Recurring or per-group schedules** — a video's publish/expiry window is a
   single window that applies to every viewer; it can't differ per group or
   repeat.
-- **PWA install icons** — the app icon *images* are static files and always
-  need a file edit + redeploy to change; only the *name* shown alongside them
-  is editable live. The service worker's push-notification fallback title
-  ("Marine Video Portal", used only if a push payload is ever sent without a
-  title — every current sender always supplies one) is likewise still static;
-  not worth threading a Redis read through a code path that never runs.
+- **The notification icon is still the built-in one** — push notifications
+  and the offline copy the service worker keeps use the static icon files, so
+  a custom app icon shows on the home screen and in podcast apps but not on a
+  notification. The service worker's fallback notification title is static
+  too; every current sender supplies its own title. A custom icon is offered to
+  Android as a plain icon, not a "maskable" one, because an arbitrary image has
+  no guaranteed safe zone — Android pads it rather than cropping it.
 - **Already-installed apps don't re-check the manifest promptly** — a platform
   limitation, not something app code controls: browsers re-check an installed
   PWA's manifest on their own schedule, which can be several app opens or

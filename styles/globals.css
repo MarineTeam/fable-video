@@ -1766,3 +1766,10 @@ code {
   margin-left: 0.25rem;
   font-variant-numeric: tabular-nums;
 }
+
+/* Settings: the current app icon, shown as the phone would. */
+.app-icon-preview {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}

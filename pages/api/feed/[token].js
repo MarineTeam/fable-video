@@ -19,7 +19,7 @@ import { fetchVideoLibrary } from "../../../lib/videoList";
 import { resolveFeedRequest } from "../../../lib/feedAccess";
 import { buildPodcastFeed } from "../../../lib/podcast";
 import { mediaEnabled } from "../../../lib/bunnyMedia";
-import { getSiteName } from "../../../lib/store";
+import { getAppIconVersion, getSiteName } from "../../../lib/store";
 import { oneString } from "../../../lib/params";
 import { allowRequest } from "../../../lib/ratelimit";
 import { withMonitorApi } from "../../../lib/monitor";
@@ -54,10 +54,12 @@ async function handler(req, res) {
 
   let library;
   let siteName;
+  let iconVersion;
   try {
-    [library, siteName] = await Promise.all([
+    [library, siteName, iconVersion] = await Promise.all([
       fetchVideoLibrary(resolved.access.videoScope),
       getSiteName().catch(() => null),
+      getAppIconVersion().catch(() => null),
     ]);
   } catch (err) {
     console.error("Could not build the podcast feed:", err);
@@ -88,7 +90,8 @@ async function handler(req, res) {
     // podcast apps cache artwork for a long time, and a 6-hour signed URL
     // would both break later and leave a signed bunny.net URL sitting in
     // someone's app cache.
-    imageUrl: base ? `${base}/icon-512.png` : null,
+    // The admin-set icon when there is one, through its versioned URL.
+    imageUrl: base ? (iconVersion ? `${base}/api/app-icon/512?v=${iconVersion}` : `${base}/icon-512.png`) : null,
     episodes: mediaEnabled() ? episodes : [],
   });
 

@@ -16,7 +16,7 @@
 // A read failure falls back to the built-in default — same fail-open
 // reasoning as every other site-name read in this app: a cosmetic value must
 // never break the manifest and take PWA installability down with it.
-import { getSiteName } from "../../lib/store";
+import { getAppIconVersion, getSiteName } from "../../lib/store";
 import { resolveSiteName, shortSiteName } from "../../lib/siteName";
 import { withMonitorApi } from "../../lib/monitor";
 
@@ -34,6 +34,15 @@ async function handler(req, res) {
     name = resolveSiteName(null);
   }
 
+  // The admin-set icon, when there is one. Same fail-open rule as the name:
+  // an unreadable version means the built-in icons, never a broken manifest.
+  let iconVersion = null;
+  try {
+    iconVersion = await getAppIconVersion();
+  } catch (err) {
+    console.error("Could not load the app icon version for the manifest:", err);
+  }
+
   // The spec MIME type; set it explicitly rather than relying on res.json()'s
   // default, since we want application/manifest+json, not application/json.
   res.setHeader("Content-Type", "application/manifest+json");
@@ -47,16 +56,25 @@ async function handler(req, res) {
     orientation: "any",
     background_color: "#0f172a",
     theme_color: "#0f172a",
-    icons: [
-      { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
-      {
-        src: "/icon-maskable-512.png",
-        sizes: "512x512",
-        type: "image/png",
-        purpose: "maskable",
-      },
-    ],
+    // A custom icon is offered as "any" only. The built-in maskable icon keeps
+    // its artwork inside the safe zone Android crops to; an arbitrary upload
+    // does not, and offering it as maskable would clip its edges. Android
+    // pads an "any" icon instead, which is the honest fallback.
+    icons: iconVersion
+      ? [
+          { src: `/api/app-icon/192?v=${iconVersion}`, sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: `/api/app-icon/512?v=${iconVersion}`, sizes: "512x512", type: "image/png", purpose: "any" },
+        ]
+      : [
+          { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+          {
+            src: "/icon-maskable-512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "maskable",
+          },
+        ],
   });
 }
 
