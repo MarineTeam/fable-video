@@ -118,7 +118,11 @@ setup and architecture, see [README.md](./README.md).
   not been transcribed shows no panel at all. **Every language bunny produced
   is kept**, with a picker in the panel when there is more than one —
   translation is billed per language, so ingesting only one would mean paying
-  for tracks nobody could read. A language the video does not have is reported
+  for tracks nobody could read. **Search reads every language too**: a
+  viewer searching in Spanish finds the sermon whose Spanish translation says
+  it. Translations are searched inside Redis, which hands back only the
+  matching video ids, so a library of many-language sermons does not make
+  every search load every translation. A language the video does not have is reported
   rather than quietly answered with another, because a viewer who picks
   Spanish and reads English concludes the translation is wrong rather than
   absent. **One click, not two**:
@@ -614,7 +618,7 @@ setup and architecture, see [README.md](./README.md).
   free-text discussion anywhere in the portal. That is a deliberate stop: text
   other viewers can read needs moderation, reporting and a notion of who may
   delete whose words, none of which exists here.
-- **Library search reads ONE language per video** — the default track, the one ingested first. Indexing every translation of the same sermon would multiply the search payload to return the same video, so searching in Spanish for a talk whose default is English finds nothing. The transcript panel still offers every language once the video is open.
+- **Search matches a phrase, not a translation of one** — every language bunny produced is searched, but each as written: searching "lost sheep" finds a sermon that says it in English, not one that only says "oveja perdida". Accents are part of a word here ("donde" does not find "dónde"), as they already were for the default language.
 - **Automatic transcript collection is daily unless you are on Vercel Pro** — bunny has no webhook, so finished transcriptions are collected when an admin opens the Videos tab and by a scheduled job. On Hobby the job may only run once a day (Vercel's rule), so without an admin visit a transcript can take up to a day to appear; on Pro the schedule can be every 15 minutes. The job is off until `CRON_SECRET` is set. A job bunny never finishes is given up after three days (long enough for at least two scheduled attempts) and has to be fetched with the button.
 - **AI chapters are suggestions, and staying that way is the design** — bunny can generate chapters from the transcript, but nothing on that path writes to the stored list: suggestions are read back read-only (`lib/aiChapters.js`) and land in the admin's textarea, where a person accepts them. A background write would be a second writer for the same field, which is how hand-written chapters get silently replaced. **The field names bunny returns (`title`/`start`) are read from its docs, not from a live job** — this has never run against a real transcription, so the reader accepts a few spellings and reports anything it cannot read rather than returning an empty list.
 - **Removing a viewer leaves what was recorded about them** — `removeViewer`

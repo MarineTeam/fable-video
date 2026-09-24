@@ -25,7 +25,7 @@ import { requireAccess } from "../../lib/guard";
 import { oneTrimmed } from "../../lib/params";
 import { allowRequest } from "../../lib/ratelimit";
 import { fetchVideoLibrary } from "../../lib/videoList";
-import { getTranscriptTextMap } from "../../lib/captionsStore";
+import { getTranscriptTextMap, matchingTranslatedIds } from "../../lib/captionsStore";
 import { MAX_RESULTS, searchLibrary } from "../../lib/search";
 import { withMonitorApi } from "../../lib/monitor";
 
@@ -66,10 +66,19 @@ async function handler(req, res) {
   } catch (err) {
     console.error("Could not read transcripts for search:", err);
   }
+  // Translations: matched inside Redis, ids only (lib/captionsStore.js). Same
+  // contract as the default track — losing it costs only those matches.
+  let translatedIds = new Set();
+  try {
+    translatedIds = await matchingTranslatedIds(query);
+  } catch (err) {
+    console.error("Could not search translated transcripts:", err);
+  }
 
   const result = searchLibrary({
     videos: library.videos,
     transcripts,
+    translatedIds,
     query,
     limit: MAX_RESULTS,
   });
