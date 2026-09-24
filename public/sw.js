@@ -64,7 +64,12 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(title, {
       body: data.body || "",
-      icon: "/icon-192.png",
+      // The admin-set app icon when there is one: this route serves it, or
+      // redirects to the built-in file, so it always answers with an icon.
+      icon: "/api/app-icon/192",
+      // The BADGE stays built-in on purpose. Android draws it as a one-colour
+      // silhouette of its transparent pixels, so an arbitrary uploaded picture
+      // (usually fully opaque) would render as a solid blob.
       badge: "/icon-192.png",
       data: { url: typeof data.url === "string" ? data.url : "/" },
     })

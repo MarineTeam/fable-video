@@ -630,13 +630,14 @@ setup and architecture, see [README.md](./README.md).
 - **Recurring or per-group schedules** — a video's publish/expiry window is a
   single window that applies to every viewer; it can't differ per group or
   repeat.
-- **The notification icon is still the built-in one** — push notifications
-  and the offline copy the service worker keeps use the static icon files, so
-  a custom app icon shows on the home screen and in podcast apps but not on a
-  notification. The service worker's fallback notification title is static
-  too; every current sender supplies its own title. A custom icon is offered to
-  Android as a plain icon, not a "maskable" one, because an arbitrary image has
-  no guaranteed safe zone — Android pads it rather than cropping it.
+- **Some icons stay built-in** — the notification *badge* (Android draws it as
+  a one-colour silhouette, so an opaque uploaded picture would be a blob) and
+  the offline copies the service worker keeps. Push notifications themselves
+  show the custom icon. The service worker's fallback notification title is
+  static too; every current sender supplies its own title. A custom icon is
+  offered to Android as a plain icon, not a "maskable" one, because an
+  arbitrary image has no guaranteed safe zone — Android pads it rather than
+  cropping it.
 - **Already-installed apps don't re-check the manifest promptly** — a platform
   limitation, not something app code controls: browsers re-check an installed
   PWA's manifest on their own schedule, which can be several app opens or
