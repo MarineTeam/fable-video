@@ -1779,9 +1779,70 @@ code {
   margin-top: 0.4rem;
 }
 
+/* Group on the first line with its remove button; the two dates share the
+   second line, or stack on a phone. */
 .schedule-group-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.schedule-group-row > select {
+  grid-column: 1 / 3;
+}
+
+.schedule-group-row > .icon-btn {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+@media (max-width: 480px) {
+  .schedule-group-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .schedule-group-row > select,
+  .schedule-group-row > input {
+    grid-column: 1;
+  }
+
+  .schedule-group-row > .icon-btn {
+    grid-column: 2;
+  }
+}
+
+.schedule-groups > .btn {
+  align-self: flex-start;
+}
+
+.schedule-repeat-times {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
   align-items: center;
+}
+
+.schedule-repeat {
+  margin-top: 0.4rem;
+}
+
+.schedule-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.8rem;
+}
+
+.schedule-day {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+}
+
+.checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.9rem;
 }

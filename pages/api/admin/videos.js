@@ -39,6 +39,7 @@ import {
   scheduleState,
   setSchedule,
   validateGroupWindows,
+  validateRepeat,
   validateWindow,
 } from "../../../lib/schedule";
 import { logAction } from "../../../lib/audit";
@@ -223,7 +224,8 @@ async function handler(req, res) {
       const publishAt = req.body?.publishAt || null;
       const expiresAt = req.body?.expiresAt || null;
       const groups = req.body?.groups ?? null;
-      const problem = validateWindow({ publishAt, expiresAt });
+      const repeat = req.body?.repeat ?? null;
+      const problem = validateWindow({ publishAt, expiresAt }) || validateRepeat(repeat);
       if (problem) return res.status(400).json({ error: problem });
       // Per-group windows only ADD visibility for members of a group the
       // viewer could already see the video through (scope still applies), so
@@ -243,7 +245,7 @@ async function handler(req, res) {
       }
       let saved;
       try {
-        saved = await setSchedule(id, { publishAt, expiresAt, groups });
+        saved = await setSchedule(id, { publishAt, expiresAt, groups, repeat });
       } catch (err) {
         console.error("Could not save the video schedule:", err);
         return res.status(502).json({ error: "Could not save the video schedule" });
@@ -253,6 +255,9 @@ async function handler(req, res) {
         "video.schedule",
         saved
           ? `${id} → ${saved.publishAt || "now"} to ${saved.expiresAt || "forever"}` +
+              (saved.repeat
+                ? `, weekly ${saved.repeat.days.join(",")} ${saved.repeat.start}-${saved.repeat.end} ${saved.repeat.timeZone}`
+                : "") +
               (saved.groups ? ` (+${Object.keys(saved.groups).length} group window(s))` : "")
           : `${id} → always available`
       );

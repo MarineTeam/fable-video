@@ -655,7 +655,15 @@ a window never reaches someone the video's grants do not. Group ids are group NA
 window for a group that does not exist is refused when saved. `__proto__`,
 `constructor` and `prototype` are never used as group keys.
 
-**Verify with:** `npm test -- groupSchedules videoListGroups transcriptRoute access groupRoute`.
+**Repeating windows narrow the DEFAULT window only (2026-09-24):** `schedule.repeat`
+(`{ days, start, end, timeZone }`) is checked inside `isLive`, so every call site above
+picks it up without being touched, and a missed one cannot leak — `isLive` is the one
+place that decides. It must stay inside `isLive` and must not be applied to group
+windows: a group window is the documented way to preview outside the slot. A malformed
+stored rule reads as no rule (`normalizeRepeat`); the admin route refuses one before it
+is saved (`validateRepeat`).
+
+**Verify with:** `npm test -- groupSchedules videoListGroups transcriptRoute access groupRoute repeatingSchedules scheduleRoute`.
 
 ### (y) An admin-uploaded file served to everyone is a PNG, checked by its bytes
 

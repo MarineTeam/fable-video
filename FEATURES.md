@@ -105,8 +105,8 @@ setup and architecture, see [README.md](./README.md).
   totals are plain integers holding no address at all, and **the vote and its
   total are written together in one Redis step**, so they cannot disagree. A
   **Recount ratings** button on the admin Videos tab rebuilds every total from
-  the votes, for totals written before that was true. Rating obeys group access the same way
-  saving does, and answers 404 rather than 403 for a video out of scope, so it
+  the votes, for totals written before that was true. Rating obeys group access and the
+  publish window the same way saving does, and answers 404 rather than 403 for a video out of scope, so it
   cannot be used to find out which ids exist.
 - **Transcript** — the spoken text of a recording, under the player, collapsed
   by default. Every line carries the timestamp it was said at and clicking one
@@ -467,6 +467,17 @@ setup and architecture, see [README.md](./README.md).
   search, the watch page, transcripts, continue-watching and the podcast feed.
   Deleting a group removes its windows, so a new group with the same name
   starts with none.
+- **Repeating windows** _(admin, Schedule on a video → "Only at set times each
+  week")_ — pick days and a time range ("Sundays 09:00–13:00", or Wednesday and
+  Sunday evenings) and viewers see the video only inside those slots, still
+  within its publish/expiry dates. Times are read in the time zone the rule was
+  saved in (shown beside the times), so summer time does not shift the slot. An
+  end before the start runs past midnight. It applies everywhere the publish
+  window does, including the public page and the podcast feed; staff still see
+  the video at all times, and the library badge says "Weekly · on now" or
+  "Weekly · off now". Group windows are not limited by it, so leaders can still
+  preview outside the slot. It stops new visits; a player already open keeps
+  going until its signed link runs out.
 - **Group content restrictions** — a group can optionally be **restricted** to
   an explicit list of videos **and/or whole collections** (Groups tab), so its
   members see only those in
@@ -638,10 +649,12 @@ setup and architecture, see [README.md](./README.md).
 - **Public videos are one at a time, by hand** — there is no public
   collection, no public library page, and no bulk publish. That is the
   intent: one video, one decision, one link.
-- **Schedules do not repeat, and a group window cannot hold a video back** —
-  there is no "every Sunday" window. Per-group windows only ever add time for a
-  group (below); hiding a video from one group is what group restrictions are
-  for, and keeping windows additive is what makes a missed check fail safe.
+- **A group window cannot hold a video back, and a repeat is weekly only** —
+  per-group windows only ever add time for a group (below); hiding a video from
+  one group is what group restrictions are for, and keeping windows additive is
+  what makes a missed check fail safe. Repeating windows are one weekly rule per
+  video (same hours on each chosen day); there is no monthly or "first Sunday"
+  rule, and group windows do not repeat.
 - **Some icons stay built-in** — the notification *badge* (Android draws it as
   a one-colour silhouette, so an opaque uploaded picture would be a blob) and
   the offline copies the service worker keeps. Push notifications themselves

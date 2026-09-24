@@ -129,7 +129,28 @@ function ScheduleBadge({ video }) {
       </span>
     );
   }
+  if (video.schedule?.repeat) {
+    const r = video.schedule.repeat;
+    const title = `${r.days.map((d) => WEEKDAY_NAMES[d]).join(", ")} ${r.start}–${r.end} (${r.timeZone})`;
+    return (
+      <span className="badge" title={title}>
+        {video.scheduleState === "off-slot" ? "Weekly · off now" : "Weekly · on now"}
+      </span>
+    );
+  }
   return null;
+}
+
+const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// The admin's own time zone, as the default for a new weekly rule — "9am
+// Sunday" is typed by someone who means their own 9am.
+function browserTimeZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
 }
 
 // datetime-local wants "YYYY-MM-DDTHH:mm" in LOCAL time; the API stores UTC
@@ -572,8 +593,18 @@ function ScheduleEditor({ video, groups = [], onClose, onSaved }) {
       expiresAt: toLocalInput(w?.expiresAt),
     }))
   );
+  // Weekly repeat on the default window: visible only inside these slots.
+  const existingRepeat = video.schedule?.repeat || null;
+  const [repeatOn, setRepeatOn] = useState(Boolean(existingRepeat));
+  const [repeatDays, setRepeatDays] = useState(existingRepeat?.days || [0]);
+  const [repeatStart, setRepeatStart] = useState(existingRepeat?.start || "09:00");
+  const [repeatEnd, setRepeatEnd] = useState(existingRepeat?.end || "13:00");
+  const [repeatZone] = useState(existingRepeat?.timeZone || browserTimeZone());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  const toggleDay = (d) =>
+    setRepeatDays((days) => (days.includes(d) ? days.filter((x) => x !== d) : [...days, d].sort()));
 
   const patchRow = (index, patch) =>
     setGroupRows((rows) => rows.map((r, i) => (i === index ? { ...r, ...patch } : r)));
@@ -599,6 +630,10 @@ function ScheduleEditor({ video, groups = [], onClose, onSaved }) {
           publishAt: clear ? null : fromLocalInput(publishAt),
           expiresAt: clear ? null : fromLocalInput(expiresAt),
           groups: clear ? null : groupWindows,
+          repeat:
+            clear || !repeatOn
+              ? null
+              : { days: repeatDays, start: repeatStart, end: repeatEnd, timeZone: repeatZone },
         },
       });
       onSaved();
@@ -646,6 +681,51 @@ function ScheduleEditor({ video, groups = [], onClose, onSaved }) {
             onChange={(e) => setExpiresAt(e.target.value)}
           />
         </label>
+        <div className="stack-sm schedule-repeat">
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={repeatOn}
+              onChange={(e) => setRepeatOn(e.target.checked)}
+            />
+            <span>Only at set times each week</span>
+          </label>
+          {repeatOn ? (
+            <>
+              <div className="schedule-days" role="group" aria-label="Days">
+                {WEEKDAY_NAMES.map((name, d) => (
+                  <label key={name} className="schedule-day">
+                    <input type="checkbox" checked={repeatDays.includes(d)} onChange={() => toggleDay(d)} />
+                    {name}
+                  </label>
+                ))}
+              </div>
+              <div className="schedule-repeat-times">
+                <input
+                  type="time"
+                  className="input input-sm"
+                  value={repeatStart}
+                  onChange={(e) => setRepeatStart(e.target.value)}
+                  aria-label="From"
+                />
+                <span className="muted small">to</span>
+                <input
+                  type="time"
+                  className="input input-sm"
+                  value={repeatEnd}
+                  onChange={(e) => setRepeatEnd(e.target.value)}
+                  aria-label="Until"
+                />
+                <span className="muted small">{repeatZone}</span>
+              </div>
+              <span className="muted small">
+                Visible to viewers only during these hours, within the dates above. An end
+                time before the start runs past midnight. Group windows below are not
+                limited by this.
+              </span>
+            </>
+          ) : null}
+        </div>
         {groups.length > 0 ? (
           <div className="stack-sm schedule-groups">
             <span className="muted small">
@@ -718,7 +798,7 @@ function ScheduleEditor({ video, groups = [], onClose, onSaved }) {
           <button
             type="button"
             className="btn btn-ghost"
-            disabled={busy || (!publishAt && !expiresAt)}
+            disabled={busy || (!publishAt && !expiresAt && !existingRepeat && groupRows.length === 0)}
             onClick={() => save(true)}
           >
             Always available
