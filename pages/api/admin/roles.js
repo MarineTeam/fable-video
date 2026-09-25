@@ -34,7 +34,10 @@ import {
   resolveAccess,
 } from "../../../lib/roles";
 import { findLegacyAssignments, migrateLegacyRoles } from "../../../lib/roleMigration";
-import { isValidEmail, normalizeEmail } from "../../../lib/auth";
+import { getGroupMap } from "../../../lib/groups";
+import { loadStaffScopes, setScopeForEmail } from "../../../lib/staffScope";
+import { MAX_SCOPE_GROUPS, normalizeScope } from "../../../lib/staffScopeRules";
+import { isEnvAdmin, isValidEmail, normalizeEmail } from "../../../lib/auth";
 import { oneTrimmed } from "../../../lib/params";
 import { allowRequest } from "../../../lib/ratelimit";
 import { logAction } from "../../../lib/audit";
@@ -70,10 +73,12 @@ async function handler(req, res) {
     }
 
     try {
-      const [rolesById, assignments, pendingLegacy] = await Promise.all([
+      const [rolesById, assignments, pendingLegacy, scopes, groupMap] = await Promise.all([
         loadRoles(),
         loadRoleAssignments(),
         findLegacyAssignments().catch(() => ({})),
+        loadStaffScopes().catch(() => ({})),
+        getGroupMap().catch(() => ({})),
       ]);
       return res.json({
         roles: sortedRoles(rolesById),
@@ -86,6 +91,14 @@ async function handler(req, res) {
         actor: { email: admin, owner: actor.owner, capabilities: actor.capabilities },
         migrated,
         legacyRemaining: Object.keys(pendingLegacy).length,
+        // Group limits (lib/staffScopeRules.js): email -> group ids, and the
+        // groups one can name — restricted ones only, since an unrestricted
+        // group bounds nothing.
+        scopes,
+        scopeGroups: Object.values(groupMap)
+          .filter((g) => g.restricted)
+          .map((g) => ({ id: g.id, name: g.name }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
       });
     } catch (err) {
       console.error("Could not load roles:", err);
@@ -162,6 +175,16 @@ async function handler(req, res) {
     const requested = Array.isArray(req.body?.roleIds)
       ? req.body.roleIds.filter((id) => typeof id === "string")
       : [];
+    // The group limit: undefined leaves it as it is, null lifts it (the whole
+    // portal), an array of restricted group ids sets it. Owners are never
+    // limited — they are the recovery path.
+    const scopeChange = req.body?.scope === undefined ? undefined : normalizeScope(req.body.scope);
+    if (scopeChange !== undefined && isEnvAdmin(email)) {
+      return res.status(400).json({ error: "An owner (ADMIN_EMAILS) can't be limited to groups" });
+    }
+    if (Array.isArray(req.body?.scope) && req.body.scope.length > MAX_SCOPE_GROUPS) {
+      return res.status(400).json({ error: `At most ${MAX_SCOPE_GROUPS} groups in a limit` });
+    }
     try {
       const [rolesById, assignments] = await Promise.all([loadRoles(), loadRoleAssignments()]);
       const capsOf = (ids) =>
@@ -208,14 +231,36 @@ async function handler(req, res) {
           });
         }
       }
+      if (Array.isArray(scopeChange)) {
+        const groupMap = await getGroupMap();
+        const bad = scopeChange.filter((id) => !groupMap[id]?.restricted);
+        if (bad.length) {
+          return res.status(400).json({
+            error: `Only restricted groups can limit someone — not ${bad.join(", ")}`,
+          });
+        }
+      }
+      // Write order is the fail-safe one. A narrowing (a limit set) is saved
+      // BEFORE the roles, and a widening (a limit lifted) AFTER them, so a
+      // failure between the two writes leaves the person with less than was
+      // asked for, never more.
+      if (Array.isArray(scopeChange)) await setScopeForEmail(email, scopeChange);
       const result = await setRolesForEmail(email, requested, rolesById);
       if (!result.ok) return res.status(400).json({ error: result.error });
+      // A limit with no roles limits nothing and would silently re-apply to
+      // roles given later, so it goes when the last role does.
+      if (scopeChange === null || !result.roleIds.length) await setScopeForEmail(email, null);
       await logAction(
         admin,
         "role.assign",
-        `${email} → ${result.roleIds.length ? result.roleIds.join(", ") : "(none)"}`
+        `${email} → ${result.roleIds.length ? result.roleIds.join(", ") : "(none)"}` +
+          (Array.isArray(scopeChange) && result.roleIds.length
+            ? ` (limited to ${scopeChange.join(", ") || "no groups"})`
+            : scopeChange === null
+              ? " (whole portal)"
+              : "")
       );
-      return res.json({ email, roleIds: result.roleIds });
+      return res.json({ email, roleIds: result.roleIds, scope: result.roleIds.length ? scopeChange : null });
     } catch (err) {
       console.error("Could not update the assignment:", err);
       return res.status(502).json({ error: "Could not update the assignment" });

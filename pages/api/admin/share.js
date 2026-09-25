@@ -2,6 +2,7 @@
 // email — and, when email delivery is configured, automatically email the
 // link to the recipient. Rate-limited.
 import { requireCapability } from "../../../lib/guard";
+import { videoInScope } from "../../../lib/staffScopeRules";
 import { CAP } from "../../../lib/roles";
 import { allowRequest } from "../../../lib/ratelimit";
 import { getVideo } from "../../../lib/bunny";
@@ -35,6 +36,10 @@ async function handler(req, res) {
 
   if (!videoId || typeof videoId !== "string") {
     return res.status(400).json({ error: "videoId is required" });
+  }
+  // A group-scoped caller shares only videos their groups may watch.
+  if (!videoInScope(access, videoId)) {
+    return res.status(404).json({ error: "Video not found" });
   }
   if (!isValidEmail(recipient)) {
     return res.status(400).json({ error: "A valid recipient email is required" });

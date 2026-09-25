@@ -421,6 +421,20 @@ setup and architecture, see [README.md](./README.md).
 
 ## People & oversight _(admin)_
 
+- **Staff limited to certain groups** — a person's roles can carry a **group
+  limit** (Viewers tab → roles dialog → "Limit to certain groups"). Their
+  capabilities then reach only those restricted groups, their members, and the
+  videos those groups can watch, and in the library they see what those groups
+  see. They upload into their groups, delete only videos no other group can
+  see, add new viewers straight into one of their groups (in the same write as
+  the approval), and change who is in their groups — but never edit a group's
+  record, move videos between collections, reorder the homepage, or reach
+  Settings, Roles, the activity log or broadcasts, which a limit strips. They
+  can never take someone out of their last restricted group (that would show
+  them the whole library) or remove someone who is also in another group. An
+  owner can't be limited; a limit whose groups were all deleted means *no*
+  groups, never everything. The page header shows "Limited to …".
+
 - **Approved viewer management** — add/remove emails, with **bulk add** (paste
   comma/space/newline-separated lists; validated + deduped, with invalid entries
   reported back).
@@ -518,7 +532,8 @@ setup and architecture, see [README.md](./README.md).
   longer exists, or already grants its 500-video maximum, is refused before the
   video is created; a grant that fails afterwards is named on the upload row
   rather than failing the upload. Cancelling an upload clears it from any group
-  it was granted to. Managers and admins are never group-scoped. Enforcement is
+  it was granted to. Staff see the whole library unless limited to groups (see
+  "Staff limited to certain groups" below). Enforcement is
   server-side throughout: an out-of-scope video 404s before any playback token
   is minted, rather than merely being hidden from a list.
 - **Group membership editor** — add or remove people from a group **on the
@@ -620,9 +635,6 @@ setup and architecture, see [README.md](./README.md).
 
 ## Known gaps / not yet implemented
 
-- **Group-scoped staff** — managers and admins always see the whole library;
-  a group restriction applies to viewers only. There is no "manager for these
-  videos only" role.
 - **Group membership needs both capabilities** — the editor on the Groups tab
   (below) requires `viewers.read` on top of `groups.manage`, because naming a
   group's members hands out addresses. A groups-only manager still sees the

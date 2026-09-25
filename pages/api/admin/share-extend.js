@@ -14,6 +14,7 @@
 // belong to the same bundle used to call extendBundleTtl 50 times
 // redundantly.
 import { requireCapability } from "../../../lib/guard";
+import { shareIdsOutsideScope } from "../../../lib/staffScope";
 import { CAP } from "../../../lib/roles";
 import { extendShares } from "../../../lib/shares";
 import { extendBundleTtl } from "../../../lib/bundles";
@@ -47,6 +48,10 @@ async function handler(req, res) {
 
   let outcomes;
   try {
+    // A group-scoped caller extends only links to videos in their scope.
+    if ((await shareIdsOutsideScope(access, ids)).length) {
+      return res.status(404).json({ error: "Link not found" });
+    }
     outcomes = await extendShares(ids, hours);
   } catch (err) {
     console.error("Could not extend share link(s):", err);

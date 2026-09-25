@@ -8,6 +8,27 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Newest first. Each block is one merged pull request; the entries below the
 last block are the earlier part of this unreleased cycle.
 
+### 2026-09-25 — Staff limited to certain groups
+
+#### Added
+- **Group limits for staff.** A person's roles can now be limited to certain
+  restricted groups (Viewers tab → roles dialog → "Limit to certain groups").
+  Their capabilities then reach only those groups, their members, and the
+  videos those groups can watch; in the library they see what their groups
+  see. They upload into their groups, delete only videos no other group can
+  see, add new viewers straight into one of their groups, and change who is in
+  their groups. Settings, roles, the activity log and broadcasts are never
+  available with a limit, and neither are the library-wide controls
+  (collections, the homepage order, a group's own record). Owners can't be
+  limited, and a limit whose groups are all deleted means no groups — never
+  the whole portal.
+
+#### Fixed
+- **Transcription logged the wrong actor and shared one limit.** The
+  transcribe route passed the caller's whole access record where it meant
+  their email, so the activity log stored an object as the actor and every
+  admin shared a single 10-an-hour transcription limit.
+
 ### 2026-09-24 — Bounded watch progress; delete forgets the watermark setting
 
 #### Fixed

@@ -31,6 +31,8 @@ import { MAX_NOTES_LENGTH } from "../lib/notes";
 import { formatChapters, parseChapters } from "../lib/chapters";
 import { sameChapters } from "../lib/aiChapters";
 import { resolveAccess } from "../lib/roles";
+import { getGroupMap } from "../lib/groups";
+import { effectiveScopeGroups, isScoped } from "../lib/staffScopeRules";
 import { PRESETS } from "../lib/theme";
 import { applyResolvedTheme } from "../lib/theme-client";
 import { getSiteName } from "../lib/store";
@@ -63,8 +65,18 @@ async function gssp({ req, resolvedUrl }) {
       owner: access.owner,
       capabilities: access.capabilities,
       siteName,
+      // Group-scoped staff: the groups their roles reach, by name, for the
+      // page's pickers and the "Limited to" note. null for everyone else.
+      scopeGroups: await scopeGroupsFor(access),
     },
   };
+}
+
+// Only restricted groups that still exist count (lib/staffScopeRules.js).
+async function scopeGroupsFor(access) {
+  if (!isScoped(access)) return null;
+  const groupMap = await getGroupMap().catch(() => ({}));
+  return effectiveScopeGroups(access.staffScope, groupMap).map((id) => ({ id, name: groupMap[id].name }));
 }
 
 export const getServerSideProps = withMonitorPage(gssp);
@@ -1626,7 +1638,11 @@ function PrivateListManager({ video, viewers, emailConfigured, onClose, onChange
 /* Videos tab                                                          */
 /* ------------------------------------------------------------------ */
 
-function VideosTab({ emailConfigured, onSharesChanged, canPublish, canGrantGroups }) {
+function VideosTab({ emailConfigured, onSharesChanged, canPublish, canGrantGroups, scopeGroups }) {
+  // Group-scoped staff (lib/staffScopeRules.js): their uploads go to their own
+  // groups, and the library-wide controls — collections, the homepage order —
+  // are not theirs. The routes refuse all of it independently.
+  const scoped = Array.isArray(scopeGroups);
   const [videos, setVideos] = useState(null);
   const [thumbs, setThumbs] = useState(false);
   const [collections, setCollections] = useState([]);
@@ -1674,11 +1690,20 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish, canGrantGroup
   // may grant groups — /api/admin/groups refuses anyone else, and the upload
   // route refuses their groupIds independently.
   useEffect(() => {
+    if (scoped) {
+      // Every upload goes to at least one of their groups; all are ticked to
+      // start with, and the route refuses an empty choice.
+      setGrantGroups(scopeGroups.map((g) => ({ ...g, restricted: true })));
+      setUploadGroups(scopeGroups.map((g) => g.id));
+      return;
+    }
     if (!canGrantGroups) return;
     api("/api/admin/groups")
       .then((data) => setGrantGroups(data.groups || []))
       .catch(() => setGrantGroups([]));
-  }, [canGrantGroups]);
+    // scopeGroups is server-rendered and fixed for the page's life.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canGrantGroups, scoped]);
 
   const load = useCallback(async () => {
     try {
@@ -1857,7 +1882,7 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish, canGrantGroup
     return (videos || []).filter((v) => v.title.toLowerCase().includes(q));
   }, [videos, search]);
 
-  const canReorder = !search.trim();
+  const canReorder = !search.trim() && !scoped;
 
   const toggleSelect = (id) => {
     setSelected((prev) => {
@@ -2081,7 +2106,9 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish, canGrantGroup
         {grantGroups.length > 0 ? (
           <fieldset className="upload-groups">
             <legend className="muted small">
-              Also visible to groups (optional — applies to files dropped while ticked)
+              {scoped
+                ? "Visible to your groups (at least one — applies to files dropped while ticked)"
+                : "Also visible to groups (optional — applies to files dropped while ticked)"}
             </legend>
             {grantGroups.map((g) => (
               <label key={g.id} className="upload-group">
@@ -2200,27 +2227,31 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish, canGrantGroup
             >
               <LinkIcon size={13} /> Share selected
             </button>
-            <select
-              className="input input-sm"
-              value={bulkCollection}
-              onChange={(e) => setBulkCollection(e.target.value)}
-              aria-label="Move selected to collection"
-            >
-              <option value="">No collection</option>
-              {collections.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              disabled={bulkBusy}
-              onClick={bulkSetCollection}
-            >
-              {bulkBusy ? "Moving…" : "Move"}
-            </button>
+            {scoped ? null : (
+              <>
+                <select
+                  className="input input-sm"
+                  value={bulkCollection}
+                  onChange={(e) => setBulkCollection(e.target.value)}
+                  aria-label="Move selected to collection"
+                >
+                  <option value="">No collection</option>
+                  {collections.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  disabled={bulkBusy}
+                  onClick={bulkSetCollection}
+                >
+                  {bulkBusy ? "Moving…" : "Move"}
+                </button>
+              </>
+            )}
             <button
               type="button"
               className="btn btn-danger btn-sm"
@@ -2350,6 +2381,8 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish, canGrantGroup
                   value={video.collectionId}
                   onChange={(e) => setCollection(video, e.target.value)}
                   aria-label="Collection"
+                  disabled={scoped}
+                  title={scoped ? "Collections are shared across groups, so only unlimited staff can move videos between them" : undefined}
                 >
                   <option value="">No collection</option>
                   {collections.map((c) => (
@@ -2470,6 +2503,7 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish, canGrantGroup
         )}
       </section>
 
+      {scoped ? null : (
       <section className="card">
         <div className="card-head">
           <h3>Collections</h3>
@@ -2517,6 +2551,7 @@ function VideosTab({ emailConfigured, onSharesChanged, canPublish, canGrantGroup
           </div>
         )}
       </section>
+      )}
 
       {shareFor ? (
         <ShareCreator
@@ -2585,12 +2620,33 @@ function roleNames(roleIds, roles) {
   return (roleIds || []).map((id) => byId[id]).filter(Boolean);
 }
 
+// For a group-scoped caller: which of their groups a new person goes into.
+// Nothing to choose with one group (the server uses it), and nothing at all
+// for an unscoped caller.
+function ScopeGroupPicker({ scopeGroups, value, onChange, label }) {
+  if (!Array.isArray(scopeGroups) || scopeGroups.length < 2) return null;
+  return (
+    <label className="row-actions muted small">
+      {label}{" "}
+      <select className="input input-sm" value={value} onChange={(e) => onChange(e.target.value)}>
+        {scopeGroups.map((g) => (
+          <option key={g.id} value={g.id}>
+            {g.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 // The self-serve access-request queue. Lives in the Viewers tab because
 // approving one is just "add this viewer" with provenance attached.
-function AccessRequests({ onChanged }) {
+function AccessRequests({ onChanged, scopeGroups }) {
   const [requests, setRequests] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(null);
+  // A group-scoped caller approves people INTO one of their groups.
+  const [placeIn, setPlaceIn] = useState(() => scopeGroups?.[0]?.id || "");
 
   const load = useCallback(async () => {
     try {
@@ -2610,7 +2666,7 @@ function AccessRequests({ onChanged }) {
     try {
       await api("/api/admin/access-requests", {
         method: "POST",
-        body: { email, decision },
+        body: scopeGroups ? { email, decision, group: placeIn } : { email, decision },
       });
       await load();
       if (decision === "approve") onChanged();
@@ -2644,6 +2700,7 @@ function AccessRequests({ onChanged }) {
     <section className="card">
       <div className="card-head">
         <h3>Access requests{pending.length ? ` (${pending.length})` : ""}</h3>
+        <ScopeGroupPicker scopeGroups={scopeGroups} value={placeIn} onChange={setPlaceIn} label="Approve into" />
       </div>
       {error ? <div className="notice notice-error">{error}</div> : null}
       {requests === null ? (
@@ -2706,7 +2763,13 @@ function AccessRequests({ onChanged }) {
   );
 }
 
-function ViewersTab({ onCount, me }) {
+function ViewersTab({ onCount, me, scopeGroups }) {
+  // Group-scoped callers (lib/staffScopeRules.js) see only their own groups'
+  // people, add new ones into one of those groups, and cannot assign roles.
+  const scoped = Array.isArray(scopeGroups);
+  const [placeIn, setPlaceIn] = useState(() => scopeGroups?.[0]?.id || "");
+  // Restricted groups an unscoped caller may limit someone to.
+  const [limitGroups, setLimitGroups] = useState([]);
   const [viewers, setViewers] = useState(null);
   const [input, setInput] = useState("");
   const [note, setNote] = useState(null);
@@ -2726,6 +2789,7 @@ function ViewersTab({ onCount, me }) {
       // The role catalog rides along with the people list so the chips can
       // show names rather than ids without a second request.
       setRoles(data.roles || []);
+      setLimitGroups(data.limitGroups || []);
       onCount(data.viewers.length);
     } catch (err) {
       setError(err.message);
@@ -2783,7 +2847,7 @@ function ViewersTab({ onCount, me }) {
     try {
       const data = await api("/api/admin/viewers", {
         method: "POST",
-        body: { emails: input },
+        body: scoped ? { emails: input, group: placeIn } : { emails: input },
       });
       const parts = [`Added ${data.added}`];
       if (data.skippedExisting) parts.push(`${data.skippedExisting} already approved`);
@@ -2796,13 +2860,13 @@ function ViewersTab({ onCount, me }) {
     }
   };
 
-  const assignRoles = async (email, roleIds) => {
+  const assignRoles = async (email, roleIds, scope) => {
     setRoleBusy(email);
     setError("");
     try {
       await api("/api/admin/roles", {
         method: "PATCH",
-        body: { email, roleIds },
+        body: { email, roleIds, scope },
       });
       load();
     } catch (err) {
@@ -2827,14 +2891,18 @@ function ViewersTab({ onCount, me }) {
 
   return (
     <div className="stack-lg">
-      <AccessRequests onChanged={load} />
+      <AccessRequests onChanged={load} scopeGroups={scopeGroups} />
 
       <section className="card">
         <h3>Add approved viewers</h3>
         <p className="muted small">
           Paste one or many emails — separated by commas, spaces, or new lines.
           They are validated and deduped automatically.
+          {scoped
+            ? " They join one of your groups and see only what it can watch; anyone already a viewer is left as they are."
+            : ""}
         </p>
+        <ScopeGroupPicker scopeGroups={scopeGroups} value={placeIn} onChange={setPlaceIn} label="Add to" />
         <form onSubmit={add} className="stack">
           <textarea
             className="input textarea"
@@ -2893,6 +2961,17 @@ function ViewersTab({ onCount, me }) {
                       ? " · not on the viewer list (access comes from their role)"
                       : ""}
                   </span>
+                  {Array.isArray(viewer.staffScope) ? (
+                    <span className="muted small">
+                      Staff for{" "}
+                      {viewer.staffScope.length
+                        ? viewer.staffScope
+                            .map((id) => limitGroups.find((g) => g.id === id)?.name || id)
+                            .join(", ")
+                        : "no groups (their limit's groups were deleted)"}{" "}
+                      only
+                    </span>
+                  ) : null}
                   {editingTags === viewer.email ? (
                     <div className="row-actions" style={{ marginTop: "0.4rem" }}>
                       <input
@@ -2937,7 +3016,7 @@ function ViewersTab({ onCount, me }) {
                     Edit tags
                   </button>
                 )}
-                {viewer.envAdmin ? (
+                {scoped ? null : viewer.envAdmin ? (
                   <span
                     className="tag-chip"
                     title="Owner via the ADMIN_EMAILS environment variable — holds every capability and can't be changed here"
@@ -2979,10 +3058,11 @@ function ViewersTab({ onCount, me }) {
         <RoleAssigner
           viewer={rolesFor}
           roles={roles}
+          limitGroups={limitGroups}
           busy={roleBusy === rolesFor.email}
           onClose={() => setRolesFor(null)}
-          onSave={async (roleIds) => {
-            await assignRoles(rolesFor.email, roleIds);
+          onSave={async (roleIds, scope) => {
+            await assignRoles(rolesFor.email, roleIds, scope);
             setRolesFor(null);
           }}
         />
@@ -2994,8 +3074,18 @@ function ViewersTab({ onCount, me }) {
 // Assigns any number of roles to one person. A checkbox list rather than a
 // dropdown because capabilities are the union of every role held — the old
 // single-select could not express that.
-function RoleAssigner({ viewer, roles, busy, onClose, onSave }) {
+function RoleAssigner({ viewer, roles, limitGroups = [], busy, onClose, onSave }) {
   const [selected, setSelected] = useState(new Set(viewer.roleIds || []));
+  // The group limit (lib/staffScopeRules.js): off means the whole portal.
+  const [limited, setLimited] = useState(Array.isArray(viewer.staffScope));
+  const [limitTo, setLimitTo] = useState(new Set(viewer.staffScope || []));
+  const toggleLimit = (id) =>
+    setLimitTo((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const toggle = (id) => {
     setSelected((current) => {
@@ -3048,14 +3138,42 @@ function RoleAssigner({ viewer, roles, busy, onClose, onSave }) {
                 </label>
               ))}
             </div>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={limited}
+                disabled={!limitGroups.length && !limited}
+                onChange={(e) => setLimited(e.target.checked)}
+              />
+              <span>
+                Limit to certain groups
+                <span className="muted small">
+                  {" "}
+                  — their roles then reach only these groups, their members and
+                  the videos those groups can watch. Settings, roles, the
+                  activity log and broadcasts are never available with a limit.
+                  {limitGroups.length ? "" : " Create a restricted group first."}
+                </span>
+              </span>
+            </label>
+            {limited ? (
+              <div className="stack-sm" style={{ paddingLeft: "1.5rem" }}>
+                {limitGroups.map((g) => (
+                  <label key={g.id} className="check-row">
+                    <input type="checkbox" checked={limitTo.has(g.id)} onChange={() => toggleLimit(g.id)} />
+                    <span>{g.name}</span>
+                  </label>
+                ))}
+              </div>
+            ) : null}
           </>
         )}
         <div className="row-actions">
           <button
             type="button"
             className="btn btn-primary"
-            disabled={busy || roles.length === 0}
-            onClick={() => onSave([...selected])}
+            disabled={busy || roles.length === 0 || (limited && limitTo.size === 0 && selected.size > 0)}
+            onClick={() => onSave([...selected], limited ? [...limitTo] : null)}
           >
             Save roles
           </button>
@@ -4676,12 +4794,16 @@ function GroupsTab() {
   const [membersFor, setMembersFor] = useState(null); // group id
   const [memberDraft, setMemberDraft] = useState("");
   const [memberNote, setMemberNote] = useState("");
+  // False for group-scoped staff: they manage who is in their groups, never
+  // the groups themselves (a scope IS what its groups may watch).
+  const [canEditGroups, setCanEditGroups] = useState(true);
 
   const load = useCallback(async () => {
     try {
       const data = await api("/api/admin/groups");
       setGroups(data.groups);
       setCanEditMembers(Boolean(data.canEditMembers));
+      setCanEditGroups(data.canEditGroups !== false);
       setUntracked(data.untrackedTags || []);
     } catch (err) {
       setError(err.message);
@@ -4735,6 +4857,11 @@ function GroupsTab() {
       if (result.noop?.length) parts.push(`${result.noop.length} already as asked`);
       if (result.unknown?.length) {
         parts.push(`not approved viewers: ${result.unknown.join(", ")}`);
+      }
+      if (result.refused?.length) {
+        parts.push(
+          `kept, because leaving would put them in no restricted group — remove them from the Viewers tab instead: ${result.refused.join(", ")}`
+        );
       }
       if (result.overflow?.length) {
         parts.push(`at the tag limit: ${result.overflow.join(", ")}`);
@@ -4835,6 +4962,7 @@ function GroupsTab() {
 
   return (
     <div className="stack-lg">
+      {canEditGroups ? (
       <section className="card">
         <h3>Create a group</h3>
         <p className="muted small">
@@ -4863,8 +4991,11 @@ function GroupsTab() {
         {note ? <div className="notice notice-ok">{note}</div> : null}
         {error ? <div className="notice notice-error">{error}</div> : null}
       </section>
+      ) : error ? (
+        <div className="notice notice-error">{error}</div>
+      ) : null}
 
-      {untracked.length > 0 ? (
+      {canEditGroups && untracked.length > 0 ? (
         <section className="card">
           <h3>Existing tags without a group</h3>
           <p className="muted small">
@@ -4927,13 +5058,15 @@ function GroupsTab() {
                 </div>
                 {editing === group.id ? null : (
                   <>
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => startEdit(group)}
-                    >
-                      Edit access
-                    </button>
+                    {canEditGroups ? (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => startEdit(group)}
+                      >
+                        Edit access
+                      </button>
+                    ) : null}
                     {canEditMembers ? (
                       <button
                         type="button"
@@ -4943,14 +5076,16 @@ function GroupsTab() {
                         {membersFor === group.id ? "Hide members" : "Members"}
                       </button>
                     ) : null}
-                    <button
-                      type="button"
-                      className="icon-btn icon-btn-danger"
-                      aria-label={`Delete ${group.name}`}
-                      onClick={() => remove(group)}
-                    >
-                      <TrashIcon size={14} />
-                    </button>
+                    {canEditGroups ? (
+                      <button
+                        type="button"
+                        className="icon-btn icon-btn-danger"
+                        aria-label={`Delete ${group.name}`}
+                        onClick={() => remove(group)}
+                      >
+                        <TrashIcon size={14} />
+                      </button>
+                    ) : null}
                   </>
                 )}
 
@@ -5241,14 +5376,20 @@ function AnalyticsTab() {
           <span className="stat-value">{data.totalViews.toLocaleString()}</span>
           <span className="muted small">Total views</span>
         </div>
-        <div className="card stat">
-          <span className="stat-value">{data.views30d.toLocaleString()}</span>
-          <span className="muted small">Views, last 30 days</span>
-        </div>
-        <div className="card stat">
-          <span className="stat-value">{data.watchTimeHours.toLocaleString()}h</span>
-          <span className="muted small">Watch time, last 30 days</span>
-        </div>
+        {/* bunny's 30-day figures cover the whole library, so a group-scoped
+            caller — whose totals cover only their videos — does not get them. */}
+        {data.libraryWide === false ? null : (
+          <>
+            <div className="card stat">
+              <span className="stat-value">{data.views30d.toLocaleString()}</span>
+              <span className="muted small">Views, last 30 days</span>
+            </div>
+            <div className="card stat">
+              <span className="stat-value">{data.watchTimeHours.toLocaleString()}h</span>
+              <span className="muted small">Watch time, last 30 days</span>
+            </div>
+          </>
+        )}
         <div className="card stat">
           <span className="stat-value">{data.videoCount.toLocaleString()}</span>
           <span className="muted small">Videos</span>
@@ -5356,7 +5497,7 @@ const TABS = [
   ["analytics", "Analytics", CAP.ANALYTICS_READ],
 ];
 
-export default function Admin({ user, owner, capabilities, siteName }) {
+export default function Admin({ user, owner, capabilities, siteName, scopeGroups = null }) {
   const can = useCallback(
     (capability) => (capabilities || []).includes(capability),
     [capabilities]
@@ -5461,6 +5602,15 @@ export default function Admin({ user, owner, capabilities, siteName }) {
             {(capabilities || []).length} of {ALL_CAPABILITIES.length} capabilities
           </span>
         ) : null}
+        {Array.isArray(scopeGroups) ? (
+          <span
+            className="tag-chip"
+            style={{ marginLeft: "0.6rem" }}
+            title="Your roles reach only these groups, their members, and the videos they can watch"
+          >
+            {scopeGroups.length ? `Limited to ${scopeGroups.map((g) => g.name).join(", ")}` : "Limited to no groups"}
+          </span>
+        ) : null}
       </h1>
       <div className="tabs" role="tablist">
         {visibleTabs.map(([key, label]) => (
@@ -5493,10 +5643,11 @@ export default function Admin({ user, owner, capabilities, siteName }) {
           // control is a convenience, never the boundary.
           canPublish={can(CAP.SETTINGS_MANAGE)}
           canGrantGroups={can(CAP.GROUPS_MANAGE)}
+          scopeGroups={scopeGroups}
         />
       ) : null}
       {tab === "viewers" ? (
-        <ViewersTab onCount={setViewerCount} me={user.email} />
+        <ViewersTab onCount={setViewerCount} me={user.email} scopeGroups={scopeGroups} />
       ) : null}
       {tab === "roles" ? <RolesTab /> : null}
       {tab === "groups" ? <GroupsTab /> : null}

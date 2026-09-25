@@ -17,6 +17,7 @@
 // (lib/shares.js) — this route adds no new stored data of its own, just one
 // extra field on the records it creates.
 import { requireCapability } from "../../../lib/guard";
+import { videoInScope } from "../../../lib/staffScopeRules";
 import { oneTrimmed } from "../../../lib/params";
 import { CAP } from "../../../lib/roles";
 import { allowRequest } from "../../../lib/ratelimit";
@@ -46,6 +47,10 @@ async function handler(req, res) {
   const videoId = oneTrimmed(req.query.videoId) || oneTrimmed(req.body?.videoId) || "";
   if (!videoId) {
     return res.status(400).json({ error: "videoId is required" });
+  }
+  // A group-scoped caller sees and edits private lists of in-scope videos only.
+  if (!videoInScope(access, videoId)) {
+    return res.status(404).json({ error: "Video not found" });
   }
 
   if (req.method === "GET") {

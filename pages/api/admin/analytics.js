@@ -6,6 +6,7 @@ import { CAP } from "../../../lib/roles";
 import { getStatistics, listAllVideosWithStatus } from "../../../lib/bunny";
 import { listShares, rollupShareAnalyticsByVideo } from "../../../lib/shares";
 import { withMonitorApi } from "../../../lib/monitor";
+import { isScoped, videoInScope } from "../../../lib/staffScopeRules";
 
 // bunny.net has returned chart data both as { "date": value } maps and as
 // arrays of points; normalize defensively.
@@ -33,7 +34,10 @@ async function handler(req, res) {
   }
   const access = await requireCapability(req, res, CAP.ANALYTICS_READ);
   if (!access) return;
-  const admin = access.email;
+  // A group-scoped caller gets their own videos' numbers. bunny's 30-day
+  // chart and watch time are one figure for the whole library, so they are
+  // left out for them rather than shown as if they were theirs.
+  const scoped = isScoped(access);
 
   const dateTo = new Date();
   const dateFrom = new Date(dateTo.getTime() - 30 * 24 * 3600 * 1000);
@@ -44,12 +48,13 @@ async function handler(req, res) {
       // Every video, up to lib/bunny.js's bound — past it the totals below
       // cover the newest ones, and the response says so.
       listAllVideosWithStatus(),
-      getStatistics({ dateFrom: iso(dateFrom), dateTo: iso(dateTo) }).catch(
-        () => null
-      ),
+      scoped
+        ? Promise.resolve(null)
+        : getStatistics({ dateFrom: iso(dateFrom), dateTo: iso(dateTo) }).catch(() => null),
       listShares().catch(() => []),
     ]);
-    const videos = library.videos;
+    const videos = library.videos.filter((v) => videoInScope(access, v.guid));
+    const myShares = shares.filter((share) => videoInScope(access, share.videoId));
 
     const totalViews = videos.reduce((sum, v) => sum + (v.views || 0), 0);
     const mostWatched = [...videos]
@@ -70,12 +75,13 @@ async function handler(req, res) {
       totalViews,
       views30d,
       watchTimeHours: Math.round((watchSeconds / 3600) * 10) / 10,
-      videoCount: library.total ?? videos.length,
+      videoCount: scoped ? videos.length : library.total ?? videos.length,
       truncated: Boolean(library.truncated),
       covered: videos.length,
       chart,
       mostWatched,
-      shareRollup: rollupShareAnalyticsByVideo(shares),
+      shareRollup: rollupShareAnalyticsByVideo(myShares),
+      libraryWide: !scoped,
     });
   } catch (err) {
     console.error("Could not load analytics:", err);

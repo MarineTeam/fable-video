@@ -4,6 +4,8 @@ import { CAP } from "../../../lib/roles";
 import { getOrder, saveOrder } from "../../../lib/store";
 import { logAction } from "../../../lib/audit";
 import { withMonitorApi } from "../../../lib/monitor";
+import { SCOPED_REFUSAL } from "../../../lib/staffScope";
+import { isScoped, videoInScope } from "../../../lib/staffScopeRules";
 
 async function handler(req, res) {
   const access = await requireCapability(req, res, CAP.VIDEOS_MANAGE);
@@ -12,7 +14,9 @@ async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
-      return res.json({ order: await getOrder() });
+      // A scoped caller sees only their own videos' places in it.
+      const order = await getOrder();
+      return res.json({ order: order.filter((id) => videoInScope(access, id)) });
     } catch (err) {
       console.error("Could not load the video order:", err);
       return res.status(502).json({ error: "Could not load the video order" });
@@ -20,6 +24,8 @@ async function handler(req, res) {
   }
 
   if (req.method === "POST") {
+    // The homepage order is one list for everyone.
+    if (isScoped(access)) return res.status(403).json({ error: SCOPED_REFUSAL });
     const order = req.body?.order;
     if (
       !Array.isArray(order) ||

@@ -41,17 +41,32 @@ import { listViewers, setViewerTags } from "../../../lib/store";
 import { logAction } from "../../../lib/audit";
 import { pruneGroupFromSchedules } from "../../../lib/schedule";
 import { withMonitorApi } from "../../../lib/monitor";
+import { SCOPED_REFUSAL, pruneGroupFromScopes } from "../../../lib/staffScope";
+import {
+  effectiveScopeGroups,
+  isScoped,
+  leavesUnrestricted,
+  personInScope,
+} from "../../../lib/staffScopeRules";
 
 async function handler(req, res) {
   const access = await requireCapability(req, res, CAP.GROUPS_MANAGE);
   if (!access) return;
   const admin = access.email;
+  // Group-scoped staff (lib/staffScopeRules.js) see and change the membership
+  // of their own groups only, and never a group record: a scope IS what its
+  // groups may watch, so editing an allowlist would widen their own scope.
+  const scoped = isScoped(access);
 
   if (req.method === "GET") {
     try {
       // Every tag in use, so the UI can offer to define a group for a tag
       // that exists on viewers but has no record yet.
-      const [groups, viewers] = await Promise.all([listGroups(), listViewers()]);
+      const [allGroups, viewers] = await Promise.all([listGroups(), listViewers()]);
+      const mine = scoped
+        ? new Set(effectiveScopeGroups(access.staffScope, Object.fromEntries(allGroups.map((g) => [g.id, g]))))
+        : null;
+      const groups = mine ? allGroups.filter((g) => mine.has(g.id)) : allGroups;
       const memberCounts = {};
       for (const viewer of viewers) {
         for (const tag of viewer.tags || []) {
@@ -73,7 +88,8 @@ async function handler(req, res) {
           ...(maySeePeople ? { members: membersOfGroup(viewers, g.id) } : {}),
         })),
         canEditMembers: maySeePeople,
-        untrackedTags: untracked.map((id) => ({
+        canEditGroups: !scoped,
+        untrackedTags: (scoped ? [] : untracked).map((id) => ({
           id,
           memberCount: memberCounts[id],
         })),
@@ -121,6 +137,36 @@ async function handler(req, res) {
     const canonical = group?.name || name;
     const plan = planMembershipChange(viewers, canonical, { add, remove, maxTags: MAX_TAGS_PER_VIEWER });
 
+    // Removals a scoped caller may not make: taking someone out of their last
+    // restricted group would hand them the whole library.
+    const refused = [];
+    if (scoped) {
+      const groupMap = Object.fromEntries((await listGroups()).map((g) => [g.id, g]));
+      if (!effectiveScopeGroups(access.staffScope, groupMap).includes(groupId(name))) {
+        return res.status(404).json({ error: "Group not found" });
+      }
+      // People outside the scope are reported exactly like addresses that are
+      // not viewers at all, so the answer says nothing about who else exists.
+      const byEmail = new Map(viewers.map((v) => [v.email, v]));
+      const outside = (email) => !personInScope(access, byEmail.get(email)?.tags, groupMap);
+      const hidden = new Set([...plan.noop, ...plan.added, ...plan.removed, ...plan.overflow].filter(outside));
+      // An add makes someone in scope; judge adds by who they were before.
+      plan.writes = plan.writes.filter((write) => {
+        if (hidden.has(write.email)) return false;
+        if (plan.removed.includes(write.email) && leavesUnrestricted(write.tags, groupMap)) {
+          refused.push(write.email);
+          return false;
+        }
+        return true;
+      });
+      const drop = (list) => list.filter((email) => !hidden.has(email) && !refused.includes(email));
+      plan.added = drop(plan.added);
+      plan.removed = drop(plan.removed);
+      plan.noop = drop(plan.noop);
+      plan.overflow = drop(plan.overflow);
+      plan.unknown = [...plan.unknown, ...hidden].sort();
+    }
+
     const failed = [];
     for (const write of plan.writes) {
       try {
@@ -157,6 +203,9 @@ async function handler(req, res) {
       noop: plan.noop,
       unknown: plan.unknown,
       overflow: plan.overflow,
+      // Scoped callers only: removals refused because the person would be in
+      // no restricted group afterwards. Remove them from the portal instead.
+      refused,
       failed,
       members: membersOfGroup(
         viewers.map((viewer) => {
@@ -166,6 +215,10 @@ async function handler(req, res) {
         canonical
       ),
     });
+  }
+
+  if ((req.method === "PUT" || req.method === "DELETE") && scoped) {
+    return res.status(403).json({ error: SCOPED_REFUSAL });
   }
 
   if (req.method === "PUT") {
@@ -236,6 +289,11 @@ async function handler(req, res) {
     // either way, and a leftover window only matters if the name comes back.
     await pruneGroupFromSchedules(groupId(name)).catch((err) =>
       console.error("Could not clear the group's publish windows:", err)
+    );
+    // And from every staff scope that named it, which shrinks — never widens —
+    // to whatever groups remain (an emptied scope is stored as [], "nothing").
+    await pruneGroupFromScopes(groupId(name)).catch((err) =>
+      console.error("Could not clear the group from staff scopes:", err)
     );
     // Deleting the record drops the restriction; the tag itself stays on
     // viewers and reverts to being a plain label.

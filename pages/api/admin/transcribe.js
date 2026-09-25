@@ -30,14 +30,20 @@ import {
   setTranscript,
 } from "../../../lib/captionsStore";
 import { logAction } from "../../../lib/audit";
+import { videoInScope } from "../../../lib/staffScopeRules";
 import { withMonitorApi } from "../../../lib/monitor";
 
 // bunny returns caption languages as ISO 639-1-ish shortcodes.
 const LANG = /^[A-Za-z0-9-]{2,12}$/;
 
 async function handler(req, res) {
-  const admin = await requireCapability(req, res, CAP.VIDEOS_MANAGE);
-  if (!admin) return;
+  const access = await requireCapability(req, res, CAP.VIDEOS_MANAGE);
+  if (!access) return;
+  // The caller's EMAIL. requireCapability returns the whole access record;
+  // this route used to pass that record on as if it were the email, so the
+  // activity log stored an object as the actor and every admin shared one
+  // transcription limit keyed "[object Object]".
+  const admin = access.email;
 
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -46,6 +52,8 @@ async function handler(req, res) {
 
   const guid = oneTrimmed(req.body?.guid);
   if (!guid) return res.status(400).json({ error: "Video id is required" });
+  // A group-scoped caller transcribes only videos their groups may watch.
+  if (!videoInScope(access, guid)) return res.status(404).json({ error: "Video not found" });
 
   // Ingest is the cheap half — it only reads a file bunny already produced,
   // so it is handled before the rate limit that guards the paid half.
