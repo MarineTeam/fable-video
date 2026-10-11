@@ -435,7 +435,10 @@ setup and architecture, see [README.md](./README.md).
   owner can't be limited; a limit whose groups were all deleted means *no*
   groups, never everything. The page header shows "Limited to …".
 
-- **Approved viewer management** — add/remove emails, with **bulk add** (paste
+- **Approved viewer management** — add/remove emails (removing someone also
+  deletes their watch history, saved list, votes — taken back out of the totals
+  — and comments, before their access goes, so a failure leaves them listed to
+  retry; owners keep theirs), with **bulk add** (paste
   comma/space/newline-separated lists; validated + deduped, with invalid entries
   reported back).
 - **Self-serve access requests** — someone who signs in but isn't approved
@@ -653,13 +656,11 @@ setup and architecture, see [README.md](./README.md).
 - **Search matches a phrase, not a translation of one** — every language bunny produced is searched, but each as written: searching "lost sheep" finds a sermon that says it in English, not one that only says "oveja perdida". Accents are part of a word here ("donde" does not find "dónde"), as they already were for the default language.
 - **Automatic transcript collection is daily unless you are on Vercel Pro** — bunny has no webhook, so finished transcriptions are collected when an admin opens the Videos tab and by a scheduled job. On Hobby the job may only run once a day (Vercel's rule), so without an admin visit a transcript can take up to a day to appear; on Pro the schedule can be every 15 minutes. The job is off until `CRON_SECRET` is set. A job bunny never finishes is given up after three days (long enough for at least two scheduled attempts) and has to be fetched with the button.
 - **AI chapters are suggestions, and staying that way is the design** — bunny can generate chapters from the transcript, but nothing on that path writes to the stored list: suggestions are read back read-only (`lib/aiChapters.js`) and land in the admin's textarea, where a person accepts them. A background write would be a second writer for the same field, which is how hand-written chapters get silently replaced. **The field names bunny returns (`title`/`start`) are read from its docs, not from a live job** — this has never run against a real transcription, so the reader accepts a few spellings and reports anything it cannot read rather than returning an empty list.
-- **Removing a viewer leaves what was recorded about them** — `removeViewer`
-  clears the viewer record and last-seen time, but their progress, saved list,
-  votes and comments stay until something deletes them, and nothing does yet
-  (a moderator can remove the comments by hand). Their votes therefore still count in the totals. The data is keyed
-  by viewer precisely so that deleting it is one key per feature; deciding to
-  do it on removal (and losing a re-added viewer's progress) is an owner call
-  that has not been made.
+- **Data left by viewers removed before 2026-10-11** — removing a viewer now
+  deletes their progress, saved list, votes and comments, but people removed
+  before that change were removed without it, and nothing sweeps up after
+  them. Their comments can be deleted by hand; their old votes are still in the
+  totals.
 - **Chapters are typed, pasted, or accepted** — there is no per-viewer chapter
   progress. (Pasting a whole video description works already: timestamp lines
   become chapters and every other line is listed as ignored, so nothing is

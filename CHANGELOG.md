@@ -8,6 +8,17 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Newest first. Each block is one merged pull request; the entries below the
 last block are the earlier part of this unreleased cycle.
 
+### 2026-10-11 — Removing a viewer deletes their data
+
+#### Changed
+- **Removing a viewer deletes what was recorded about them**: their watch
+  history, saved list, votes and comments on every video. Their votes are taken
+  back out of the totals in the same Redis script that deletes them. The data
+  goes before their access, so if anything fails they stay on the list and the
+  removal can be tried again; the confirmation says so before you click. An
+  `ADMIN_EMAILS` owner's data is kept, since the list doesn't decide their
+  access. The activity log records how many votes and comments went.
+
 ### 2026-09-25 — Staff limited to certain groups
 
 #### Added
