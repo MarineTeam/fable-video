@@ -31,6 +31,8 @@ import { MAX_NOTES_LENGTH } from "../lib/notes";
 import { formatChapters, parseChapters } from "../lib/chapters";
 import { sameChapters } from "../lib/aiChapters";
 import { resolveAccess } from "../lib/roles";
+import { grantCommentModeration } from "../lib/commentsGrant";
+import { logAction } from "../lib/audit";
 import { getGroupMap } from "../lib/groups";
 import { effectiveScopeGroups, isScoped } from "../lib/staffScopeRules";
 import { PRESETS } from "../lib/theme";
@@ -53,9 +55,21 @@ async function gssp({ req, resolvedUrl }) {
   if (blockedByEmailVerification(session.user)) {
     return { redirect: { destination: "/", permanent: false } };
   }
-  const access = await resolveAccess(email);
+  let access = await resolveAccess(email);
   if (!access.staff) {
     return { redirect: { destination: "/", permanent: false } };
+  }
+  // The one-time comment-moderation grant (lib/commentsGrant.js) runs on the
+  // first staff visit after deploy. Best-effort: the page loads regardless,
+  // and a failure is retried on the next visit.
+  try {
+    const granted = await grantCommentModeration();
+    if (granted.length) {
+      await logAction("system", "role.update", `comments.manage granted to ${granted.join(", ")} (viewer managers)`);
+      access = await resolveAccess(email);
+    }
+  } catch (err) {
+    console.error("Could not grant comment moderation:", err);
   }
   const siteName = await getSiteName().catch(() => null);
   return {

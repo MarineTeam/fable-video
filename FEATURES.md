@@ -114,7 +114,8 @@ setup and architecture, see [README.md](./README.md).
   account name, never their email** — the profile name, or the part of the
   email before the @ when the profile has none or the name is itself an email
   address. An author can delete their own comment at any time; anyone holding
-  the **Remove any viewer's comment** capability (Roles tab) can remove anyone's,
+  the **Remove any viewer's comment** capability (Roles tab — every role that
+  could manage viewers was given it once on 2026-10-11) can remove anyone's,
   from the same place, and that removal is in the Activity log. Staff who can
   read the viewer list also see each author's email beside their name, so an
   abusive comment can be traced to an account. Comments obey group access and
