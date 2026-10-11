@@ -5,6 +5,7 @@
 // it's skipped and reported, and the rest still get shared. Rate-limited
 // like a single share creation.
 import { requireCapability } from "../../../lib/guard";
+import { videoInScope } from "../../../lib/staffScopeRules";
 import { CAP } from "../../../lib/roles";
 import { allowRequest } from "../../../lib/ratelimit";
 import { getVideo } from "../../../lib/bunny";
@@ -68,6 +69,8 @@ async function handler(req, res) {
   // fail the whole batch — it's skipped and reported back instead.
   const videoLookups = await Promise.all(
     videoIds.map(async (id) => {
+      // Out of a group-scoped caller's scope reads exactly like missing.
+      if (!videoInScope(access, id)) return { id, ok: false };
       try {
         const video = await getVideo(id);
         return { id, title: video.title || "Untitled", ok: true };

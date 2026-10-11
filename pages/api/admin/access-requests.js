@@ -16,6 +16,8 @@ import {
   listAccessRequests,
 } from "../../../lib/accessRequests";
 import { addViewers } from "../../../lib/store";
+import { getGroupMap } from "../../../lib/groups";
+import { isScoped, placementGroup } from "../../../lib/staffScopeRules";
 import { logAction } from "../../../lib/audit";
 import { withMonitorApi } from "../../../lib/monitor";
 
@@ -52,11 +54,23 @@ async function handler(req, res) {
       if (!existing) return res.status(404).json({ error: "Request not found" });
 
       if (decision === "approve") {
+        // A group-scoped caller approves into one of their own groups, in the
+        // same write as the approval (lib/store.js addViewers) — never into no
+        // group, which would show the person the whole library.
+        let placement;
+        if (isScoped(access)) {
+          const groupMap = await getGroupMap();
+          const id = placementGroup(access, req.body?.group, groupMap);
+          if (!id) {
+            return res.status(400).json({ error: "Choose which of your groups to add them to" });
+          }
+          placement = { tags: [groupMap[id].name] };
+        }
         // Add the viewer FIRST, then clear the request. If the second step
         // fails, the person has access and a stale queue entry an admin can
         // dismiss — the opposite order could drop the request while granting
         // nothing.
-        await addViewers([email], admin);
+        await addViewers([email], admin, placement);
         await deleteAccessRequest(email);
         await logAction(admin, "access.approve", email);
         return res.json({ ok: true, decision });

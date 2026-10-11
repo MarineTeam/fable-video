@@ -12,7 +12,9 @@ import { requireAccess } from "../../lib/guard";
 import { oneTrimmed } from "../../lib/params";
 import { normalizeEmail } from "../../lib/auth";
 import { CAP, hasCapability, resolveAccess, scopeAllows } from "../../lib/roles";
-import { getProgress, saveProgress } from "../../lib/store";
+import { getGroupMap } from "../../lib/groups";
+import { isScoped, personInScope } from "../../lib/staffScopeRules";
+import { getProgress, getViewerMeta, saveProgress } from "../../lib/store";
 import { listAllVideos, thumbnailUrl } from "../../lib/bunny";
 import { getScheduleMap, isLiveFor } from "../../lib/schedule";
 import { withMonitorApi } from "../../lib/monitor";
@@ -45,6 +47,20 @@ async function handler(req, res) {
       }
       if (!targetApproved) {
         return res.status(404).json({ error: "That address isn't an approved viewer" });
+      }
+      // A group-scoped caller reads only their own groups' people; anyone
+      // else answers exactly like an address that is not a viewer.
+      if (isScoped(access)) {
+        let inScope = false;
+        try {
+          const [meta, groupMap] = await Promise.all([getViewerMeta(requestedEmail), getGroupMap()]);
+          inScope = personInScope(access, meta?.tags, groupMap);
+        } catch (err) {
+          console.error("Could not check the requested viewer against a scope:", err);
+        }
+        if (!inScope) {
+          return res.status(404).json({ error: "That address isn't an approved viewer" });
+        }
       }
       target = requestedEmail;
     }

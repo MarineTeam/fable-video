@@ -17,6 +17,8 @@
 // per-id partial results — that's a more honest reflection of reality
 // anyway (a Redis outage isn't a per-key phenomenon).
 import { requireCapability } from "../../../lib/guard";
+import { shareIdsOutsideScope } from "../../../lib/staffScope";
+import { videoInScope } from "../../../lib/staffScopeRules";
 import { CAP } from "../../../lib/roles";
 import {
   listShares,
@@ -43,7 +45,8 @@ async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
-      const shares = await listShares();
+      // A group-scoped caller sees only links to videos in their scope.
+      const shares = (await listShares()).filter((share) => videoInScope(access, share.videoId));
       return res.json({
         shares: shares.map((share) => ({
           ...share,
@@ -80,6 +83,9 @@ async function handler(req, res) {
 
     let results;
     try {
+      if ((await shareIdsOutsideScope(access, ids)).length) {
+        return res.status(404).json({ error: "Link not found" });
+      }
       results = permanent ? await permanentlyDeleteShares(ids) : await revokeShares(ids);
     } catch (err) {
       console.error(`Could not ${permanent ? "delete" : "revoke"} share link(s):`, err);
@@ -136,6 +142,9 @@ async function handler(req, res) {
 
     let outcomes;
     try {
+      if ((await shareIdsOutsideScope(access, ids)).length) {
+        return res.status(404).json({ error: "Link not found" });
+      }
       outcomes = await unrevokeShares(ids);
     } catch (err) {
       console.error("Could not restore share link(s):", err);

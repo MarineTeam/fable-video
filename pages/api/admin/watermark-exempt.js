@@ -2,15 +2,22 @@
 // (approved viewer or admin) added here never gets a watermark, regardless
 // of the global default or any per-video/per-share override (see
 // lib/watermark.js's resolveWatermark: exemption always wins).
-import { requireAdmin } from "../../../lib/guard";
+import { requireCapability } from "../../../lib/guard";
+import { CAP } from "../../../lib/roles";
+import { SCOPED_REFUSAL } from "../../../lib/staffScope";
+import { isScoped } from "../../../lib/staffScopeRules";
 import { isValidEmail, normalizeEmail } from "../../../lib/auth";
 import { listWatermarkExemptions, setWatermarkExemption } from "../../../lib/store";
 import { logAction } from "../../../lib/audit";
 import { withMonitorApi } from "../../../lib/monitor";
 
 async function handler(req, res) {
-  const admin = await requireAdmin(req, res);
-  if (!admin) return;
+  const access = await requireCapability(req, res, CAP.VIEWERS_MANAGE);
+  if (!access) return;
+  const admin = access.email;
+  // One portal-wide list, naming anyone — not something a group limit can
+  // bound.
+  if (isScoped(access)) return res.status(403).json({ error: SCOPED_REFUSAL });
 
   if (req.method === "GET") {
     try {

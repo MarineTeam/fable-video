@@ -636,6 +636,35 @@ URL), and `deleteFeedToken` on viewer removal in `pages/api/admin/viewers.js`.
 handlers, changes the world in Redis between two calls with the SAME token, and
 asserts the second answer differs.
 
+### (ee) A staff group limit only ever NARROWS — and never leaves a viewer in no group
+
+**Statement (2026-09-25):** a staff member's roles may carry a group limit
+(`fablevideo:user:scope`, `lib/staffScope.js`). `resolveAccess` then strips
+`GLOBAL_CAPABILITIES` (settings, roles, audit, broadcast) and sets `videoScope` to
+what the limit's RESTRICTED groups grant (`staffVideoScope`), and every
+`/api/admin/*` route that is not portal-wide checks the item it touches against the
+limit (`lib/staffScopeRules.js`). Five rules, each with a test in
+`lib/__tests__/scopedStaffRoutes.test.js`: (1) a limited person never edits a group
+record, collections or the homepage order — a limit IS what its groups may watch, so
+editing one widens it; (2) a viewer in no restricted group sees everything, so a limited
+person approves only INTO one of their groups, in the same write as the approval
+(`addViewers(..., { tags })`), and may never remove someone's last restricted group;
+(3) removing a person, or deleting a video, needs every restricted group involved to be
+inside the limit; (4) `roles.manage` is global, so nobody limited can set a limit, and
+owners are never limited; (5) `null` means unlimited and `[]` means NO groups — an
+emptied limit is stored as `[]`, a scope read failure DENIES, and unrestricted or
+deleted groups contribute nothing.
+
+**Why:** a group limit that could be escaped by the limited person, or that failed
+toward "unlimited", would be worse than none — it would read as a boundary while not
+being one.
+
+**Enforced by:** the static test in `scopedStaffRoutes.test.js` — every admin route
+either gates only on portal-wide capabilities or references the scope helpers, so a new
+route that does neither fails CI.
+
+**Verify with:** `npm test -- staffScopeRules staffScope scopedStaffRoutes`.
+
 ### (dd) Per-viewer progress is bounded, and a deleted video leaves no watermark row
 
 **Statement (2026-09-24):** `POST /api/progress` is rate-limited (`allowRequest("progress",

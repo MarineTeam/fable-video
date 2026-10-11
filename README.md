@@ -119,6 +119,32 @@ The mapping is deliberately generous: anything someone could do before, they
 can still do after. Rename, re-scope or delete those two roles afterwards like
 any other.
 
+#### Staff limited to certain groups
+
+A person's **roles** decide what they can do; an optional **group limit**
+decides where. Set it from the Viewers tab's role dialog ("Limit to certain
+groups", restricted groups only). With a limit, every capability reaches only
+those groups, their members, and the videos those groups can watch — on the
+admin page, and in the library, where a limited staff member sees what their
+groups see rather than everything. The page header says "Limited to …".
+
+| With a limit | They can | They can't |
+| --- | --- | --- |
+| Videos | Edit, schedule, transcribe and share their groups' videos; set publish windows for their own groups | Move videos between collections, reorder the homepage, create or delete collections |
+| Uploads | Upload; each upload is granted to their groups (all of them, or the ones ticked) | Grant an upload to another group, or put it in a collection |
+| Deleting | Delete a video only their groups can see | Delete a video another group can also see |
+| Viewers | Add people **into one of their groups** (in the same write as the approval); tag and take out their own people | See anyone outside their groups; take someone out of their last restricted group; remove someone who is also in another group or holds a role |
+| Groups | Change who is in their groups | Create, delete or re-scope any group — a limit *is* what its groups can watch |
+| Never | | Settings, roles, the activity log, broadcasts — these are portal-wide, so a limit strips them |
+
+Rules that keep it from leaking: an owner (`ADMIN_EMAILS`) can never be
+limited; only someone holding `roles.manage` sets a limit, and nobody limited
+can hold it; a limit naming only deleted or unrestricted groups means **no
+groups**, never the whole portal; a Redis failure reading it denies access. A
+viewer in no restricted group sees the whole library, so a limited person can
+never leave anyone in that state. Limits are stored in
+`fablevideo:user:scope`; the rules are `lib/staffScopeRules.js`.
+
 ### Groups
 
 A group is a viewer tag with rules attached (**`/admin` → Groups**). Membership
@@ -132,7 +158,9 @@ before groups shipped keeps working unchanged. A group may optionally be
 - Belonging to several groups means the **union of the restricted ones**. An
   unrestricted group never widens a restricted one back to the full library,
   so a stray extra tag can't defeat a restriction.
-- Managers and admins are never group-scoped — they need the whole library.
+- Staff see the whole library — unless their roles carry a group limit (see
+  "Staff limited to certain groups" above), in which case they see what those
+  groups see.
 
 Scoping is enforced **server-side** on the library fetch, `/api/videos`,
 `/api/collections`, continue-watching, and the watch page itself, which returns

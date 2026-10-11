@@ -19,6 +19,7 @@
 // call in either direction, since every record involved is already in
 // memory from the initial batch read.
 import { requireCapability } from "../../../lib/guard";
+import { shareIdsOutsideScope } from "../../../lib/staffScope";
 import { CAP } from "../../../lib/roles";
 import { getShares, isShareLive, shareUrl, stampShares } from "../../../lib/shares";
 import { bundleUrl, getBundle, liveBundleItems } from "../../../lib/bundles";
@@ -77,6 +78,15 @@ async function handler(req, res) {
   }
   if (ids.length > MAX_IDS) {
     return res.status(400).json({ error: `Email at most ${MAX_IDS} links at once` });
+  }
+
+  try {
+    if ((await shareIdsOutsideScope(access, ids)).length) {
+      return res.status(404).json({ error: "Link not found" });
+    }
+  } catch (err) {
+    console.error("Could not check share links against a group scope:", err);
+    return res.status(502).json({ error: "Could not look up the selected link(s)" });
   }
 
   // One batch read for every selected id — a missing or expired link never

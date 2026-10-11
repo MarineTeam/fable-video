@@ -29,6 +29,7 @@ import { withMonitorApi } from "../../lib/monitor";
 import { oneTrimmed } from "../../lib/params";
 import { allowRequest } from "../../lib/ratelimit";
 import { scopeAllows } from "../../lib/roles";
+import { isScoped } from "../../lib/staffScopeRules";
 import { viewerMayActOn } from "../../lib/schedule";
 
 async function handler(req, res) {
@@ -51,7 +52,10 @@ async function handler(req, res) {
   const viewOptions = {
     email: access.email,
     canModerate,
-    canSeeEmails: hasCapability(access, CAP.VIEWERS_READ),
+    // Not for group-scoped staff: a video in their scope can be watched —
+    // and commented on — by people outside their groups, whose addresses are
+    // not theirs to see.
+    canSeeEmails: hasCapability(access, CAP.VIEWERS_READ) && !isScoped(access),
   };
 
   if (req.method === "GET") {

@@ -6,6 +6,8 @@ import { createCollection, deleteCollection, listCollections } from "../../../li
 import { pruneCollectionFromGroups } from "../../../lib/groups";
 import { logAction } from "../../../lib/audit";
 import { oneTrimmed } from "../../../lib/params";
+import { SCOPED_REFUSAL } from "../../../lib/staffScope";
+import { isScoped } from "../../../lib/staffScopeRules";
 import { withMonitorApi } from "../../../lib/monitor";
 
 async function handler(req, res) {
@@ -31,6 +33,12 @@ async function handler(req, res) {
       console.error("Could not load collections:", err);
       return res.status(502).json({ error: "Could not load collections" });
     }
+  }
+
+  // Creating or deleting a collection reshapes the whole library, and a
+  // collection can be granted to any group — not a group-scoped act.
+  if (req.method !== "GET" && isScoped(access)) {
+    return res.status(403).json({ error: SCOPED_REFUSAL });
   }
 
   if (req.method === "POST") {

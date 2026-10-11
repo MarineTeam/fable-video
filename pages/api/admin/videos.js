@@ -22,6 +22,13 @@ import {
 } from "../../../lib/store";
 import { countsByVideo, countsFor, summarize } from "../../../lib/ratings";
 import { getGroupMap, pruneVideoFromGroups } from "../../../lib/groups";
+import { SCOPED_REFUSAL, scopedDeleteProblem } from "../../../lib/staffScope";
+import {
+  effectiveScopeGroups,
+  isScoped,
+  scheduleGroupsProblem,
+  videoInScope,
+} from "../../../lib/staffScopeRules";
 import { getPublicMap, prunePublicVideo } from "../../../lib/publicVideos";
 import { beyondDuration, formatTimestamp, parseChapters } from "../../../lib/chapters";
 import { MAX_NOTES_LENGTH } from "../../../lib/notes";
@@ -35,7 +42,9 @@ import {
 } from "../../../lib/videoMeta";
 import {
   clearSchedule,
+  getSchedule,
   getScheduleMap,
+  normalizeGroupWindows,
   scheduleState,
   setSchedule,
   validateGroupWindows,
@@ -58,6 +67,9 @@ async function handler(req, res) {
   );
   if (!access) return;
   const admin = access.email;
+  // Group-scoped staff (lib/staffScopeRules.js) see and change only the
+  // videos their groups may watch, and none of the library-wide acts.
+  const scoped = isScoped(access);
 
   if (req.method === "GET") {
     try {
@@ -80,7 +92,9 @@ async function handler(req, res) {
           // an admin WHO rated anything. See lib/ratings.js.
           getRatingCounts().catch(() => ({})),
         ]);
-      const all = library.videos;
+      const all = scoped
+        ? library.videos.filter((video) => videoInScope(access, video.guid))
+        : library.videos;
       const ratings = countsByVideo(ratingRaw);
       const now = Date.now();
       const videos = applyOrder(all, order).map((video) => ({
@@ -133,7 +147,12 @@ async function handler(req, res) {
       // videos.manage holder needs only the names to schedule by them.
       let groups = [];
       try {
-        groups = Object.values(await getGroupMap()).map((g) => ({ id: g.id, name: g.name }));
+        const groupMap = await getGroupMap();
+        // A scoped caller schedules only for their own groups.
+        const mine = scoped ? new Set(effectiveScopeGroups(access.staffScope, groupMap)) : null;
+        groups = Object.values(groupMap)
+          .filter((g) => !mine || mine.has(g.id))
+          .map((g) => ({ id: g.id, name: g.name }));
       } catch (err) {
         console.error("Could not load group names for the schedule editor:", err);
       }
@@ -161,6 +180,11 @@ async function handler(req, res) {
       const results = {};
       await Promise.all(
         ids.map(async (videoId) => {
+          const refused = await scopedDeleteProblem(access, videoId);
+          if (refused) {
+            results[videoId] = { ok: false, error: refused.error };
+            return;
+          }
           try {
             await deleteVideo(videoId);
             await pruneFromOrder(videoId).catch(() => {});
@@ -185,6 +209,9 @@ async function handler(req, res) {
     }
 
     if (action === "bulk-set-collection") {
+      // Collections are library-wide: moving a video between them changes
+      // which groups can see it, other people's included.
+      if (scoped) return res.status(403).json({ error: SCOPED_REFUSAL });
       const ids = Array.isArray(req.body?.ids)
         ? [...new Set(req.body.ids.filter((v) => typeof v === "string" && v))]
         : [];
@@ -222,6 +249,10 @@ async function handler(req, res) {
     if (!id || typeof id !== "string") {
       return res.status(400).json({ error: "Video id is required" });
     }
+    // Out of scope reads as missing, the way the viewer routes answer it.
+    if (!videoInScope(access, id)) {
+      return res.status(404).json({ error: "Video not found" });
+    }
 
     if (action === "set-schedule") {
       const publishAt = req.body?.publishAt || null;
@@ -245,6 +276,23 @@ async function handler(req, res) {
         }
         const groupProblem = validateGroupWindows(groups, known);
         if (groupProblem) return res.status(400).json({ error: groupProblem });
+      }
+      if (scoped) {
+        let stored;
+        let groupMap;
+        try {
+          [stored, groupMap] = await Promise.all([getSchedule(id), getGroupMap()]);
+        } catch (err) {
+          console.error("Could not read the stored schedule:", err);
+          return res.status(502).json({ error: "Could not save the video schedule" });
+        }
+        const problem = scheduleGroupsProblem(
+          access,
+          normalizeGroupWindows(stored?.groups),
+          normalizeGroupWindows(groups),
+          groupMap
+        );
+        if (problem) return res.status(403).json({ error: problem });
       }
       let saved;
       try {
@@ -339,6 +387,7 @@ async function handler(req, res) {
     }
 
     if (action === "set-collection") {
+      if (scoped) return res.status(403).json({ error: SCOPED_REFUSAL });
       const collectionId = oneTrimmed(req.body?.collectionId) || "";
       try {
         await updateVideo(id, { collectionId });
@@ -360,6 +409,8 @@ async function handler(req, res) {
   if (req.method === "DELETE") {
     const id = oneTrimmed(req.query.id);
     if (!id) return res.status(400).json({ error: "Video id is required" });
+    const refused = await scopedDeleteProblem(access, id);
+    if (refused) return res.status(refused.status).json({ error: refused.error });
     try {
       await deleteVideo(id);
     } catch (err) {
