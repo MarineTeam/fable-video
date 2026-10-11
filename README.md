@@ -99,7 +99,11 @@ test in `lib/__tests__/roles.test.js`:
 
 Removing someone from the viewer list also clears their role assignments — a
 role grants access on its own, so leaving one behind would silently keep them
-in.
+in. It also **deletes what was recorded about them**: their watch history,
+saved list, votes (taken back out of the totals) and comments on every video.
+That happens first; if it fails, they stay on the list and you can try again.
+An `ADMIN_EMAILS` owner keeps their data, since the list doesn't decide their
+access.
 
 #### Migrating from the old fixed roles
 

@@ -28,6 +28,7 @@ import {
   tagChangeProblem,
 } from "../../../lib/staffScopeRules";
 import { deleteFeedToken } from "../../../lib/feedTokens";
+import { forgetViewerData } from "../../../lib/viewerData";
 import { logAction } from "../../../lib/audit";
 import { withMonitorApi } from "../../../lib/monitor";
 
@@ -230,6 +231,20 @@ async function handler(req, res) {
         });
       }
     }
+    // What was recorded about them goes FIRST (lib/viewerData.js): if it
+    // fails they are still listed, and removing them again retries it. An
+    // owner keeps their access whatever this list says, so their data stays.
+    let forgotten = null;
+    if (!isEnvAdmin(email)) {
+      try {
+        forgotten = await forgetViewerData(email);
+      } catch (err) {
+        console.error("Could not delete a removed viewer's data:", err);
+        return res.status(502).json({
+          error: "Could not delete their saved data, so they were not removed — try again",
+        });
+      }
+    }
     try {
       await removeViewer(email);
       // A role grants library access on its own (anyone holding a capability
@@ -246,8 +261,12 @@ async function handler(req, res) {
       console.error("Could not remove viewer:", err);
       return res.status(502).json({ error: "Could not remove viewer" });
     }
-    await logAction(admin, "viewer.remove", email);
-    return res.json({ ok: true });
+    await logAction(
+      admin,
+      "viewer.remove",
+      forgotten ? `${email} (data deleted: ${forgotten.votes} votes, ${forgotten.comments} comments)` : email
+    );
+    return res.json({ ok: true, forgotten });
   }
 
   res.setHeader("Allow", "GET, POST, PATCH, DELETE");

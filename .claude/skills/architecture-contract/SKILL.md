@@ -995,9 +995,16 @@ better and makes the admin's totals a single `HGETALL`. It also leaves a removed
 viewer's address sitting in a row that nothing cleans — there is no sweep over video
 keys, and adding one would mean scanning every video on every viewer removal. Keying
 by viewer means deleting a person's data is one key per feature, for every per-viewer
-feature at once, including ones not written yet. **That deletion does not run today**:
-`removeViewer` clears only the viewer record and last-seen time (FEATURES.md, known
-gaps). Do not describe removal as deleting their data until it does.
+feature at once, including ones not written yet.
+
+**Removal deletes it (2026-10-11, owner decision).** `DELETE /api/admin/viewers` calls
+`forgetViewerData` (`lib/viewerData.js`) BEFORE `removeViewer`: `FORGET_VOTES_SCRIPT`
+takes every vote back out of the totals and deletes the hash in one script, progress
+and saved list are deleted, and `deleteCommentsBy` walks the per-video comment hashes by
+SCAN (comments are the one per-viewer record keyed by video). A failure answers 502 and
+leaves them listed, so removing them again retries it; run after the removal, a failure
+would orphan data nothing could find. Owners are skipped. **Every new per-viewer key
+family must be added to `lib/viewerData.js`.**
 
 **Totals equal the votes (2026-09-23).** A vote and both counter moves are ONE Redis
 script (`VOTE_SCRIPT`, `lib/ratingScripts.js`), and the previous vote is read INSIDE it.

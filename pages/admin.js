@@ -2878,7 +2878,12 @@ function ViewersTab({ onCount, me, scopeGroups }) {
   };
 
   const remove = async (email) => {
-    if (!window.confirm(`Remove ${email} from approved viewers?`)) return;
+    if (
+      !window.confirm(
+        `Remove ${email} from approved viewers? Their watch history, saved list, votes and comments are deleted too, and can't be brought back.`
+      )
+    )
+      return;
     try {
       await api(`/api/admin/viewers?email=${encodeURIComponent(email)}`, {
         method: "DELETE",
