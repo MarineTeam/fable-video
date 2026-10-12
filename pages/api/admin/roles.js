@@ -34,6 +34,7 @@ import {
   resolveAccess,
 } from "../../../lib/roles";
 import { findLegacyAssignments, migrateLegacyRoles } from "../../../lib/roleMigration";
+import { grantCommentModeration } from "../../../lib/commentsGrant";
 import { getGroupMap } from "../../../lib/groups";
 import { loadStaffScopes, setScopeForEmail } from "../../../lib/staffScope";
 import { MAX_SCOPE_GROUPS, normalizeScope } from "../../../lib/staffScopeRules";
@@ -70,6 +71,15 @@ async function handler(req, res) {
       }
     } catch (err) {
       console.error("Could not migrate legacy roles:", err);
+    }
+    // After the legacy conversion, so a freshly converted Admin is covered.
+    try {
+      const granted = await grantCommentModeration();
+      if (granted.length) {
+        await logAction("system", "role.update", `comments.manage granted to ${granted.join(", ")} (viewer managers)`);
+      }
+    } catch (err) {
+      console.error("Could not grant comment moderation:", err);
     }
 
     try {

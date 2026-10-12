@@ -683,7 +683,10 @@ enforce it independently.
 - **Roles** _(needs `roles.manage`)_ — create roles from the capability
   catalog and see who holds each. **Remove any viewer's comment**
   (`comments.manage`) is the capability for moderating comments, which
-  happens on each video's watch page. Capabilities you don't hold yourself are
+  happens on each video's watch page. Every role that could manage viewers
+  on 2026-10-11 was given it once (`lib/commentsGrant.js`), on the first
+  staff visit to the admin page after that deploy; take it off a role and it
+  stays off. Capabilities you don't hold yourself are
   greyed out with a reason: you can only hand out what you have.
 - **Viewers** — a queue of pending **access requests** to approve or deny,
   plus add/remove approved emails, **bulk add** (paste a list), each

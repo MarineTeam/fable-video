@@ -8,6 +8,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Newest first. Each block is one merged pull request; the entries below the
 last block are the earlier part of this unreleased cycle.
 
+### 2026-10-11 — Viewer managers can remove comments
+
+#### Changed
+- **Every role that can manage viewers can now remove any viewer's comment.**
+  It is granted once, the first time someone with staff access opens the
+  admin page or the Roles tab after this deploy, and the Activity log says
+  which roles got it. Taking it off a role afterwards sticks. The old built-in
+  Admin role, for anyone not yet converted, includes it too.
+
 ### 2026-10-11 — Removing a viewer deletes their data
 
 #### Changed
